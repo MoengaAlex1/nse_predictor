@@ -125,15 +125,23 @@ def build_technicals_result(df: pd.DataFrame, date_str: str) -> dict:
         return {
             "date": date_str,
             "error": str(e),
-            "monthly_heatmap": {},
             "rsi_14": None,
+            "macd": None,
+            "macd_signal": None,
+            "macd_hist": None,
+            "bb_upper": None,
+            "bb_mid": None,
+            "bb_lower": None,
             "sma_20": None,
             "sma_50": None,
             "sma_200": None,
             "ema_12": None,
             "ema_26": None,
             "volume": 0,
+            "avg_volume_30d": 0,
             "daily_return": None,
+            "volatility_30d": None,
+            "monthly_heatmap": {},
         }
 
 
