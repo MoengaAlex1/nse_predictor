@@ -1,0 +1,1 @@
+{"signal": "SELL", "risk_adjusted_signal": "HOLD", "current_price_KES": 34.9, "predicted_price_KES": 18.05, "predicted_change_pct": -9.9, "var_95_pct": -10.04, "rationale": "Model predicts -9.90% decline", "metrics": {"rmse": 171.25, "mae": 12.93, "mape": 16.94, "directional_accuracy": 75.9}}

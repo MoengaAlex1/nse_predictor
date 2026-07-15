@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Logs
+*.log
+stderr.txt
+stdout.txt
+eabl_rerun.txt
+eqty_test.txt
+run_all_output.txt
+
+# Large data files — raw CSVs stay local
+data/raw/
+data/cleaned/
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
