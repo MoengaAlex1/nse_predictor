@@ -2,7 +2,7 @@
 NSE Market Dashboard — plain-language stock analysis for everyday investors.
 Run:  python app.py   →   open http://127.0.0.1:8050
 """
-import sys, io, json, base64
+import sys, io, json, base64, subprocess, tempfile, os
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -16,7 +16,7 @@ import dash
 from dash import dcc, html, Input, Output, State, ctx, dash_table
 import dash_bootstrap_components as dbc
 
-from config import (NSE_TICKERS, DATA_CLEANED, DATA_FEATURES,
+from config import (NSE_TICKERS, DATA_CLEANED, DATA_FEATURES, DATA_RAW,
                     DEFAULT_INVESTMENT, DEFAULT_CONFIDENCE, MONTE_CARLO_HORIZON)
 
 # ── Company metadata ─────────────────────────────────────────────────────────
@@ -238,62 +238,6 @@ def stat_pill(label, value, color=None):
     ], style=dict(background=C["card"], border=f"1px solid {C['border']}",
                   borderRadius="8px", padding="8px 14px", textAlign="center"))
 
-def company_card(ticker):
-    meta = COMPANIES[ticker]
-    df   = load_df(ticker)
-    sig  = load_sig(ticker)
-    if df is None:
-        return html.Div()
-    last  = float(df["Close"].iloc[-1])
-    prev  = float(df["Close"].iloc[-2]) if len(df)>1 else last
-    chg   = (last-prev)/prev*100
-    chg_c = C["buy"] if chg>=0 else C["sell"]
-    signal = sig.get("signal","—") if sig else "—"
-    ra_sig = sig.get("risk_adjusted_signal","—") if sig else "—"
-    rlabel, rcolor = risk_label(sig.get("var_95_pct",0) if sig else 0)
-    acc = sig["metrics"]["directional_accuracy"] if sig and sig.get("metrics") else None
-
-    return html.Div([
-        # header row
-        html.Div([
-            html.Div([
-                html.Span(meta["icon"], style=dict(fontSize="1.4rem")),
-            ], style=dict(background=meta["color"]+"22", borderRadius="50%",
-                          width="42px", height="42px", display="flex",
-                          alignItems="center", justifyContent="center")),
-            html.Div([
-                html.Div(meta["name"], style=dict(fontWeight=700, fontSize="0.92rem",
-                                                  color=C["text"])),
-                html.Span(meta["sector"], style=dict(fontSize="0.65rem", color=meta["color"],
-                                                     background=meta["color"]+"22",
-                                                     padding="1px 7px", borderRadius="10px")),
-            ]),
-        ], style=dict(display="flex", gap="10px", alignItems="center", marginBottom="12px")),
-        # price row
-        html.Div([
-            html.Span(f"KES {last:,.2f}", style=dict(fontWeight=800, fontSize="1.15rem")),
-            html.Span(f"{chg:+.2f}% today", style=dict(color=chg_c, fontSize="0.78rem",
-                                                         fontWeight=600, marginLeft="8px")),
-        ], style=dict(marginBottom="10px")),
-        # recommendation
-        html.Div([
-            html.Div("Our advice:", style=dict(fontSize="0.65rem", color=C["muted"],
-                                                marginBottom="4px")),
-            advice_badge(ra_sig, "md"),
-        ], style=dict(marginBottom="10px")),
-        # mini stats
-        html.Div([
-            stat_pill("Risk level", rlabel, rcolor),
-            stat_pill("AI accuracy", f"{acc:.0f}%" if acc else "—", C["accent"]),
-            stat_pill("1-Year change", f"{pct_change_over(df,252):+.1f}%",
-                      C["buy"] if pct_change_over(df,252)>=0 else C["sell"]),
-        ], style=dict(display="flex", gap="6px", flexWrap="wrap")),
-    ], id={"type":"company-card","index":ticker}, n_clicks=0,
-       style=dict(background=C["card"], border=f"1px solid {C['border']}",
-                  borderRadius="10px", padding="16px", cursor="pointer",
-                  transition="border 0.15s",
-    ))
-
 # ── App ───────────────────────────────────────────────────────────────────────
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG],
                 suppress_callback_exceptions=True)
@@ -309,6 +253,13 @@ TAB_SELECTED = dict(background=C["card"], color=C["accent"],
 app.layout = html.Div([
     dcc.Store(id="selected-ticker", data="SCOM.NR"),
     dcc.Store(id="analysis-store", data={}),
+    dcc.Store(id="analytics-state", data={"days":252,"sector":"All Companies","heatmap":"SCOM.NR"}),
+    dcc.Store(id="overview-view",   data="table"),
+    dcc.Store(id="overview-sector", data="All Companies"),
+    dcc.Store(id="pipeline-ticker",   data=""),
+    dcc.Store(id="pipeline-csv-path", data=""),
+    # Interval for polling full-pipeline status (disabled by default)
+    dcc.Interval(id="pipeline-poll", interval=3000, n_intervals=0, disabled=True),
 
     # ── Header ───────────────────────────────────────────────────────────────
     html.Div([
@@ -325,40 +276,53 @@ app.layout = html.Div([
                           background=C["card"], border=f"1px solid {C['border']}",
                           color=C["text"], borderRadius="20px",
                           padding="7px 16px", width="230px", fontSize="0.85rem")),
-            dcc.Upload(id="csv-upload", children=html.Button(
-                "⬆ Import Daily Prices", style=dict(
-                    background="transparent", color=C["accent"], fontWeight=600,
-                    border=f"1px solid {C['accent']}", borderRadius="20px",
-                    padding="7px 16px", cursor="pointer", fontSize="0.82rem")),
-                accept=".csv"),
         ], style=dict(display="flex", gap="10px", alignItems="center")),
     ], style=dict(background=C["header"], borderBottom=f"1px solid {C['border']}",
                   padding="12px 24px", display="flex",
                   justifyContent="space-between", alignItems="center")),
 
-    # ── CSV import bar (hidden until upload) ─────────────────────────────────
-    html.Div(id="import-bar", children=[
-        html.Span("📂 File loaded. Enter a name for this company:",
-                  style=dict(color=C["muted"], fontSize="0.83rem")),
-        dcc.Input(id="csv-company-name", placeholder="e.g. BAMB.NR",
-                  style=dict(background=C["card"], border=f"1px solid {C['accent']}",
-                             color=C["text"], borderRadius="6px",
-                             padding="5px 12px", width="180px", fontSize="0.83rem")),
-        html.Button("Run Analysis", id="run-import-btn", style=dict(
-            background=C["accent"], color=C["header"], fontWeight=700,
-            border="none", borderRadius="6px", padding="5px 16px", cursor="pointer")),
-        dcc.Loading(html.Span(id="import-status"), type="circle", color=C["accent"]),
-    ], style=dict(display="none", gap="12px", alignItems="center",
-                  padding="8px 24px", background=C["panel"],
-                  borderBottom=f"1px solid {C['border']}")),
-
     # ── Main tabs ─────────────────────────────────────────────────────────────
     dcc.Tabs(id="main-tabs", value="overview", children=[
-        dcc.Tab(label="🏠  Overview",   value="overview",  style=TAB_STYLE, selected_style=TAB_SELECTED),
-        dcc.Tab(label="🔍  Company",    value="company",   style=TAB_STYLE, selected_style=TAB_SELECTED),
-        dcc.Tab(label="📊  Analytics",  value="analytics", style=TAB_STYLE, selected_style=TAB_SELECTED),
-        dcc.Tab(label="📥  Import",     value="import_tab",style=TAB_STYLE, selected_style=TAB_SELECTED),
+        dcc.Tab(label="🏠  Overview",        value="overview",   style=TAB_STYLE, selected_style=TAB_SELECTED),
+        dcc.Tab(label="🔍  Company",          value="company",    style=TAB_STYLE, selected_style=TAB_SELECTED),
+        dcc.Tab(label="📊  Analytics",        value="analytics",  style=TAB_STYLE, selected_style=TAB_SELECTED),
+        dcc.Tab(label="📥  Import & Analyse", value="import_tab", style=TAB_STYLE, selected_style=TAB_SELECTED),
     ], style=dict(background=C["panel"], borderBottom=f"1px solid {C['border']}")),
+
+    # Permanent overview controls bar — always in DOM, hidden on other tabs
+    html.Div([
+        html.Div([
+            html.Span("Filter: ", style=dict(color=C["muted"], fontSize="0.8rem", marginRight="6px")),
+            html.Button("All Companies", id="ov-s-all",  n_clicks=0,
+                        style=dict(border=f"1px solid {C['border']}", borderRadius="20px",
+                                   padding="5px 16px", cursor="pointer", fontSize="0.8rem",
+                                   fontWeight=600, background=C["accent"], color=C["header"])),
+            html.Button("Banking",       id="ov-s-banking", n_clicks=0,
+                        style=dict(border=f"1px solid {C['border']}", borderRadius="20px",
+                                   padding="5px 16px", cursor="pointer", fontSize="0.8rem",
+                                   fontWeight=600, background=C["card"], color=C["text"])),
+            html.Button("Telecom",       id="ov-s-telecom", n_clicks=0,
+                        style=dict(border=f"1px solid {C['border']}", borderRadius="20px",
+                                   padding="5px 16px", cursor="pointer", fontSize="0.8rem",
+                                   fontWeight=600, background=C["card"], color=C["text"])),
+            html.Button("Beverages",     id="ov-s-beverages", n_clicks=0,
+                        style=dict(border=f"1px solid {C['border']}", borderRadius="20px",
+                                   padding="5px 16px", cursor="pointer", fontSize="0.8rem",
+                                   fontWeight=600, background=C["card"], color=C["text"])),
+        ], style=dict(display="flex", alignItems="center", flexWrap="wrap", gap="4px")),
+        html.Div([
+            html.Button("☰  Table", id="ov-v-table", n_clicks=0,
+                        style=dict(border=f"1px solid {C['border']}", borderRadius="20px",
+                                   padding="5px 16px", cursor="pointer", fontSize="0.8rem",
+                                   fontWeight=600, background=C["accent"], color=C["header"])),
+            html.Button("⬛  Board", id="ov-v-board", n_clicks=0,
+                        style=dict(border=f"1px solid {C['border']}", borderRadius="20px",
+                                   padding="5px 16px", cursor="pointer", fontSize="0.8rem",
+                                   fontWeight=600, background=C["card"], color=C["muted"])),
+        ], style=dict(display="flex", gap="6px")),
+    ], id="overview-controls-bar",
+       style=dict(display="none", justifyContent="space-between", alignItems="center",
+                  padding="10px 24px", borderBottom=f"1px solid {C['border']}")),
 
     dcc.Loading(html.Div(id="tab-content"), type="dot", color=C["accent"]),
 
@@ -369,47 +333,361 @@ app.layout = html.Div([
 @app.callback(Output("tab-content","children"),
               Input("main-tabs","value"),
               Input("selected-ticker","data"),
-              Input("analysis-store","data"))
-def render_tab(tab, ticker, store):
-    if tab == "overview":   return build_overview()
-    if tab == "company":    return build_company(ticker, store)
-    if tab == "analytics":  return build_analytics()
+              State("overview-sector","data"),
+              State("overview-view","data"),
+              State("analysis-store","data"),
+              State("analytics-state","data"))
+def render_tab(tab, ticker, ov_sector, ov_view, store, astate):
+    astate    = astate or {"days":252,"sector":"All Companies","heatmap":"SCOM.NR"}
+    ov_sector = ov_sector or "All Companies"
+    ov_view   = ov_view   or "table"
+    if tab == "overview":
+        return html.Div(id="overview-body",
+                        children=_build_overview_content(ov_sector, ov_view))
+    if tab == "company":    return build_company(ticker, store or {})
+    if tab == "analytics":  return build_analytics(astate["days"], astate["sector"], astate["heatmap"])
     if tab == "import_tab": return build_import_tab()
     return html.Div()
 
-# ── OVERVIEW ─────────────────────────────────────────────────────────────────
-def build_overview():
-    sector_btns = [
-        html.Button(s, id={"type":"sector-btn","index":s},
-                    n_clicks=0, style=dict(
-                        background=C["card"] if s != "All Companies" else C["accent"],
-                        color=C["header"] if s != "All Companies" else C["header"],
-                        border=f"1px solid {C['border']}", borderRadius="20px",
-                        padding="5px 14px", cursor="pointer", fontSize="0.8rem",
-                        fontWeight=600, marginRight="6px"))
-        for s in SECTORS
+
+# ── Overview controls bar: show/hide based on active tab ─────────────────────
+@app.callback(
+    Output("overview-controls-bar","style"),
+    Input("main-tabs","value"),
+)
+def toggle_controls_bar(tab):
+    vis = dict(display="flex", justifyContent="space-between", alignItems="center",
+               padding="10px 24px", borderBottom=f"1px solid {C['border']}")
+    return vis if tab == "overview" else dict(display="none")
+
+
+# ── Overview sector filter (fixed IDs — no pattern matching) ─────────────────
+@app.callback(
+    Output("overview-sector","data"),
+    Input("ov-s-all","n_clicks"),
+    Input("ov-s-banking","n_clicks"),
+    Input("ov-s-telecom","n_clicks"),
+    Input("ov-s-beverages","n_clicks"),
+    prevent_initial_call=True,
+)
+def set_ov_sector(n_all, n_bk, n_tel, n_bev):
+    sector_map = {
+        "ov-s-all":      "All Companies",
+        "ov-s-banking":  "Banking",
+        "ov-s-telecom":  "Telecom",
+        "ov-s-beverages":"Beverages",
+    }
+    return sector_map.get(ctx.triggered_id, "All Companies")
+
+
+# ── Overview view toggle (fixed IDs) ─────────────────────────────────────────
+@app.callback(
+    Output("overview-view","data"),
+    Input("ov-v-table","n_clicks"),
+    Input("ov-v-board","n_clicks"),
+    prevent_initial_call=True,
+)
+def set_ov_view(n_table, n_board):
+    return "board" if ctx.triggered_id == "ov-v-board" else "table"
+
+
+# ── Update overview body when sector or view changes ─────────────────────────
+@app.callback(
+    Output("overview-body","children"),
+    Input("overview-sector","data"),
+    Input("overview-view","data"),
+    prevent_initial_call=True,
+)
+def update_overview_body(sector, view):
+    return _build_overview_content(sector or "All Companies", view or "table")
+
+
+# ── Highlight active sector button ───────────────────────────────────────────
+_btn_base = dict(border=f"1px solid {C['border']}", borderRadius="20px",
+                 padding="5px 16px", cursor="pointer", fontSize="0.8rem", fontWeight=600)
+
+@app.callback(
+    Output("ov-s-all","style"),
+    Output("ov-s-banking","style"),
+    Output("ov-s-telecom","style"),
+    Output("ov-s-beverages","style"),
+    Input("overview-sector","data"),
+)
+def update_sector_btn_styles(sector):
+    sector = sector or "All Companies"
+    keys = ["All Companies","Banking","Telecom","Beverages"]
+    return [dict(**_btn_base,
+                 background=C["accent"] if s==sector else C["card"],
+                 color=C["header"]      if s==sector else C["text"])
+            for s in keys]
+
+
+# ── Highlight active view button ─────────────────────────────────────────────
+@app.callback(
+    Output("ov-v-table","style"),
+    Output("ov-v-board","style"),
+    Input("overview-view","data"),
+)
+def update_view_btn_styles(view):
+    view = view or "table"
+    return [
+        dict(**_btn_base, background=C["accent"] if view=="table" else C["card"],
+             color=C["header"] if view=="table" else C["muted"]),
+        dict(**_btn_base, background=C["accent"] if view=="board" else C["card"],
+             color=C["header"] if view=="board" else C["muted"]),
     ]
-    cards = [html.Div(company_card(t), style=dict(flex="1 1 300px", maxWidth="380px"))
-             for t in NSE_TICKERS]
+
+@app.callback(
+    Output("analytics-state","data"),
+    Input("analytics-period","value"),
+    Input("analytics-sector","value"),
+    Input("heatmap-ticker","value"),
+    State("analytics-state","data"),
+    prevent_initial_call=True,
+)
+def save_analytics_state(days, sector, heatmap, state):
+    s = state or {}
+    if days:    s["days"]    = days
+    if sector:  s["sector"]  = sector
+    if heatmap: s["heatmap"] = heatmap
+    return s
+
+# ── TAB 1: OVERVIEW — Today's Signal Board ────────────────────────────────────
+def _build_overview_content(sector="All Companies", view="table"):
+    # Gather data for signal table — filtered by sector
+    filtered_tickers = SECTORS.get(sector, NSE_TICKERS)
+    rows = []
+    buy_count = sell_count = hold_count = 0
+    for t in filtered_tickers:
+        meta = COMPANIES.get(t, {})
+        df   = load_df(t)
+        sig  = load_sig(t)
+        if df is None:
+            continue
+        last  = float(df["Close"].iloc[-1])
+        prev  = float(df["Close"].iloc[-2]) if len(df) > 1 else last
+        chg   = (last - prev) / prev * 100 if prev else 0.0
+        chg1y = pct_change_over(df, 252)
+        ra    = sig.get("risk_adjusted_signal", "—") if sig else "—"
+        rlabel, _ = risk_label(sig.get("var_95_pct", 0) if sig else 0)
+
+        if ra == "BUY":  buy_count  += 1
+        elif ra == "SELL": sell_count += 1
+        elif ra == "HOLD": hold_count += 1
+
+        rows.append({
+            "_ticker": t,
+            "Company":        meta.get("name", t),
+            "Sector":         meta.get("sector", "—"),
+            "Price (KES)":    f"{last:,.2f}",
+            "Today's Change": f"{chg:+.2f}%",
+            "1-Year Change":  f"{chg1y:+.1f}%",
+            "AI Advice":      ra,
+            "Risk Level":     rlabel,
+        })
+
+    # Counter badges
+    counter_style = lambda bg, border: dict(
+        background=bg, border=f"1px solid {border}",
+        borderRadius="12px", padding="16px 28px", textAlign="center",
+        minWidth="120px",
+    )
+    counters = html.Div([
+        html.Div([
+            html.Div(str(buy_count),  style=dict(fontSize="2rem", fontWeight=800, color=C["buy"])),
+            html.Div("BUY signals",   style=dict(fontSize="0.72rem", color=C["muted"], marginTop="2px")),
+        ], style=counter_style("#052e1680", C["buy"])),
+        html.Div([
+            html.Div(str(hold_count), style=dict(fontSize="2rem", fontWeight=800, color=C["hold"])),
+            html.Div("HOLD signals",  style=dict(fontSize="0.72rem", color=C["muted"], marginTop="2px")),
+        ], style=counter_style("#29210180", C["hold"])),
+        html.Div([
+            html.Div(str(sell_count), style=dict(fontSize="2rem", fontWeight=800, color=C["sell"])),
+            html.Div("SELL signals",  style=dict(fontSize="0.72rem", color=C["muted"], marginTop="2px")),
+        ], style=counter_style("#2d0a0a80", C["sell"])),
+    ], style=dict(display="flex", gap="16px", flexWrap="wrap",
+                  padding="16px 24px", borderBottom=f"1px solid {C['border']}"))
+
+    # ── Board view (Kanban columns: BUY | HOLD | SELL) ────────────────────────
+    def company_mini_card(r):
+        adv = r["AI Advice"]
+        meta = COMPANIES.get(r["_ticker"], {})
+        adv_color, adv_bg = {
+            "BUY":  (C["buy"],  "#052e16"),
+            "SELL": (C["sell"], "#2d0a0a"),
+            "HOLD": (C["hold"], "#292101"),
+        }.get(adv, (C["muted"], C["card"]))
+        chg_val = r["Today's Change"]
+        chg_c = C["buy"] if "+" in chg_val and chg_val != "+0.00%" else C["sell"] if "-" in chg_val else C["muted"]
+        return html.Div([
+            html.Div([
+                html.Span(meta.get("icon",""), style=dict(fontSize="1.1rem")),
+                html.Div([
+                    html.Div(r["Company"], style=dict(fontWeight=700, fontSize="0.85rem", color=C["text"])),
+                    html.Span(r["Sector"], style=dict(fontSize="0.63rem", color=meta.get("color",C["accent"]),
+                                                       background=meta.get("color","#fff")+"22",
+                                                       padding="1px 7px", borderRadius="10px")),
+                ]),
+            ], style=dict(display="flex", alignItems="center", gap="8px", marginBottom="10px")),
+            html.Div([
+                html.Span(f"KES {r['Price (KES)']}", style=dict(fontWeight=800, fontSize="0.95rem", color=C["text"])),
+                html.Span(f" {chg_val}", style=dict(color=chg_c, fontSize="0.78rem", fontWeight=600)),
+            ], style=dict(marginBottom="4px")),
+            html.Div(f"1Y: {r['1-Year Change']}  ·  Risk: {r['Risk Level']}",
+                     style=dict(fontSize="0.7rem", color=C["muted"])),
+        ], id={"type":"overview-row","index":r["_ticker"]}, n_clicks=0,
+           style=dict(background=C["card"], border=f"1px solid {adv_bg}",
+                      borderRadius="10px", padding="12px", cursor="pointer",
+                      marginBottom="10px", transition="border 0.15s"))
+
+    def kanban_col(title, signal, col_color, col_bg, col_rows):
+        cards = [company_mini_card(r) for r in col_rows if r["AI Advice"] == signal]
+        empty = html.Div("No companies here", style=dict(color=C["muted"], fontSize="0.8rem",
+                                                          fontStyle="italic", textAlign="center",
+                                                          padding="20px")) if not cards else None
+        return html.Div([
+            html.Div([
+                html.Span(f"{'↑' if signal=='BUY' else '↓' if signal=='SELL' else '→'}  {signal}",
+                          style=dict(fontWeight=800, fontSize="0.88rem", color=col_color)),
+                html.Span(str(len(cards)),
+                          style=dict(background=col_bg, color=col_color, border=f"1px solid {col_color}",
+                                     borderRadius="12px", padding="1px 9px", fontSize="0.75rem",
+                                     fontWeight=700, marginLeft="8px")),
+            ], style=dict(display="flex", alignItems="center",
+                          marginBottom="14px", paddingBottom="10px",
+                          borderBottom=f"1px solid {col_color}40")),
+            html.Div(cards if cards else [empty]),
+        ], style=dict(flex="1", background=C["panel"], border=f"1px solid {col_color}30",
+                      borderRadius="12px", padding="16px", minWidth="220px"))
+
+    board_view = html.Div([
+        kanban_col("Good time to buy",   "BUY",  C["buy"],  "#052e16", rows),
+        kanban_col("Hold what you have", "HOLD", C["hold"], "#292101", rows),
+        kanban_col("Consider selling",   "SELL", C["sell"], "#2d0a0a", rows),
+    ], id="overview-board-view",
+       style=dict(display="flex" if view=="board" else "none",
+                  gap="16px", padding="16px 24px 24px", flexWrap="wrap"))
+
+    # ── Signal table rows (manual HTML — dash_table doesn't support clickable cell content easily) ──
+    def signal_color(sig_val):
+        return {
+            "BUY":  (C["buy"],  "#052e16"),
+            "SELL": (C["sell"], "#2d0a0a"),
+            "HOLD": (C["hold"], "#292101"),
+        }.get(sig_val, (C["muted"], C["card"]))
+
+    def chg_color(chg_str):
+        try:
+            v = float(chg_str.replace("%","").replace("+",""))
+            return C["buy"] if v >= 0 else C["sell"]
+        except Exception:
+            return C["muted"]
+
+    th_style = dict(
+        padding="10px 14px", fontSize="0.72rem", color=C["muted"],
+        fontWeight=700, textTransform="uppercase", letterSpacing="0.07em",
+        borderBottom=f"2px solid {C['border']}", textAlign="left",
+        background=C["panel"],
+    )
+    td_style = dict(
+        padding="10px 14px", fontSize="0.83rem", color=C["text"],
+        borderBottom=f"1px solid {C['border']}",
+    )
+
+    header_row = html.Tr([
+        html.Th("Company",        style=th_style),
+        html.Th("Sector",         style=th_style),
+        html.Th("Price (KES)",    style={**th_style, "textAlign":"right"}),
+        html.Th("Today's Change", style={**th_style, "textAlign":"right"}),
+        html.Th("1-Year Change",  style={**th_style, "textAlign":"right"}),
+        html.Th("AI Advice",      style={**th_style, "textAlign":"center"}),
+        html.Th("Risk Level",     style={**th_style, "textAlign":"center"}),
+    ])
+
+    table_rows = []
+    for r in rows:
+        t = r["_ticker"]
+        adv_color, adv_bg = signal_color(r["AI Advice"])
+        risk_col = {
+            "Low":    C["buy"],
+            "Medium": C["hold"],
+            "High":   C["sell"],
+        }.get(r["Risk Level"], C["muted"])
+
+        table_rows.append(html.Tr([
+            # Clickable company name
+            html.Td(
+                html.Span(r["Company"], id={"type":"overview-row","index":t},
+                          n_clicks=0, style=dict(
+                              color=C["accent"], cursor="pointer", fontWeight=600,
+                              textDecoration="underline", fontSize="0.85rem",
+                          )),
+                style=td_style,
+            ),
+            html.Td(r["Sector"],        style=td_style),
+            html.Td(r["Price (KES)"],   style={**td_style, "textAlign":"right", "fontVariantNumeric":"tabular-nums"}),
+            html.Td(r["Today's Change"],style={**td_style, "textAlign":"right",
+                                              "color": chg_color(r["Today's Change"]),
+                                              "fontWeight":600}),
+            html.Td(r["1-Year Change"], style={**td_style, "textAlign":"right",
+                                              "color": chg_color(r["1-Year Change"]),
+                                              "fontWeight":600}),
+            html.Td(
+                html.Span(f"{ADVICE.get(r['AI Advice'],{}).get('emoji','')} {r['AI Advice']}",
+                          style=dict(background=adv_bg, color=adv_color,
+                                     border=f"1px solid {adv_color}",
+                                     padding="3px 10px", borderRadius="20px",
+                                     fontSize="0.72rem", fontWeight=700,
+                                     whiteSpace="nowrap")),
+                style={**td_style, "textAlign":"center"},
+            ),
+            html.Td(
+                html.Span(r["Risk Level"], style=dict(color=risk_col, fontWeight=700)),
+                style={**td_style, "textAlign":"center"},
+            ),
+        ], style=dict(transition="background 0.12s"), className="overview-row"))
+
+    signal_table = html.Div([
+        html.Table(
+            [html.Thead(header_row), html.Tbody(table_rows)],
+            style=dict(width="100%", borderCollapse="collapse"),
+        )
+    ], style=dict(overflowX="auto",
+                  border=f"1px solid {C['border']}", borderRadius="10px",
+                  background=C["card"]))
+
+    hint = html.Div(
+        "Click any company name to see full details on the Company tab.",
+        style=dict(fontSize="0.78rem", color=C["muted"], fontStyle="italic",
+                   marginTop="8px", textAlign="right"),
+    )
+
     return html.Div([
         # intro banner
         html.Div([
-            html.Div("What should I do with my money?", style=dict(
+            html.Div("Today's Signal Board", style=dict(
                 fontSize="1.3rem", fontWeight=800, color=C["text"], marginBottom="4px")),
-            html.Div("Our AI system analyses each company's stock price history and gives you a simple recommendation.",
+            html.Div("What should I do today across all my investments? Our AI gives you a simple signal for every company.",
                      style=dict(fontSize="0.85rem", color=C["muted"])),
         ], style=dict(padding="20px 24px 12px", borderBottom=f"1px solid {C['border']}")),
-        # sector filter
-        html.Div([html.Span("Filter by sector: ", style=dict(color=C["muted"], fontSize="0.82rem",
-                                                              marginRight="8px"))] + sector_btns,
-                 style=dict(padding="12px 24px", display="flex", alignItems="center",
-                            flexWrap="wrap")),
-        # company cards grid
-        html.Div(cards, id="cards-grid", style=dict(
-            display="flex", flexWrap="wrap", gap="16px", padding="0 24px 24px")),
-        # legend
+
+        # BUY / HOLD / SELL counters
+        counters,
+
+        # Table view (hidden when board is active)
         html.Div([
-            html.Div("How to read the recommendations:", style=dict(
+            signal_table,
+            hint,
+        ], id="overview-table-view",
+           style=dict(padding="16px 24px 24px",
+                      display="none" if view=="board" else "block")),
+
+        # Board view (hidden when table is active)
+        board_view,
+
+        # Legend
+        html.Div([
+            html.Div("How to read the signals:", style=dict(
                 fontWeight=700, color=C["text"], marginBottom="8px", fontSize="0.85rem")),
             html.Div([
                 html.Div([advice_badge("BUY","sm"),
@@ -428,9 +706,37 @@ def build_overview():
         ], style=dict(margin="0 24px 24px", background=C["card"],
                       border=f"1px solid {C['border']}", borderRadius="10px",
                       padding="16px")),
-    ])
+    ], style=dict(overflowY="auto", maxHeight="calc(100vh - 105px)"))
 
-# ── COMPANY DETAIL ────────────────────────────────────────────────────────────
+
+# ── Callbacks for overview clickable rows ────────────────────────────────────
+@app.callback(
+    Output("selected-ticker","data"),
+    Output("main-tabs","value"),
+    Input({"type":"overview-row","index":dash.ALL},"n_clicks"),
+    Input({"type":"sidebar-ticker","index":dash.ALL},"n_clicks"),
+    Input("search-input","value"),
+    State("selected-ticker","data"),
+    State("main-tabs","value"),
+    prevent_initial_call=True,
+)
+def select_ticker_and_navigate(overview_clicks, sidebar_clicks, search, current_ticker, current_tab):
+    t = ctx.triggered_id
+    if isinstance(t, dict):
+        new_ticker = t["index"]
+        if t.get("type") == "overview-row":
+            return new_ticker, "company"
+        else:
+            # sidebar click — stay on company tab
+            return new_ticker, "company"
+    if t == "search-input" and search:
+        s = search.strip().upper()
+        tk = s if s.endswith(".NR") else s + ".NR"
+        return tk, "company"
+    return current_ticker, current_tab
+
+
+# ── TAB 2: COMPANY — Deep Dive ────────────────────────────────────────────────
 def build_company(ticker, store):
     # Sidebar
     sidebar_items = []
@@ -537,7 +843,7 @@ def build_company(ticker, store):
                                   background=C["card"], borderRadius="10px",
                                   border=f"1px solid {ADVICE.get(ra_sig,{}).get('color',C['border'])}")),
 
-                    # AI reasoning
+                    # AI reasoning in plain English
                     html.Div([
                         html.Div("Why?", style=dict(fontWeight=700, color=C["text"],
                                                      fontSize="0.85rem", marginBottom="8px")),
@@ -582,17 +888,17 @@ def build_company(ticker, store):
                 ], style=dict(display="flex", flexDirection="column", gap="14px")),
 
                 html.Div([
-                    html.Button("🔄 Update Analysis",id="quick-btn",style=dict(
-                        background=C["accent"],color=C["header"],fontWeight=700,
-                        border="none",borderRadius="20px",padding="7px 20px",
-                        cursor="pointer",fontSize="0.83rem",marginTop="14px")),
-                    dcc.Loading(html.Span(id="quick-status"),type="circle",color=C["accent"]),
-                ],style=dict(display="flex",alignItems="center",gap="12px")),
+                    html.Button("🔄 Update Analysis", id="quick-btn", style=dict(
+                        background=C["accent"], color=C["header"], fontWeight=700,
+                        border="none", borderRadius="20px", padding="7px 20px",
+                        cursor="pointer", fontSize="0.83rem", marginTop="14px")),
+                    dcc.Loading(html.Span(id="quick-status"), type="circle", color=C["accent"]),
+                ], style=dict(display="flex", alignItems="center", gap="12px")),
 
             ], style=dict(padding="20px 24px",
                           borderBottom=f"1px solid {C['border']}")),
 
-            # Price chart
+            # Price chart with period selector
             html.Div([
                 html.Div([
                     html.Span("📈 Price History", style=dict(fontWeight=700, fontSize="0.9rem")),
@@ -627,13 +933,56 @@ def build_company(ticker, store):
                     style=dict(display="flex", flex=1, overflow="hidden",
                                minHeight="calc(100vh - 105px)"))
 
-# ── ANALYTICS ─────────────────────────────────────────────────────────────────
-def build_analytics():
+
+# ── TAB 3: ANALYTICS — Historical Data Explorer ───────────────────────────────
+def build_analytics(days=252, sector="All Companies", heatmap_ticker="SCOM.NR"):
+    tickers = SECTORS.get(sector, NSE_TICKERS)
+
+    # Performance summary table (pre-populated inline)
+    rows = []
+    for t in NSE_TICKERS:
+        df  = load_df(t)
+        sig = load_sig(t)
+        meta = COMPANIES.get(t, {})
+        if df is None: continue
+        last = float(df["Close"].iloc[-1])
+        rows.append({
+            "Company":      meta.get("name", t),
+            "Sector":       meta.get("sector", "—"),
+            "Price (KES)":  f"{last:,.2f}",
+            "1 Month":      f"{pct_change_over(df,21):+.1f}%",
+            "3 Months":     f"{pct_change_over(df,63):+.1f}%",
+            "6 Months":     f"{pct_change_over(df,126):+.1f}%",
+            "1 Year":       f"{pct_change_over(df,252):+.1f}%",
+            "All Time":     f"{pct_change_over(df,9999):+.1f}%",
+            "AI Advice":    (sig.get("risk_adjusted_signal","—") if sig else "—"),
+        })
+    if rows:
+        df_tbl = pd.DataFrame(rows)
+        summary_tbl = dash_table.DataTable(
+            data=df_tbl.to_dict("records"),
+            columns=[{"name":c,"id":c} for c in df_tbl.columns],
+            style_table=dict(overflowX="auto"),
+            style_header=dict(background=C["panel"], color=C["muted"],
+                              fontWeight=700, fontSize="0.75rem",
+                              border=f"1px solid {C['border']}"),
+            style_cell=dict(background=C["card"], color=C["text"],
+                            fontSize="0.82rem", padding="8px 12px",
+                            border=f"1px solid {C['border']}"),
+            style_data_conditional=[
+                {"if":{"filter_query":"{AI Advice} = BUY"},  "color":C["buy"],  "fontWeight":700},
+                {"if":{"filter_query":"{AI Advice} = SELL"}, "color":C["sell"], "fontWeight":700},
+                {"if":{"filter_query":"{AI Advice} = HOLD"}, "color":C["hold"], "fontWeight":700},
+            ],
+        )
+    else:
+        summary_tbl = html.Div("No data available.", style=dict(color=C["muted"]))
+
     return html.Div([
         html.Div([
-            html.Div("📊  Historical Data & Comparisons",
+            html.Div("📊  Historical Data Explorer",
                      style=dict(fontSize="1.15rem", fontWeight=800, color=C["text"])),
-            html.Div("Compare how each company's stock price has changed over time.",
+            html.Div("How have these stocks performed historically? Compare growth, returns, and monthly patterns.",
                      style=dict(fontSize="0.83rem", color=C["muted"], marginTop="2px")),
         ], style=dict(padding="18px 24px 10px")),
 
@@ -644,15 +993,15 @@ def build_analytics():
                                                   marginBottom="4px")),
                 dcc.Dropdown(id="analytics-period",
                              options=[{"label":k,"value":v} for k,v in PERIODS.items()],
-                             value=252, clearable=False,
+                             value=days, clearable=False,
                              style=dict(background=C["card"], width="160px", fontSize="0.82rem")),
             ]),
             html.Div([
-                html.Label("Group:", style=dict(color=C["muted"], fontSize="0.8rem",
-                                                marginBottom="4px")),
+                html.Label("Sector:", style=dict(color=C["muted"], fontSize="0.8rem",
+                                                 marginBottom="4px")),
                 dcc.Dropdown(id="analytics-sector",
                              options=[{"label":k,"value":k} for k in SECTORS],
-                             value="All Companies", clearable=False,
+                             value=sector, clearable=False,
                              style=dict(background=C["card"], width="180px", fontSize="0.82rem")),
             ]),
             html.Div([
@@ -660,14 +1009,14 @@ def build_analytics():
                                                          marginBottom="4px")),
                 dcc.Dropdown(id="heatmap-ticker",
                              options=[{"label":COMPANIES[t]["name"],"value":t} for t in NSE_TICKERS],
-                             value="SCOM.NR", clearable=False,
+                             value=heatmap_ticker, clearable=False,
                              style=dict(background=C["card"], width="220px", fontSize="0.82rem")),
             ]),
         ], style=dict(display="flex", gap="20px", flexWrap="wrap",
                       padding="0 24px 14px",
                       borderBottom=f"1px solid {C['border']}")),
 
-        # Charts grid
+        # Charts grid — all pre-populated with real data
         html.Div([
             # Row 1: indexed growth + ranked bar
             html.Div([
@@ -675,9 +1024,11 @@ def build_analytics():
                     html.Div("💰 Growth of KES 100 invested", style=dict(
                         fontWeight=700, fontSize="0.88rem", color=C["text"],
                         marginBottom="4px")),
-                    html.Div("Starts everyone at the same point — easy to compare who grew more.",
+                    html.Div("If you had invested KES 100 in each company at the start — who made you more money?",
                              style=dict(fontSize="0.72rem", color=C["muted"], marginBottom="8px")),
-                    dcc.Graph(id="chart-indexed", config=dict(displayModeBar=False)),
+                    dcc.Graph(id="chart-indexed",
+                              figure=chart_comparison_indexed(tickers, days),
+                              config=dict(displayModeBar=False)),
                 ], style=dict(flex="2", background=C["card"],
                               border=f"1px solid {C['border']}", borderRadius="10px",
                               padding="16px")),
@@ -685,9 +1036,11 @@ def build_analytics():
                     html.Div("🏆 Best & Worst Performers", style=dict(
                         fontWeight=700, fontSize="0.88rem", color=C["text"],
                         marginBottom="4px")),
-                    html.Div("Which company's price changed the most over the selected period?",
+                    html.Div("Which company gained or lost the most?",
                              style=dict(fontSize="0.72rem", color=C["muted"], marginBottom="8px")),
-                    dcc.Graph(id="chart-ranked", config=dict(displayModeBar=False)),
+                    dcc.Graph(id="chart-ranked",
+                              figure=chart_performance_ranked(days),
+                              config=dict(displayModeBar=False)),
                 ], style=dict(flex="1", background=C["card"],
                               border=f"1px solid {C['border']}", borderRadius="10px",
                               padding="16px")),
@@ -695,12 +1048,14 @@ def build_analytics():
 
             # Row 2: stacked price panels
             html.Div([
-                html.Div("📉 Individual Price History", style=dict(
+                html.Div("📉 Individual Price History (KES)", style=dict(
                     fontWeight=700, fontSize="0.88rem", color=C["text"],
                     marginBottom="4px")),
-                html.Div("Actual KES price history for each company in your selected group.",
+                html.Div("Actual share price in Kenyan Shillings for each company over the selected period.",
                          style=dict(fontSize="0.72rem", color=C["muted"], marginBottom="8px")),
-                dcc.Graph(id="chart-all-prices", config=dict(displayModeBar=True, scrollZoom=True)),
+                dcc.Graph(id="chart-all-prices",
+                          figure=chart_all_prices(tickers, days),
+                          config=dict(displayModeBar=True, scrollZoom=True)),
             ], style=dict(background=C["card"], border=f"1px solid {C['border']}",
                           borderRadius="10px", padding="16px")),
 
@@ -712,16 +1067,20 @@ def build_analytics():
                 html.Div("Green = the stock went up that month. Red = it went down. "
                          "The darker the colour, the bigger the move.",
                          style=dict(fontSize="0.72rem", color=C["muted"], marginBottom="8px")),
-                dcc.Graph(id="chart-heatmap", config=dict(displayModeBar=False)),
+                dcc.Graph(id="chart-heatmap",
+                          figure=chart_monthly_heatmap(heatmap_ticker),
+                          config=dict(displayModeBar=False)),
             ], style=dict(background=C["card"], border=f"1px solid {C['border']}",
                           borderRadius="10px", padding="16px")),
 
-            # Row 4: summary table
+            # Row 4: performance summary table
             html.Div([
-                html.Div("📋 Performance Summary Table", style=dict(
+                html.Div("📋 Performance Summary — All Companies", style=dict(
                     fontWeight=700, fontSize="0.88rem", color=C["text"],
-                    marginBottom="8px")),
-                html.Div(id="summary-table"),
+                    marginBottom="4px")),
+                html.Div("Price changes across different time periods for every company we track.",
+                         style=dict(fontSize="0.72rem", color=C["muted"], marginBottom="8px")),
+                html.Div(id="summary-table", children=summary_tbl),
             ], style=dict(background=C["card"], border=f"1px solid {C['border']}",
                           borderRadius="10px", padding="16px")),
 
@@ -729,15 +1088,17 @@ def build_analytics():
                       gap="16px", padding="16px 24px 24px")),
     ], style=dict(overflowY="auto", maxHeight="calc(100vh - 105px)"))
 
-# ── IMPORT TAB ────────────────────────────────────────────────────────────────
+
+# ── TAB 4: IMPORT & ANALYSE — Add New Company Data ───────────────────────────
 def build_import_tab():
     return html.Div([
         html.Div([
-            html.Div("📥  Import Daily Price Data", style=dict(
+            html.Div("📥  Import & Analyse New Company Data", style=dict(
                 fontSize="1.15rem", fontWeight=800, color=C["text"])),
-            html.Div("Have a CSV file of daily stock prices? Upload it here and we'll analyse it for you.",
+            html.Div("Upload a CSV of daily prices, give the company a ticker name, then choose how to analyse it.",
                      style=dict(fontSize="0.83rem", color=C["muted"], marginTop="2px")),
-        ], style=dict(padding="20px 24px 16px")),
+        ], style=dict(padding="20px 24px 16px",
+                      borderBottom=f"1px solid {C['border']}")),
 
         html.Div([
             # Upload zone
@@ -751,69 +1112,88 @@ def build_import_tab():
                         color=C["muted"], fontSize="0.82rem")),
                     html.Div("Required columns: Date, Open, High, Low, Close, Volume",
                              style=dict(color=C["muted"], fontSize="0.75rem", marginTop="8px")),
+                    html.Div(id="upload-filename", style=dict(
+                        color=C["buy"], fontSize="0.78rem", marginTop="8px")),
                 ], style=dict(textAlign="center", padding="40px")),
                 style=dict(border=f"2px dashed {C['border']}", borderRadius="12px",
                            background=C["card"], cursor="pointer", marginBottom="16px",
                            transition="border 0.2s"),
             ),
-            # Company name + run
+
+            # Ticker input
             html.Div([
-                html.Label("Company ticker / name:", style=dict(color=C["muted"],
-                                                                fontSize="0.82rem")),
+                html.Label("Company ticker / name:", style=dict(
+                    color=C["muted"], fontSize="0.82rem", marginBottom="6px",
+                    display="block")),
                 dcc.Input(id="import-tab-name", placeholder="e.g. BAMB.NR or UCHUMI.NR",
                           style=dict(background=C["card"], border=f"1px solid {C['border']}",
                                      color=C["text"], borderRadius="8px",
-                                     padding="8px 14px", width="260px")),
-                html.Button("Run Analysis", id="run-import-tab-btn", style=dict(
+                                     padding="8px 14px", width="260px",
+                                     fontSize="0.85rem")),
+            ], style=dict(marginBottom="16px")),
+
+            # Buttons row
+            html.Div([
+                html.Button("⚡ Quick Analysis (30 sec)", id="run-quick-import-btn", style=dict(
                     background=C["accent"], color=C["header"], fontWeight=700,
                     border="none", borderRadius="8px",
-                    padding="8px 20px", cursor="pointer", fontSize="0.88rem")),
-                dcc.Loading(html.Div(id="import-tab-status"), type="circle", color=C["accent"]),
-            ], style=dict(display="flex", gap="12px", alignItems="flex-end",
-                          flexWrap="wrap")),
+                    padding="10px 22px", cursor="pointer", fontSize="0.88rem")),
+                html.Button("🧠 Full AI Analysis (10–15 min)", id="run-full-import-btn", style=dict(
+                    background="transparent", color=C["accent"], fontWeight=700,
+                    border=f"2px solid {C['accent']}", borderRadius="8px",
+                    padding="10px 22px", cursor="pointer", fontSize="0.88rem")),
+            ], style=dict(display="flex", gap="12px", flexWrap="wrap", marginBottom="16px")),
 
-            # Instructions
+            # Status display
+            html.Div([
+                dcc.Loading(html.Div(id="import-tab-status"), type="circle", color=C["accent"]),
+                html.Div(id="pipeline-status-display", style=dict(
+                    marginTop="8px", padding="12px 16px",
+                    background=C["card"], border=f"1px solid {C['border']}",
+                    borderRadius="8px", display="none",
+                )),
+            ], style=dict(marginBottom="16px")),
+
+            # How-to instructions
             html.Div([
                 html.Div("📌 How to get NSE data:", style=dict(
                     fontWeight=700, color=C["text"], marginBottom="8px", fontSize="0.88rem")),
                 html.Ol([
-                    html.Li("Go to the NSE website: nse.co.ke", style=dict(fontSize="0.82rem", color=C["muted"], marginBottom="4px")),
-                    html.Li("Navigate to Trade Statistics → Historical Data", style=dict(fontSize="0.82rem", color=C["muted"], marginBottom="4px")),
-                    html.Li("Select your company and date range", style=dict(fontSize="0.82rem", color=C["muted"], marginBottom="4px")),
-                    html.Li("Download the CSV file", style=dict(fontSize="0.82rem", color=C["muted"], marginBottom="4px")),
-                    html.Li("Upload it here using the box above", style=dict(fontSize="0.82rem", color=C["muted"])),
+                    html.Li("Go to the NSE website: nse.co.ke",
+                            style=dict(fontSize="0.82rem", color=C["muted"], marginBottom="4px")),
+                    html.Li("Navigate to Trade Statistics → Historical Data",
+                            style=dict(fontSize="0.82rem", color=C["muted"], marginBottom="4px")),
+                    html.Li("Select your company and date range",
+                            style=dict(fontSize="0.82rem", color=C["muted"], marginBottom="4px")),
+                    html.Li("Download the CSV file",
+                            style=dict(fontSize="0.82rem", color=C["muted"], marginBottom="4px")),
+                    html.Li("Upload it above, enter the ticker, then click Quick or Full Analysis",
+                            style=dict(fontSize="0.82rem", color=C["muted"])),
+                ]),
+                html.Div([
+                    html.Div("Quick Analysis vs Full AI Analysis:", style=dict(
+                        fontWeight=700, color=C["text"], marginTop="14px", marginBottom="6px",
+                        fontSize="0.85rem")),
+                    html.Div([
+                        html.Span("⚡ Quick (30 sec)", style=dict(color=C["accent"], fontWeight=700)),
+                        html.Span(" — Runs XGBoost only. Gets you a fast signal with no waiting.",
+                                  style=dict(color=C["muted"], fontSize="0.8rem")),
+                    ], style=dict(marginBottom="4px")),
+                    html.Div([
+                        html.Span("🧠 Full AI (10–15 min)", style=dict(color=C["accent"], fontWeight=700)),
+                        html.Span(" — Runs the complete pipeline: ARIMA + LSTM + XGBoost ensemble. "
+                                  "Much more accurate but takes longer. Runs in the background.",
+                                  style=dict(color=C["muted"], fontSize="0.8rem")),
+                    ]),
                 ]),
             ], style=dict(background=C["card"], border=f"1px solid {C['border']}",
-                          borderRadius="10px", padding="16px", marginTop="16px")),
+                          borderRadius="10px", padding="16px")),
 
-        ], style=dict(padding="0 24px 24px", maxWidth="700px")),
+        ], style=dict(padding="16px 24px 24px", maxWidth="720px")),
     ], style=dict(overflowY="auto", maxHeight="calc(100vh - 105px)"))
 
-# ── Callbacks ─────────────────────────────────────────────────────────────────
-@app.callback(
-    Output("selected-ticker","data"),
-    Input({"type":"sidebar-ticker","index":dash.ALL},"n_clicks"),
-    Input({"type":"company-card","index":dash.ALL},"n_clicks"),
-    Input("search-input","value"),
-    State("selected-ticker","data"),
-    prevent_initial_call=True,
-)
-def select_ticker(sidebar_clicks, card_clicks, search, current):
-    t = ctx.triggered_id
-    if isinstance(t, dict): return t["index"]
-    if t == "search-input" and search:
-        s = search.strip().upper()
-        return s if s.endswith(".NR") else s+".NR"
-    return current
 
-@app.callback(
-    Output("main-tabs","value"),
-    Input({"type":"company-card","index":dash.ALL},"n_clicks"),
-    prevent_initial_call=True,
-)
-def go_to_company(_):
-    return "company"
-
+# ── Callbacks: Company tab ────────────────────────────────────────────────────
 @app.callback(
     Output("price-chart-company","figure"),
     Input("price-period","value"),
@@ -825,68 +1205,6 @@ def update_price_chart(days, ticker):
     if df is None: return go.Figure()
     return chart_price_simple(df, ticker, days)
 
-@app.callback(
-    Output("chart-indexed","figure"),
-    Output("chart-ranked","figure"),
-    Output("chart-all-prices","figure"),
-    Output("summary-table","children"),
-    Input("analytics-period","value"),
-    Input("analytics-sector","value"),
-)
-def update_analytics(days, sector):
-    tickers = SECTORS.get(sector, NSE_TICKERS)
-    indexed = chart_comparison_indexed(tickers, days)
-    ranked  = chart_performance_ranked(days)
-    prices  = chart_all_prices(tickers, days)
-
-    # Summary table
-    rows = []
-    for t in tickers:
-        df   = load_df(t)
-        sig  = load_sig(t)
-        meta = COMPANIES.get(t, {})
-        if df is None: continue
-        row = {
-            "Company":   meta.get("name", t),
-            "Sector":    meta.get("sector","—"),
-            "Price (KES)": f"{float(df['Close'].iloc[-1]):,.2f}",
-            "1 Month":   f"{pct_change_over(df,21):+.1f}%",
-            "3 Months":  f"{pct_change_over(df,63):+.1f}%",
-            "6 Months":  f"{pct_change_over(df,126):+.1f}%",
-            "1 Year":    f"{pct_change_over(df,252):+.1f}%",
-            "Our Advice": (sig.get("risk_adjusted_signal","—") if sig else "—"),
-        }
-        rows.append(row)
-
-    if rows:
-        df_tbl = pd.DataFrame(rows)
-        table = dash_table.DataTable(
-            data=df_tbl.to_dict("records"),
-            columns=[{"name":c,"id":c} for c in df_tbl.columns],
-            style_table=dict(overflowX="auto"),
-            style_header=dict(background=C["panel"], color=C["muted"],
-                              fontWeight=700, fontSize="0.75rem",
-                              border=f"1px solid {C['border']}"),
-            style_cell=dict(background=C["card"], color=C["text"],
-                            fontSize="0.82rem", padding="8px 12px",
-                            border=f"1px solid {C['border']}"),
-            style_data_conditional=[
-                {"if":{"filter_query":"{Our Advice} = BUY"},"color":C["buy"],"fontWeight":700},
-                {"if":{"filter_query":"{Our Advice} = SELL"},"color":C["sell"],"fontWeight":700},
-                {"if":{"filter_query":"{Our Advice} = HOLD"},"color":C["hold"],"fontWeight":700},
-            ],
-        )
-    else:
-        table = html.Div("No data", style=dict(color=C["muted"]))
-
-    return indexed, ranked, prices, table
-
-@app.callback(
-    Output("chart-heatmap","figure"),
-    Input("heatmap-ticker","value"),
-)
-def update_heatmap(ticker):
-    return chart_monthly_heatmap(ticker)
 
 @app.callback(
     Output("analysis-store","data"),
@@ -902,84 +1220,250 @@ def run_quick(n, ticker, store):
     if df is None:
         return store, html.Span("No data found.", style=dict(color=C["sell"]))
     try:
-        from app import run_quick as _rq
-        result = _rq(df, ticker)
+        result = run_quick_fn(df, ticker)
+        store = store or {}
         store[ticker] = {k:v for k,v in result.items()
                          if k not in ("ma_df",) and not isinstance(v, pd.DataFrame)}
         return store, html.Span("✓ Done", style=dict(color=C["buy"], fontSize="0.8rem"))
     except Exception as e:
         return store, html.Span(f"Error: {e}", style=dict(color=C["sell"], fontSize="0.75rem"))
 
+
+# ── Callbacks: Analytics tab ─────────────────────────────────────────────────
 @app.callback(
-    Output("import-bar","style"),
-    Output("analysis-store","data",allow_duplicate=True),
-    Input("csv-upload","contents"),
-    State("analysis-store","data"),
+    Output("chart-indexed","figure"),
+    Output("chart-ranked","figure"),
+    Output("chart-all-prices","figure"),
+    Input("analytics-period","value"),
+    Input("analytics-sector","value"),
     prevent_initial_call=True,
 )
-def show_import_bar(contents, store):
-    if not contents: return dict(display="none"), store
-    store["_csv"] = contents
-    return (dict(display="flex",gap="12px",alignItems="center",
-                 padding="8px 24px",background=C["panel"],
-                 borderBottom=f"1px solid {C['border']}"), store)
+def update_analytics_charts(days, sector):
+    tickers = SECTORS.get(sector, NSE_TICKERS)
+    return (
+        chart_comparison_indexed(tickers, days),
+        chart_performance_ranked(days),
+        chart_all_prices(tickers, days),
+    )
+
 
 @app.callback(
-    Output("selected-ticker","data",allow_duplicate=True),
-    Output("analysis-store","data",allow_duplicate=True),
-    Output("import-status","children"),
-    Output("main-tabs","value",allow_duplicate=True),
-    Input("run-import-btn","n_clicks"),
-    State("csv-company-name","value"),
-    State("analysis-store","data"),
+    Output("chart-heatmap","figure"),
+    Input("heatmap-ticker","value"),
     prevent_initial_call=True,
 )
-def process_import(n, name, store):
-    return _process_csv(n, name, store.get("_csv"), store)
+def update_heatmap(ticker):
+    return chart_monthly_heatmap(ticker)
 
+
+# ── Callbacks: Import tab — upload feedback ───────────────────────────────────
 @app.callback(
-    Output("selected-ticker","data",allow_duplicate=True),
-    Output("analysis-store","data",allow_duplicate=True),
+    Output("upload-filename","children"),
+    Input("csv-upload-tab","filename"),
+    prevent_initial_call=True,
+)
+def show_upload_name(filename):
+    if not filename:
+        return ""
+    return f"✓ File ready: {filename}"
+
+
+# ── Callbacks: Import tab — Quick Analysis button ────────────────────────────
+@app.callback(
+    Output("selected-ticker","data",        allow_duplicate=True),
+    Output("analysis-store","data",         allow_duplicate=True),
     Output("import-tab-status","children"),
-    Output("main-tabs","value",allow_duplicate=True),
-    Input("run-import-tab-btn","n_clicks"),
+    Output("main-tabs","value",             allow_duplicate=True),
+    Input("run-quick-import-btn","n_clicks"),
     State("import-tab-name","value"),
     State("csv-upload-tab","contents"),
     State("analysis-store","data"),
     prevent_initial_call=True,
 )
-def process_import_tab(n, name, contents, store):
-    return _process_csv(n, name, contents, store)
+def process_quick_import(n, name, contents, store):
+    return _process_csv_quick(n, name, contents, store)
 
-def _process_csv(n, name, contents, store):
-    no = (dash.no_update, store,
-          html.Span("Please fill in the company name.", style=dict(color=C["hold"])),
+
+def _process_csv_quick(n, name, contents, store):
+    no = (dash.no_update, store or {},
+          html.Span("Please fill in the company name and upload a CSV.",
+                    style=dict(color=C["hold"])),
           dash.no_update)
-    if not n or not name or not contents: return no
+    if not n or not name or not contents:
+        return no
     ticker = name.strip().upper()
-    if not ticker.endswith(".NR"): ticker += ".NR"
+    if not ticker.endswith(".NR"):
+        ticker += ".NR"
     try:
         _, cs = contents.split(",")
         decoded = base64.b64decode(cs)
         from src.data.fetcher import load_from_csv
         from src.data.cleaner import clean_ohlcv, save_cleaned
-        import tempfile, os
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="wb") as f:
-            f.write(decoded); tmp = f.name
-        raw = load_from_csv(tmp, ticker=ticker); os.unlink(tmp)
+            f.write(decoded)
+            tmp = f.name
+        raw = load_from_csv(tmp, ticker=ticker)
+        os.unlink(tmp)
         cleaned, _ = clean_ohlcv(raw, ticker=ticker)
         save_cleaned(cleaned, ticker)
         result = run_quick_fn(cleaned, ticker)
+        store = store or {}
         store[ticker] = {k:v for k,v in result.items()
                          if k not in ("ma_df",) and not isinstance(v, pd.DataFrame)}
         return (ticker, store,
-                html.Span(f"✓ {ticker} analysed!", style=dict(color=C["buy"])),
+                html.Span(f"✓ {ticker} analysed! Signal: {result.get('risk_adjusted_signal','—')}",
+                          style=dict(color=C["buy"])),
                 "company")
     except Exception as e:
-        return (dash.no_update, store,
+        return (dash.no_update, store or {},
                 html.Span(f"Error: {e}", style=dict(color=C["sell"], fontSize="0.75rem")),
                 dash.no_update)
 
+
+# ── Callbacks: Import tab — Full AI Analysis (background subprocess) ──────────
+@app.callback(
+    Output("pipeline-ticker","data"),
+    Output("pipeline-csv-path","data"),
+    Output("pipeline-status-display","children"),
+    Output("pipeline-status-display","style"),
+    Output("pipeline-poll","disabled"),
+    Input("run-full-import-btn","n_clicks"),
+    State("import-tab-name","value"),
+    State("csv-upload-tab","contents"),
+    State("csv-upload-tab","filename"),
+    prevent_initial_call=True,
+)
+def start_full_pipeline(n, name, contents, filename):
+    _hidden = dict(display="none")
+    _visible = dict(
+        marginTop="8px", padding="12px 16px",
+        background=C["card"], border=f"1px solid {C['border']}",
+        borderRadius="8px", display="block",
+    )
+    no = ("", "", dash.no_update, _hidden, True)
+    if not n or not name or not contents:
+        return ("", "",
+                html.Span("Please enter a ticker and upload a CSV first.",
+                          style=dict(color=C["hold"])),
+                _visible, True)
+
+    ticker = name.strip().upper()
+    if not ticker.endswith(".NR"):
+        ticker += ".NR"
+
+    try:
+        # Save CSV to DATA_RAW
+        _, cs = contents.split(",")
+        decoded = base64.b64decode(cs)
+        DATA_RAW.mkdir(parents=True, exist_ok=True)
+        safe_name = filename or f"{ticker.replace('.','_')}.csv"
+        csv_path = DATA_RAW / safe_name
+        with open(csv_path, "wb") as f:
+            f.write(decoded)
+
+        # Write initial status JSON
+        DATA_FEATURES.mkdir(parents=True, exist_ok=True)
+        status_path = DATA_FEATURES / f"{ticker.replace('.','_')}_pipeline_status.json"
+        with open(status_path, "w") as f:
+            json.dump({"status": "running", "step": "Saving data..."}, f)
+
+        # Launch subprocess
+        subprocess.Popen(
+            [sys.executable, str(Path(__file__).parent / "main.py"),
+             "--ticker", ticker, "--csv", str(csv_path)],
+            cwd=str(Path(__file__).parent),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        msg = html.Div([
+            html.Div("🧠 Full AI pipeline started!", style=dict(
+                color=C["accent"], fontWeight=700, marginBottom="4px")),
+            html.Div(f"Analysing {ticker} — this runs ARIMA + LSTM + XGBoost in the background.",
+                     style=dict(color=C["muted"], fontSize="0.82rem", marginBottom="4px")),
+            html.Div("Status will update every 3 seconds below. You can use other tabs while waiting.",
+                     style=dict(color=C["muted"], fontSize="0.78rem")),
+        ])
+        return (ticker, str(csv_path), msg, _visible, False)
+
+    except Exception as e:
+        return ("", "",
+                html.Span(f"Error starting pipeline: {e}",
+                          style=dict(color=C["sell"], fontSize="0.75rem")),
+                _visible, True)
+
+
+@app.callback(
+    Output("pipeline-status-display","children",  allow_duplicate=True),
+    Output("pipeline-status-display","style",     allow_duplicate=True),
+    Output("pipeline-poll","disabled",             allow_duplicate=True),
+    Output("selected-ticker","data",               allow_duplicate=True),
+    Output("main-tabs","value",                    allow_duplicate=True),
+    Input("pipeline-poll","n_intervals"),
+    State("pipeline-ticker","data"),
+    State("selected-ticker","data"),
+    prevent_initial_call=True,
+)
+def poll_pipeline_status(n_intervals, pipeline_ticker, current_ticker):
+    _hidden = dict(display="none")
+    _visible = dict(
+        marginTop="8px", padding="12px 16px",
+        background=C["card"], border=f"1px solid {C['border']}",
+        borderRadius="8px", display="block",
+    )
+    no_nav = (dash.no_update, dash.no_update, dash.no_update,
+              current_ticker, dash.no_update)
+
+    if not pipeline_ticker:
+        return (dash.no_update, _hidden, True, current_ticker, dash.no_update)
+
+    status_path = DATA_FEATURES / f"{pipeline_ticker.replace('.','_')}_pipeline_status.json"
+    signal_path = DATA_FEATURES / f"{pipeline_ticker.replace('.','_')}_signal.json"
+
+    # Check if full signal file appeared (pipeline completed)
+    if signal_path.exists():
+        sig = load_sig(pipeline_ticker)
+        final_signal = sig.get("risk_adjusted_signal", "—") if sig else "—"
+        adv = ADVICE.get(final_signal, {})
+        done_msg = html.Div([
+            html.Div(f"✅ Done! Analysis complete for {pipeline_ticker}",
+                     style=dict(color=C["buy"], fontWeight=700, marginBottom="6px")),
+            html.Div([
+                html.Span("Signal: ", style=dict(color=C["muted"])),
+                html.Span(f"{adv.get('emoji','')} {final_signal}",
+                          style=dict(color=adv.get("color", C["text"]),
+                                     fontWeight=700, fontSize="1.1rem")),
+            ]),
+            html.Div("Switching to Company tab…",
+                     style=dict(color=C["muted"], fontSize="0.78rem", marginTop="4px")),
+        ])
+        # Stop polling, navigate to company tab
+        return (done_msg, _visible, True, pipeline_ticker, "company")
+
+    # Read status JSON if available
+    step = "Training models…"
+    if status_path.exists():
+        try:
+            with open(status_path) as f:
+                st = json.load(f)
+            step = st.get("step", "Training models…")
+        except Exception:
+            pass
+
+    steps = ["Saving data…", "Training models…", "Running ARIMA…",
+             "Running LSTM…", "Running XGBoost…", "Generating signal…"]
+    progress_msg = html.Div([
+        html.Div(f"🔄 Running full pipeline for {pipeline_ticker}…",
+                 style=dict(color=C["accent"], fontWeight=700, marginBottom="4px")),
+        html.Div(f"Current step: {step}",
+                 style=dict(color=C["muted"], fontSize="0.82rem")),
+        html.Div("This may take 10–15 minutes. Status updates every 3 seconds.",
+                 style=dict(color=C["muted"], fontSize="0.75rem", marginTop="4px")),
+    ])
+    return (progress_msg, _visible, False, current_ticker, dash.no_update)
+
+
+# ── run_quick_fn ──────────────────────────────────────────────────────────────
 def run_quick_fn(df_clean, ticker):
     from src.analysis.returns import daily_return_analysis
     from src.analysis.moving_averages import compute_moving_averages
@@ -1006,6 +1490,7 @@ def run_quick_fn(df_clean, ticker):
     from main import _save_signal
     _save_signal(ticker, {k:v for k,v in result.items() if k != "ma_df"})
     return result
+
 
 if __name__ == "__main__":
     app.run(debug=False, host="127.0.0.1", port=8050)
