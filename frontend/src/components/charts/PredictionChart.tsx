@@ -52,8 +52,8 @@ export const PredictionChart: FC<Props> = ({ actuals, preds, forecast }) => {
             borderRadius: 8,
             fontSize: 12,
           }}
-          formatter={(v: number, name: string) => [
-            `KES ${v?.toFixed(2) ?? "—"}`,
+          formatter={(v, name) => [
+            v != null ? `KES ${Number(v).toFixed(2)}` : "—",
             name,
           ]}
         />

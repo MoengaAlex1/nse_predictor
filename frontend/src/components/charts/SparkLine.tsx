@@ -20,7 +20,7 @@ export const SparkLine: FC<Props> = ({ data, color }) => {
             fontSize: 12,
           }}
           labelFormatter={() => ""}
-          formatter={(v: number) => [`KES ${v.toFixed(2)}`, "Price"]}
+          formatter={(v) => [`KES ${Number(v).toFixed(2)}`, "Price"]}
         />
       </LineChart>
     </ResponsiveContainer>
