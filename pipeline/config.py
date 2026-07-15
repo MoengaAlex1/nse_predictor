@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 BASE_DIR      = Path(__file__).parent
@@ -30,7 +31,6 @@ ENSEMBLE_WEIGHTS = (0.25, 0.60, 0.15)
 
 
 def load_companies() -> list[dict]:
-    import json
     path = BASE_DIR / "config" / "companies.json"
     with open(path, encoding="utf-8") as f:
         return json.load(f)
