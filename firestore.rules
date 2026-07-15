@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Company metadata + public signal/preview — anyone can read
+    match /companies/{ticker} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Full snapshots (predictions, actuals, metrics) — logged-in users only
+    match /companies/{ticker}/snapshots/{date} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // Technical indicators — logged-in users only
+    match /companies/{ticker}/technicals/{date} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // Training run history — logged-in users only
+    match /companies/{ticker}/training_runs/{date} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // Market overview — anyone can read
+    match /market_overview/{date} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // User profile + watchlist — owner only
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
