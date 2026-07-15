@@ -36,3 +36,8 @@ data/cleaned/
 # OS
 .DS_Store
 Thumbs.db
+
+# Pipeline data (keep raw CSVs, ignore cleaned/features output)
+pipeline/data/cleaned/
+pipeline/data/features/
+pipeline/models/saved/
