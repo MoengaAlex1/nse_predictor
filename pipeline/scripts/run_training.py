@@ -11,6 +11,7 @@ import os
 import logging
 from pathlib import Path
 from datetime import date
+from typing import Any
 
 PIPELINE_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PIPELINE_ROOT.parent))
@@ -34,7 +35,7 @@ log = logging.getLogger(__name__)
 TODAY = date.today().isoformat()
 
 
-def train_company(company: dict, db) -> dict | None:
+def train_company(company: dict, db: Any) -> dict | None:
     ticker = company["ticker"]
     safe   = ticker.replace(".", "_")
     csv_p  = PIPELINE_ROOT / "data" / "raw" / company["csv"]
