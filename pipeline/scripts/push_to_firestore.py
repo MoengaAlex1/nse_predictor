@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import date, timedelta
 import firebase_admin
 from firebase_admin import credentials, firestore, storage as fb_storage
 
@@ -32,7 +33,21 @@ def write_technicals(db, ticker: str, date_str: str, data: dict) -> None:
 
 
 def update_company_public(db, ticker: str, data: dict) -> None:
-    db.collection("companies").document(ticker).update(data)
+    db.collection("companies").document(ticker).set(data, merge=True)
+
+
+def prune_old_docs(db, ticker: str, subcollection: str, keep_days: int = 90) -> int:
+    """Delete date-keyed subcollection documents older than keep_days. Returns count deleted."""
+    cutoff = (date.today() - timedelta(days=keep_days)).isoformat()
+    col_ref = (
+        db.collection("companies")
+          .document(ticker)
+          .collection(subcollection)
+    )
+    old_docs = [d for d in col_ref.stream() if d.id < cutoff]
+    for doc in old_docs:
+        doc.reference.delete()
+    return len(old_docs)
 
 
 def write_market_overview(db, date_str: str, data: dict) -> None:

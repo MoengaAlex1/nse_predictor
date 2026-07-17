@@ -1,7 +1,6 @@
 import { useEffect } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { initAuthListener } from "./lib/auth";
-import { Home } from "./pages/Home";
 import { Companies } from "./pages/Companies";
 import { CompanyDeepDive } from "./pages/CompanyDeepDive";
 import { Login } from "./pages/Login";
@@ -15,7 +14,7 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/" element={<Home />} />
+      <Route path="/" element={<Navigate to="/companies" replace />} />
       <Route path="/companies" element={<Companies />} />
       <Route path="/company/:ticker" element={<CompanyDeepDive />} />
       <Route path="/login" element={<Login />} />

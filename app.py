@@ -27,75 +27,83 @@ _PALETTE = [
     "#ec4899","#84cc16",
 ]
 _SECTOR_ICONS = {
-    "Banking": "🏦", "Insurance": "🛡️", "Telecom": "📱",
-    "Energy": "⚡", "Manufacturing": "🏭", "Beverages": "🍺",
-    "Agriculture": "🌾", "Commercial": "🛒", "Media": "📰",
-    "Real Estate": "🏠", "Investment": "💼", "Transport": "✈️",
-    "Exchange": "📊",
+    "Agricultural":                     "🌾",
+    "Automobiles and Accessories":      "🚗",
+    "Banking":                          "🏦",
+    "Commercial and Services":          "🛒",
+    "Construction and Allied":          "🏗️",
+    "Energy and Petroleum":             "⚡",
+    "Insurance":                        "🛡️",
+    "Investment":                       "💼",
+    "Manufacturing and Allied":         "🏭",
+    "Media":                            "📰",
+    "Real Estate Investment Trust":     "🏠",
+    "Telecommunication and Technology": "📱",
+    "Transport and Storage":            "✈️",
 }
 _RAW_COMPANIES = [
-    # (ticker_short, name, sector)
+    # (ticker_short, name, NSE sector)
     ("ABSA", "ABSA Bank Kenya",              "Banking"),
-    ("ALP",  "ALP Industrial REIT",          "Real Estate"),
-    ("AMAC", "Africa Mega Agricorp",         "Manufacturing"),
-    ("BAT",  "BAT Kenya",                    "Manufacturing"),
+    ("ALP",  "ALP Industrial REIT",          "Real Estate Investment Trust"),
+    ("AMAC", "Africa Mega Agricorp",         "Agricultural"),
+    ("BAT",  "BAT Kenya",                    "Manufacturing and Allied"),
     ("BKG",  "BK Group",                     "Banking"),
-    ("BOC",  "BOC Kenya",                    "Energy"),
+    ("BOC",  "BOC Kenya",                    "Energy and Petroleum"),
     ("BRIT", "Britam Holdings",              "Insurance"),
-    ("CARB", "Carbacid Investments",         "Manufacturing"),
+    ("CARB", "Carbacid Investments",         "Construction and Allied"),
     ("CGEN", "Centum Generation",            "Investment"),
     ("CIC",  "CIC Insurance Group",          "Insurance"),
     ("COOP", "Co-operative Bank",            "Banking"),
-    ("CRWN", "Crown Paints Kenya",           "Manufacturing"),
-    ("CTUM", "Cavendish Management",         "Manufacturing"),
+    ("CRWN", "Crown Paints Kenya",           "Construction and Allied"),
+    ("CTUM", "Cavendish Management",         "Commercial and Services"),
     ("DTK",  "Diamond Trust Bank",           "Banking"),
-    ("EABL", "East African Breweries",       "Beverages"),
+    ("EABL", "East African Breweries",       "Manufacturing and Allied"),
     ("EGAD", "East African Portland Cement", "Investment"),
     ("EQTY", "Equity Group Holdings",        "Banking"),
-    ("EVRD", "Eveready East Africa",         "Commercial"),
+    ("EVRD", "Eveready East Africa",         "Commercial and Services"),
     ("FMLY", "Family Bank",                  "Banking"),
-    ("FTGH", "Fahari I-REIT",               "Real Estate"),
-    ("GLD",  "Gold Coin Kenya",              "Commercial"),
-    ("HAFR", "Home Afrika",                  "Commercial"),
+    ("FTGH", "Fahari I-REIT",               "Real Estate Investment Trust"),
+    ("GLD",  "Gold Coin Kenya",              "Commercial and Services"),
+    ("HAFR", "Home Afrika",                  "Commercial and Services"),
     ("HFCK", "HF Group",                     "Banking"),
     ("IMH",  "I&M Holdings",                 "Banking"),
     ("JUB",  "Jubilee Holdings",             "Insurance"),
-    ("KAPC", "KAPS Medical International",   "Commercial"),
+    ("KAPC", "KAPS Medical International",   "Commercial and Services"),
     ("KCB",  "KCB Group",                    "Banking"),
-    ("KEGN", "KenGen",                       "Energy"),
+    ("KEGN", "KenGen",                       "Energy and Petroleum"),
     ("KNRE", "Kenya Reinsurance",            "Insurance"),
-    ("KPC",  "Kenya Power (Ord)",            "Energy"),
-    ("KPLC", "Kenya Power (Pref)",           "Energy"),
-    ("KQ",   "Kenya Airways",               "Transport"),
-    ("KUKZ", "Kakuzi",                       "Agriculture"),
-    ("KURV", "Kurwitu Ventures",             "Commercial"),
+    ("KPC",  "Kenya Power (Ord)",            "Energy and Petroleum"),
+    ("KPLC", "Kenya Power (Pref)",           "Energy and Petroleum"),
+    ("KQ",   "Kenya Airways",               "Transport and Storage"),
+    ("KUKZ", "Kakuzi",                       "Agricultural"),
+    ("KURV", "Kurwitu Ventures",             "Commercial and Services"),
     ("LBTY", "Liberty Kenya Holdings",       "Insurance"),
-    ("LIMT", "Limuru Tea",                   "Agriculture"),
-    ("LKL",  "Longhorn Publishers",          "Commercial"),
+    ("LIMT", "Limuru Tea",                   "Agricultural"),
+    ("LKL",  "Longhorn Publishers",          "Commercial and Services"),
     ("NBV",  "Nairobi Business Ventures",    "Banking"),
     ("NCBA", "NCBA Group",                   "Banking"),
     ("NMG",  "Nation Media Group",           "Media"),
-    ("NSE",  "Nairobi Securities Exchange",  "Exchange"),
-    ("OCH",  "Olympia Capital Holdings",     "Commercial"),
-    ("PORT", "East African Portland Cement", "Manufacturing"),
-    ("SASN", "Sasini",                       "Agriculture"),
+    ("NSE",  "Nairobi Securities Exchange",  "Investment"),
+    ("OCH",  "Olympia Capital Holdings",     "Commercial and Services"),
+    ("PORT", "East African Portland Cement", "Construction and Allied"),
+    ("SASN", "Sasini",                       "Agricultural"),
     ("SBIC", "SBM Bank Kenya",               "Banking"),
-    ("SCAN", "Scangroup",                    "Commercial"),
+    ("SCAN", "Scangroup",                    "Commercial and Services"),
     ("SCBK", "Standard Chartered Bank Kenya","Banking"),
-    ("SCOM", "Safaricom",                    "Telecom"),
+    ("SCOM", "Safaricom",                    "Telecommunication and Technology"),
     ("SGL",  "Standard Group",               "Media"),
     ("SKL",  "Stanbic Kenya",               "Banking"),
     ("SLAM", "Sanlam Kenya",                 "Insurance"),
-    ("SMER", "Sameer Africa",               "Manufacturing"),
-    ("SMWF", "Stanlib Fahari REIT",          "Real Estate"),
-    ("TOTL", "TotalEnergies EP Kenya",       "Energy"),
-    ("TPSE", "TransCentury",                 "Transport"),
-    ("TRFC", "TransAfrica",                  "Transport"),
-    ("UCHM", "Unga Group Chemicals",         "Manufacturing"),
+    ("SMER", "Sameer Africa",               "Automobiles and Accessories"),
+    ("SMWF", "Stanlib Fahari REIT",          "Real Estate Investment Trust"),
+    ("TOTL", "TotalEnergies EP Kenya",       "Energy and Petroleum"),
+    ("TPSE", "TransCentury",                 "Transport and Storage"),
+    ("TRFC", "TransAfrica",                  "Transport and Storage"),
+    ("UCHM", "Unga Group Chemicals",         "Manufacturing and Allied"),
     ("UMME", "Umme",                         "Investment"),
-    ("UNGA", "Unga Group",                   "Manufacturing"),
-    ("WTK",  "Williamson Tea Kenya",         "Agriculture"),
-    ("XPRS", "Express Kenya",               "Commercial"),
+    ("UNGA", "Unga Group",                   "Manufacturing and Allied"),
+    ("WTK",  "Williamson Tea Kenya",         "Agricultural"),
+    ("XPRS", "Express Kenya",               "Commercial and Services"),
 ]
 # Build COMPANIES — keep the original 5 companies' colors/icons intact
 _ORIGINAL_COLORS = {
@@ -146,14 +154,133 @@ CHART_BASE = dict(template="plotly_dark", paper_bgcolor=C["card"], plot_bgcolor=
                   legend=dict(bgcolor="rgba(0,0,0,0)"))
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
-def load_df(ticker):
-    p = DATA_CLEANED / f"{ticker.replace('.','_')}_cleaned.csv"
-    return pd.read_csv(p, index_col="Date", parse_dates=True) if p.exists() else None
+def _build_archive_master() -> pd.DataFrame:
+    """Load all NSE archive CSVs once into a single dataframe keyed by (Date, Code).
+    Called once at module load; subsequent company lookups are O(1) groupby filters."""
+    archive_dir = Path(r"C:\Users\moeng\Downloads\archive")
+    frames = []
+    usecols = ["Date", "Code", "Day Price", "Volume"]
+    for path in sorted(archive_dir.glob("NSE_data_all_stocks_????.csv")):
+        try:
+            chunk = pd.read_csv(path, dtype=str, usecols=lambda c: c.strip() in usecols)
+            chunk.columns = [c.strip() for c in chunk.columns]
+            if "Code" not in chunk.columns or "Day Price" not in chunk.columns:
+                continue
+            chunk["Code"] = chunk["Code"].str.strip()
+            chunk["_dt"] = pd.to_datetime(
+                chunk["Date"].str.strip(), dayfirst=False, format="mixed", errors="coerce"
+            )
+            chunk = chunk.dropna(subset=["_dt"])
+            chunk["Close"] = pd.to_numeric(
+                chunk["Day Price"].str.replace(",", "", regex=False).str.strip(),
+                errors="coerce",
+            )
+            chunk["Volume"] = pd.to_numeric(
+                chunk["Volume"].str.replace(",", "", regex=False).str.strip(),
+                errors="coerce",
+            ) if "Volume" in chunk.columns else np.nan
+            chunk = chunk[chunk["Close"] > 0].dropna(subset=["Close"])
+            frames.append(chunk[["_dt", "Code", "Close", "Volume"]])
+        except Exception:
+            continue
+    if not frames:
+        return pd.DataFrame(columns=["_dt", "Code", "Close", "Volume"])
+    master = pd.concat(frames, ignore_index=True)
+    master = master.sort_values(["Code", "_dt"])
+    return master
 
-def load_sig(ticker):
+
+print("Loading NSE archive data…", flush=True)
+_ARCHIVE_MASTER: pd.DataFrame = _build_archive_master()
+_ARCHIVE_CODES: set = set(_ARCHIVE_MASTER["Code"].unique()) if not _ARCHIVE_MASTER.empty else set()
+print(f"  Archive ready: {len(_ARCHIVE_MASTER):,} rows across {len(_ARCHIVE_CODES)} companies.", flush=True)
+
+_archive_df_cache: dict = {}
+
+
+def _load_company_archive(code: str):
+    """Return time-series df with Close column for a single NSE code from master archive."""
+    if code in _archive_df_cache:
+        return _archive_df_cache[code]
+    if _ARCHIVE_MASTER.empty or code not in _ARCHIVE_CODES:
+        _archive_df_cache[code] = None
+        return None
+    try:
+        rows = _ARCHIVE_MASTER[_ARCHIVE_MASTER["Code"] == code].copy()
+        df = pd.DataFrame({"Close": rows["Close"].values, "Volume": rows["Volume"].values},
+                          index=rows["_dt"])
+        df = df[~df.index.duplicated(keep="last")].sort_index()
+        df["Close"] = _clean_price_series(df["Close"])
+        result = df if len(df) >= 5 else None
+        _archive_df_cache[code] = result
+        return result
+    except Exception:
+        _archive_df_cache[code] = None
+        return None
+
+
+def _clean_price_series(s: pd.Series) -> pd.Series:
+    """Cap price outliers using log-space IQR so single corrupt data points don't spike charts."""
+    if len(s) < 10:
+        return s
+    log_s = np.log(s.clip(lower=1e-6))
+    q10, q90 = log_s.quantile(0.10), log_s.quantile(0.90)
+    spread = q90 - q10
+    if spread <= 0:
+        return s
+    lower = np.exp(q10 - 3 * spread)
+    upper = np.exp(q90 + 3 * spread)
+    return s.clip(lower=max(lower, 0.0), upper=upper)
+
+
+def load_df(ticker: str):
+    p = DATA_CLEANED / f"{ticker.replace('.','_')}_cleaned.csv"
+    if p.exists():
+        return pd.read_csv(p, index_col="Date", parse_dates=True)
+    code = ticker.split(".")[0].upper()
+    return _load_company_archive(code)
+
+
+def _compute_ta_signal(df) -> dict:
+    """Compute basic technical analysis signal when no ML signal is available."""
+    close = df["Close"].dropna()
+    if len(close) < 10:
+        return {"risk_adjusted_signal": "—"}
+    last = float(close.iloc[-1])
+    n = len(close)
+    ma20 = float(close.tail(min(20, n)).mean())
+    ma50 = float(close.tail(min(50, n)).mean())
+    delta = close.diff().dropna()
+    gain = delta.clip(lower=0).tail(14).mean()
+    loss = (-delta.clip(upper=0)).tail(14).mean()
+    rsi = round(100 - (100 / (1 + gain / loss)), 1) if loss and loss != 0 else 50.0
+    mom20 = round((close.iloc[-1] - close.iloc[max(-20,-n)]) / close.iloc[max(-20,-n)] * 100, 2)
+    if last > ma20 and ma20 >= ma50 and rsi < 70:
+        signal = "BUY"
+    elif last < ma20 and ma20 <= ma50 and rsi > 30:
+        signal = "SELL"
+    else:
+        signal = "HOLD"
+    return {
+        "risk_adjusted_signal": signal,
+        "signal_source": "technical",
+        "rsi_14": rsi,
+        "ma20": round(ma20, 2),
+        "ma50": round(ma50, 2),
+        "momentum_20d_pct": mom20,
+        "var_95_pct": round(abs(mom20) / 3, 2),
+    }
+
+
+def load_sig(ticker: str):
     p = DATA_FEATURES / f"{ticker.replace('.','_')}_signal.json"
-    if not p.exists(): return None
-    with open(p) as f: return json.load(f)
+    if p.exists():
+        with open(p) as f:
+            sig = json.load(f)
+            sig.setdefault("signal_source", "ml")
+            return sig
+    df = load_df(ticker)
+    return _compute_ta_signal(df) if df is not None else None
 
 def pct_change_over(df, days):
     n = min(days, len(df)-1)
@@ -243,9 +370,12 @@ def chart_comparison_indexed(tickers, days=252, start=None, end=None):
     return fig
 
 
-def chart_performance_ranked(days=252, start=None, end=None):
+def chart_performance_ranked(tickers=None, days=252, start=None, end=None):
+    source = tickers if tickers is not None else list(COMPANIES.keys())
     rows = []
-    for t, meta in COMPANIES.items():
+    for t in source:
+        meta = COMPANIES.get(t)
+        if meta is None: continue
         df = load_df(t)
         if df is None: continue
         if start and end:
@@ -274,8 +404,19 @@ def chart_performance_ranked(days=252, start=None, end=None):
 def chart_monthly_heatmap(ticker):
     df = load_df(ticker)
     meta = COMPANIES.get(ticker, {})
+    name = meta.get("name", ticker) if ticker else "—"
     if df is None:
-        return go.Figure()
+        fig = go.Figure()
+        fig.update_layout(**CHART_BASE, height=300,
+                          title=dict(text=f"No cleaned data for {name}",
+                                     font=dict(color=C["muted"])))
+        fig.add_annotation(
+            text="Import data for this company via the Import & Analyse tab,<br>"
+                 "or pick a different company above.",
+            xref="paper", yref="paper", x=0.5, y=0.5,
+            showarrow=False, font=dict(color=C["muted"], size=13),
+        )
+        return fig
     monthly = df["Close"].resample("ME").last().pct_change().dropna() * 100
     monthly.index = pd.to_datetime(monthly.index)
     years  = sorted(monthly.index.year.unique())
@@ -358,6 +499,97 @@ def stat_pill(label, value, color=None):
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG],
                 suppress_callback_exceptions=True)
 app.title = "NSE Market Dashboard"
+
+# Inject date-picker CSS directly into the HTML head — works regardless of
+# which react-dates class names the installed Dash version uses.
+app.index_string = '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+        <style>
+        /* ── Date picker: target the raw input directly via wrapper ID ── */
+        #explorer-dates-wrap input {
+            color: #e6edf3 !important;
+            background-color: #161b22 !important;
+            font-size: 0.82rem !important;
+            font-weight: 500 !important;
+            border: none !important;
+            outline: none !important;
+        }
+        #explorer-dates-wrap input::placeholder { color: #8b949e !important; }
+
+        /* Also cover analytics single-date pickers */
+        #analytics-custom-start input,
+        #analytics-custom-end input {
+            color: #e6edf3 !important;
+            background-color: #161b22 !important;
+            font-size: 0.82rem !important;
+            font-weight: 500 !important;
+            border: none !important;
+        }
+
+        /* react-dates class names (belt-and-suspenders) */
+        .DateInput_input {
+            color: #e6edf3 !important;
+            background-color: #161b22 !important;
+            font-size: 0.82rem !important;
+            font-weight: 500 !important;
+        }
+        .DateInput_input::placeholder { color: #8b949e !important; }
+        .DateRangePickerInput, .SingleDatePickerInput {
+            background-color: #161b22 !important;
+            border: 1px solid #21262d !important;
+            border-radius: 6px !important;
+        }
+        .DateInput { background: transparent !important; }
+
+        /* Calendar popup */
+        .DayPicker, .CalendarMonthGrid, .CalendarMonth {
+            background: #161b22 !important;
+            color: #e6edf3 !important;
+        }
+        .CalendarMonth_caption, .CalendarMonth_caption strong { color: #e6edf3 !important; }
+        .DayPicker_weekHeader_li small { color: #8b949e !important; }
+        .CalendarDay__default {
+            background: #161b22 !important;
+            border: 1px solid #21262d !important;
+            color: #e6edf3 !important;
+        }
+        .CalendarDay__default:hover { background: #21262d !important; }
+        .CalendarDay__selected, .CalendarDay__selected:active, .CalendarDay__selected:hover {
+            background: #38bdf8 !important;
+            border-color: #38bdf8 !important;
+            color: #010409 !important;
+            font-weight: 700 !important;
+        }
+        .CalendarDay__selected_span {
+            background: #0c4a6e !important;
+            border-color: #0369a1 !important;
+            color: #e6edf3 !important;
+        }
+        .DayPickerNavigation_button__default {
+            background: #161b22 !important;
+            border: 1px solid #21262d !important;
+        }
+        .DayPickerNavigation_svg__horizontal { fill: #8b949e !important; }
+        .DateRangePickerInput_arrow_svg,
+        .DateRangePickerInput_arrow { color: #8b949e !important; fill: #8b949e !important; }
+        </style>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+'''
 
 # Tab style helpers
 TAB_STYLE = dict(background=C["panel"], color=C["muted"], border="none",
@@ -602,7 +834,7 @@ def update_analytics_state(period, sector, heatmap, n_apply, custom_start, custo
 # ── TAB 1: OVERVIEW — Today's Signal Board ────────────────────────────────────
 def _build_overview_content(sector="All Companies", view="table"):
     # Gather data for signal table — filtered by sector
-    filtered_tickers = SECTORS.get(sector, NSE_TICKERS)
+    filtered_tickers = SECTORS.get(sector, list(COMPANIES.keys()))
     rows = []
     buy_count = sell_count = hold_count = 0
     for t in filtered_tickers:
@@ -1082,12 +1314,9 @@ def build_company(ticker, store):
 
 
 # ── TAB 3: ANALYTICS — Historical Data Explorer ───────────────────────────────
-def build_analytics(days=252, sector="All Companies", heatmap_ticker="SCOM.NR", custom_start=None, custom_end=None):
-    tickers = SECTORS.get(sector, NSE_TICKERS)
-
-    # Performance summary table (pre-populated inline)
+def _build_summary_table(tickers):
     rows = []
-    for t in NSE_TICKERS:
+    for t in tickers:
         df  = load_df(t)
         sig = load_sig(t)
         meta = COMPANIES.get(t, {})
@@ -1102,28 +1331,35 @@ def build_analytics(days=252, sector="All Companies", heatmap_ticker="SCOM.NR", 
             "6 Months":     f"{pct_change_over(df,126):+.1f}%",
             "1 Year":       f"{pct_change_over(df,252):+.1f}%",
             "All Time":     f"{pct_change_over(df,9999):+.1f}%",
-            "AI Advice":    (sig.get("risk_adjusted_signal","—") if sig else "—"),
+            "Signal":    (sig.get("risk_adjusted_signal","—") if sig else "—"),
+            "Source":    (("ML" if sig.get("signal_source","")=="ml" else "TA") if sig else "—"),
         })
-    if rows:
-        df_tbl = pd.DataFrame(rows)
-        summary_tbl = dash_table.DataTable(
-            data=df_tbl.to_dict("records"),
-            columns=[{"name":c,"id":c} for c in df_tbl.columns],
-            style_table=dict(overflowX="auto"),
-            style_header=dict(background=C["panel"], color=C["muted"],
-                              fontWeight=700, fontSize="0.75rem",
-                              border=f"1px solid {C['border']}"),
-            style_cell=dict(background=C["card"], color=C["text"],
-                            fontSize="0.82rem", padding="8px 12px",
-                            border=f"1px solid {C['border']}"),
-            style_data_conditional=[
-                {"if":{"filter_query":"{AI Advice} = BUY"},  "color":C["buy"],  "fontWeight":700},
-                {"if":{"filter_query":"{AI Advice} = SELL"}, "color":C["sell"], "fontWeight":700},
-                {"if":{"filter_query":"{AI Advice} = HOLD"}, "color":C["hold"], "fontWeight":700},
-            ],
-        )
-    else:
-        summary_tbl = html.Div("No data available.", style=dict(color=C["muted"]))
+    if not rows:
+        return html.Div("No data available.", style=dict(color=C["muted"]))
+    df_tbl = pd.DataFrame(rows)
+    return dash_table.DataTable(
+        data=df_tbl.to_dict("records"),
+        columns=[{"name":c,"id":c} for c in df_tbl.columns],
+        style_table=dict(overflowX="auto"),
+        style_header=dict(background=C["panel"], color=C["muted"],
+                          fontWeight=700, fontSize="0.75rem",
+                          border=f"1px solid {C['border']}"),
+        style_cell=dict(background=C["card"], color=C["text"],
+                        fontSize="0.82rem", padding="8px 12px",
+                        border=f"1px solid {C['border']}"),
+        style_data_conditional=[
+            {"if":{"filter_query":"{Signal} = BUY"},  "color":C["buy"],  "fontWeight":700},
+            {"if":{"filter_query":"{Signal} = SELL"}, "color":C["sell"], "fontWeight":700},
+            {"if":{"filter_query":"{Signal} = HOLD"}, "color":C["hold"], "fontWeight":700},
+            {"if":{"filter_query":"{Source} = ML"},   "color":C["accent"]},
+        ],
+    )
+
+
+def build_analytics(days=252, sector="All Companies", heatmap_ticker="SCOM.NR", custom_start=None, custom_end=None):
+    tickers = SECTORS.get(sector, list(COMPANIES.keys()))
+
+    summary_tbl = _build_summary_table(tickers)
 
     return html.Div([
         html.Div([
@@ -1152,13 +1388,34 @@ def build_analytics(days=252, sector="All Companies", heatmap_ticker="SCOM.NR", 
                              style=dict(background=C["card"], width="180px", fontSize="0.82rem")),
             ]),
             html.Div([
-                html.Label("Calendar view:", style=dict(color=C["muted"], fontSize="0.8rem",
-                                                         marginBottom="4px")),
-                dcc.Dropdown(id="heatmap-ticker",
-                             options=[{"label":f"{v['short']} — {v['name']}","value":k} for k,v in sorted(COMPANIES.items(), key=lambda x: x[1]['name'])],
-                             value=heatmap_ticker, clearable=False,
-                             style=dict(background=C["card"], width="260px", fontSize="0.82rem")),
-            ]),
+                html.Div([
+                    html.Label("Companies:", style=dict(
+                        color=C["muted"], fontSize="0.8rem",
+                        marginRight="10px", alignSelf="center",
+                    )),
+                    html.Button("Select All", id="analytics-select-all", n_clicks=0, style=dict(
+                        background="transparent", color=C["accent"],
+                        border=f"1px solid {C['accent']}", borderRadius="12px",
+                        padding="2px 10px", cursor="pointer", fontSize="0.72rem",
+                        marginRight="6px",
+                    )),
+                    html.Button("Clear", id="analytics-clear", n_clicks=0, style=dict(
+                        background="transparent", color=C["muted"],
+                        border=f"1px solid {C['border']}", borderRadius="12px",
+                        padding="2px 10px", cursor="pointer", fontSize="0.72rem",
+                    )),
+                ], style=dict(display="flex", alignItems="center", marginBottom="4px")),
+                dcc.Dropdown(
+                    id="analytics-companies",
+                    options=[{"label": f"{COMPANIES[t]['short']} — {COMPANIES[t]['name']}", "value": t}
+                             for t in tickers],
+                    value=tickers,
+                    multi=True,
+                    clearable=True,
+                    placeholder="Select companies to analyse…",
+                    style=dict(background=C["card"], fontSize="0.82rem", minWidth="320px"),
+                ),
+            ], style=dict(flex="1")),
         ], style=dict(display="flex", gap="20px", flexWrap="wrap",
                       padding="0 24px 14px")),
 
@@ -1216,7 +1473,7 @@ def build_analytics(days=252, sector="All Companies", heatmap_ticker="SCOM.NR", 
                     html.Div("Which company gained or lost the most?",
                              style=dict(fontSize="0.72rem", color=C["muted"], marginBottom="8px")),
                     dcc.Graph(id="chart-ranked",
-                              figure=chart_performance_ranked(days),
+                              figure=chart_performance_ranked(tickers, days),
                               config=dict(displayModeBar=False)),
                 ], style=dict(flex="1", background=C["card"],
                               border=f"1px solid {C['border']}", borderRadius="10px",
@@ -1243,7 +1500,26 @@ def build_analytics(days=252, sector="All Companies", heatmap_ticker="SCOM.NR", 
                     marginBottom="4px")),
                 html.Div("Green = the stock went up that month. Red = it went down. "
                          "The darker the colour, the bigger the move.",
-                         style=dict(fontSize="0.72rem", color=C["muted"], marginBottom="8px")),
+                         style=dict(fontSize="0.72rem", color=C["muted"], marginBottom="12px")),
+                html.Div([
+                    dcc.Dropdown(
+                        id="heatmap-ticker",
+                        options=[{"label": f"{COMPANIES[t]['short']} — {COMPANIES[t]['name']}", "value": t}
+                                 for t in sorted(tickers, key=lambda t: COMPANIES[t]["name"])],
+                        value=heatmap_ticker,
+                        clearable=False,
+                        placeholder="Search or select a company…",
+                        style=dict(flex="1", fontSize="0.82rem", minWidth="220px"),
+                    ),
+                    html.Button("Show Calendar", id="analytics-apply-heatmap", n_clicks=0,
+                        style=dict(
+                            background=C["accent"], color=C["header"],
+                            border="none", borderRadius="8px",
+                            padding="9px 22px", cursor="pointer",
+                            fontSize="0.82rem", fontWeight=700, whiteSpace="nowrap",
+                        )),
+                ], style=dict(display="flex", gap="12px", alignItems="center",
+                              marginBottom="12px", flexWrap="wrap")),
                 dcc.Graph(id="chart-heatmap",
                           figure=chart_monthly_heatmap(heatmap_ticker),
                           config=dict(displayModeBar=False)),
@@ -1408,34 +1684,72 @@ def run_quick(n, ticker, store):
 
 # ── Callbacks: Analytics tab ─────────────────────────────────────────────────
 @app.callback(
+    Output("analytics-companies","options"),
+    Output("analytics-companies","value"),
+    Output("heatmap-ticker","options"),
+    Input("analytics-sector","value"),
+    prevent_initial_call=True,
+)
+def update_sector_filters(sector):
+    tickers = SECTORS.get(sector, list(COMPANIES.keys()))
+    company_opts = [{"label": f"{COMPANIES[t]['short']} — {COMPANIES[t]['name']}", "value": t}
+                    for t in tickers]
+    heatmap_opts = [{"label": f"{COMPANIES[t]['short']} — {COMPANIES[t]['name']}", "value": t}
+                    for t in sorted(tickers, key=lambda t: COMPANIES[t]["name"])]
+    return company_opts, tickers, heatmap_opts
+
+
+@app.callback(
+    Output("analytics-companies", "value", allow_duplicate=True),
+    Input("analytics-select-all", "n_clicks"),
+    Input("analytics-clear", "n_clicks"),
+    State("analytics-companies", "options"),
+    State("analytics-sector", "value"),
+    prevent_initial_call=True,
+)
+def analytics_bulk_select(sel_clicks, clr_clicks, current_opts, sector):
+    from dash import ctx
+    if ctx.triggered_id == "analytics-clear":
+        return []
+    # Select All — return all tickers currently visible (filtered by sector)
+    return [o["value"] for o in (current_opts or [])]
+
+
+@app.callback(
     Output("chart-indexed","figure"),
     Output("chart-ranked","figure"),
     Output("chart-all-prices","figure"),
+    Output("summary-table","children"),
     Input("analytics-period","value"),
     Input("analytics-sector","value"),
+    Input("analytics-companies","value"),
     Input("analytics-apply-range","n_clicks"),
     State("analytics-custom-start","date"),
     State("analytics-custom-end","date"),
     prevent_initial_call=True,
 )
-def update_analytics_charts(days, sector, n_apply, custom_start, custom_end):
-    tickers  = SECTORS.get(sector, NSE_TICKERS)
+def update_analytics_charts(days, sector, companies, n_apply, custom_start, custom_end):
+    tickers = companies if companies else SECTORS.get(sector, list(COMPANIES.keys()))
     use_days = days if days != 0 else 9999
     use_start = custom_start if days == 0 else None
     use_end   = custom_end   if days == 0 else None
     return (
         chart_comparison_indexed(tickers, use_days, use_start, use_end),
-        chart_performance_ranked(use_days, use_start, use_end),
+        chart_performance_ranked(tickers, use_days, use_start, use_end),
         chart_all_prices(tickers, use_days, use_start, use_end),
+        _build_summary_table(tickers),
     )
 
 
 @app.callback(
     Output("chart-heatmap","figure"),
-    Input("heatmap-ticker","value"),
+    Input("analytics-apply-heatmap","n_clicks"),
+    State("heatmap-ticker","value"),
     prevent_initial_call=True,
 )
-def update_heatmap(ticker):
+def update_heatmap(_n, ticker):
+    if not ticker:
+        return dash.no_update
     return chart_monthly_heatmap(ticker)
 
 
@@ -1804,10 +2118,14 @@ def _compute_stats(df):
         "total_records": len(df),
     }
 
-    # Top movers: sort by total return
+    # Top movers — only meaningful with ≥2 companies; deduplicate gainers/losers
     sorted_returns = sorted(returns.items(), key=lambda x: x[1], reverse=True)
-    top_gainers = sorted_returns[:3]
-    top_losers  = sorted_returns[-3:][::-1]
+    if len(returns) <= 1:
+        top_gainers, top_losers = [], []
+    else:
+        top_gainers = [(c, p) for c, p in sorted_returns[:3]  if p > 0]
+        seen = {c for c, _ in top_gainers}
+        top_losers  = [(c, p) for c, p in reversed(sorted_returns) if p < 0 and c not in seen][:3]
     movers = [("gain", c, p) for c, p in top_gainers] + [("loss", c, p) for c, p in top_losers]
     return stats, movers
 
@@ -1941,6 +2259,167 @@ def _mover_badge(code, pct, is_gain):
     ))
 
 
+def _build_interpretation(df, stats, movers):
+    """Generate a natural-language analysis panel for the explorer results."""
+    n_codes = df["Code"].nunique()
+    returns_by_code: dict[str, float] = {}
+    volatility_by_code: dict[str, float] = {}
+
+    for code, grp in df.groupby("Code"):
+        prices  = _to_num(grp.sort_values("_dt")["Day Price"]).dropna()
+        changes = _to_num(grp.sort_values("_dt").get("Change%", pd.Series(dtype=float))).dropna()
+        if len(prices) >= 2 and prices.min() > 0:
+            ratio = prices.max() / prices.min()
+            if ratio < 10:
+                returns_by_code[code] = (prices.iloc[-1] / prices.iloc[0] - 1) * 100
+        if len(changes) >= 2:
+            volatility_by_code[code] = float(changes.std())
+
+    if not returns_by_code:
+        return html.Div()
+
+    if n_codes == 1:
+        code  = next(iter(returns_by_code))
+        ret   = returns_by_code[code]
+        name  = _NAME_MAP.get(code, code)
+        vol   = volatility_by_code.get(code, 0)
+        sector = COMPANIES.get(code, {}).get("sector", "")
+
+        grp     = df[df["Code"] == code].sort_values("_dt")
+        prices  = _to_num(grp["Day Price"]).dropna()
+        changes = _to_num(grp.get("Change%", pd.Series(dtype=float))).dropna()
+        n_days  = len(prices)
+
+        # Trend: second half vs first half average
+        mid  = max(1, n_days // 2)
+        trend = (
+            "strengthening" if prices.iloc[mid:].mean() > prices.iloc[:mid].mean() * 1.02
+            else "weakening"  if prices.iloc[mid:].mean() < prices.iloc[:mid].mean() * 0.98
+            else "moving sideways"
+        )
+
+        if ret >= 5:
+            sentiment, badge_color = "Bullish", C["buy"]
+        elif ret <= -5:
+            sentiment, badge_color = "Bearish", C["sell"]
+        else:
+            sentiment, badge_color = "Neutral", C["hold"]
+
+        vol_label = "high" if vol > 2 else "moderate" if vol > 0.8 else "low"
+        pos_days  = int((changes > 0).sum())
+        pct_pos   = pos_days / len(changes) * 100 if len(changes) else 0
+
+        lines = [
+            f"{name} ({code}){' — ' + sector if sector else ''} returned "
+            f"<b style='color:{badge_color}'>{ret:+.1f}%</b> over the selected period.",
+            f"Price momentum is <b>{trend}</b>, with <b>{vol_label} volatility</b> "
+            f"(daily swing avg: {vol:.2f}%).",
+            f"The stock closed higher on <b>{pos_days} of {len(changes)} sessions</b> "
+            f"({pct_pos:.0f}% positive days).",
+        ]
+        if stats.get("biggest_day_pct"):
+            lines.append(
+                f"Largest single-day move: <b>{stats['biggest_day_pct']:+.1f}%</b> "
+                f"({stats['biggest_day_info']})."
+            )
+        if ret >= 5:
+            lines.append("Momentum is positive — consider reviewing the signal on the Analytics tab.")
+        elif ret <= -5:
+            lines.append("Sustained decline detected — review fundamentals before adding to position.")
+        else:
+            lines.append("The stock is ranging; no clear directional bias from this period.")
+
+    else:
+        n_pos   = sum(1 for v in returns_by_code.values() if v > 0)
+        pct_pos = n_pos / len(returns_by_code) * 100
+        avg_ret = sum(returns_by_code.values()) / len(returns_by_code)
+
+        if pct_pos >= 60:
+            sentiment, badge_color = "Bullish", C["buy"]
+        elif pct_pos <= 40:
+            sentiment, badge_color = "Bearish", C["sell"]
+        else:
+            sentiment, badge_color = "Mixed", C["hold"]
+
+        # Sector breakdown
+        sector_rets: dict[str, list[float]] = {}
+        for code, ret in returns_by_code.items():
+            sec = COMPANIES.get(code, {}).get("sector", "Other")
+            sector_rets.setdefault(sec, []).append(ret)
+        sector_avg = {s: sum(v) / len(v) for s, v in sector_rets.items() if v}
+
+        buy_color = C["buy"]
+        lines = [
+            f"Across <b>{n_codes} companies</b>, <b style='color:{buy_color}'>{n_pos} ({pct_pos:.0f}%)</b> "
+            f"showed positive returns — market tone is <b>{sentiment.lower()}</b>.",
+            f"Average return: <b style='color:{badge_color}'>{avg_ret:+.1f}%</b>.",
+        ]
+
+        if sector_avg:
+            best_s  = max(sector_avg, key=sector_avg.get)
+            worst_s = min(sector_avg, key=sector_avg.get)
+            if best_s != worst_s:
+                lines.append(
+                    f"Best sector: <b>{best_s}</b> (avg {sector_avg[best_s]:+.1f}%) · "
+                    f"Weakest: <b>{worst_s}</b> (avg {sector_avg[worst_s]:+.1f}%)."
+                )
+
+        gainers = [(c, p) for t, c, p in movers if t == "gain"]
+        losers  = [(c, p) for t, c, p in movers if t == "loss"]
+        if gainers:
+            g_str = ", ".join(f"<b>{c}</b> ({p:+.1f}%)" for c, p in gainers)
+            lines.append(f"Top performers: {g_str}.")
+        if losers:
+            l_str = ", ".join(f"<b>{c}</b> ({p:+.1f}%)" for c, p in losers)
+            lines.append(f"Underperformers: {l_str}.")
+
+        # Spread
+        spread = max(returns_by_code.values()) - min(returns_by_code.values())
+        if spread > 20:
+            lines.append(
+                f"Performance spread of <b>{spread:.1f}%</b> between best and worst suggests "
+                f"strong stock-picking opportunity within this selection."
+            )
+        elif spread < 5:
+            lines.append(
+                f"Tight spread of {spread:.1f}% — companies are moving largely in tandem "
+                f"(high correlation)."
+            )
+
+    summary_html = " ".join(lines)
+
+    return html.Div([
+        html.Div([
+            html.Div([
+                html.Span(sentiment.upper(), style=dict(
+                    background=badge_color + "25", color=badge_color,
+                    border=f"1px solid {badge_color}60",
+                    borderRadius="20px", padding="2px 12px",
+                    fontSize="0.65rem", fontWeight=800,
+                    textTransform="uppercase", letterSpacing="0.1em",
+                    marginRight="10px",
+                )),
+                html.Span("Interpretation", style=dict(
+                    fontWeight=700, color=C["text"], fontSize="0.88rem",
+                )),
+            ], style=dict(marginBottom="10px", display="flex", alignItems="center")),
+            html.Div(
+                dcc.Markdown(
+                    summary_html,
+                    dangerously_allow_html=True,
+                    style=dict(color=C["muted"], fontSize="0.82rem",
+                               lineHeight="1.8", margin=0),
+                ),
+            ),
+        ], style=dict(
+            background=C["card"], border=f"1px solid {C['border']}",
+            borderLeft=f"3px solid {badge_color}",
+            borderRadius="10px", padding="18px 24px",
+            margin="0 24px 4px",
+        )),
+    ])
+
+
 # ── Tab builder ───────────────────────────────────────────────────────────────
 
 def build_explorer_tab():
@@ -2047,15 +2526,18 @@ def build_explorer_tab():
                     )) for lbl, key in [("7D","7d"),("30D","30d"),("3M","3m"),("1Y","1y"),("YTD","ytd"),("Max","max")]
                     ],
                 ], style=dict(display="flex", alignItems="center", flexWrap="wrap", marginBottom="6px")),
-                dcc.DatePickerRange(
-                    id="explorer-dates",
-                    start_date=default_start,
-                    end_date=default_end,
-                    min_date_allowed=_ARCHIVE_MIN_DATE,
-                    max_date_allowed=_ARCHIVE_MAX_DATE,
-                    display_format="DD MMM YYYY",
-                    minimum_nights=0,
-                    style=dict(fontSize="0.82rem"),
+                html.Div(
+                    dcc.DatePickerRange(
+                        id="explorer-dates",
+                        start_date=default_start,
+                        end_date=default_end,
+                        min_date_allowed=_ARCHIVE_MIN_DATE,
+                        max_date_allowed=_ARCHIVE_MAX_DATE,
+                        display_format="DD MMM YYYY",
+                        minimum_nights=0,
+                        style=dict(fontSize="0.82rem"),
+                    ),
+                    id="explorer-dates-wrap",
                 ),
             ], style=dict(flex="0 0 auto")),
 
@@ -2196,55 +2678,90 @@ def _render_results(df):
     max_dt  = df["_dt"].max().strftime("%d %b %Y")
 
     # ── Summary stats strip ──────────────────────────────────────────────────
-    stats_strip = html.Div([
-        _stat_card("Best Performer",
-                   f"{stats['best_code']}  {stats['best_pct']:+.1f}%",
-                   C["buy"],
-                   _NAME_MAP.get(stats["best_code"], "")),
-        _stat_card("Worst Performer",
-                   f"{stats['worst_code']}  {stats['worst_pct']:+.1f}%",
-                   C["sell"],
-                   _NAME_MAP.get(stats["worst_code"], "")),
-        _stat_card("Biggest Single-Day Move",
-                   f"{stats['biggest_day_pct']:+.1f}%",
-                   C["hold"],
-                   stats["biggest_day_info"]),
-        _stat_card("Total Records",
-                   f"{stats['total_records']:,}",
-                   C["accent"],
-                   f"{n_codes} companies  ·  {min_dt} → {max_dt}"),
-    ], style=dict(
+    if n_codes == 1:
+        # Single company: show period return rather than best/worst comparison
+        code = df["Code"].iloc[0]
+        prices = _to_num(df.sort_values("_dt")["Day Price"]).dropna()
+        period_ret = (prices.iloc[-1] / prices.iloc[0] - 1) * 100 if len(prices) >= 2 else 0
+        ret_color = C["buy"] if period_ret >= 0 else C["sell"]
+        stat_cards = [
+            _stat_card("Period Return",
+                       f"{period_ret:+.1f}%",
+                       ret_color,
+                       f"{_NAME_MAP.get(code, code)}  ·  {min_dt} → {max_dt}"),
+            _stat_card("Biggest Single-Day Move",
+                       f"{stats['biggest_day_pct']:+.1f}%",
+                       C["hold"],
+                       stats["biggest_day_info"]),
+            _stat_card("Total Records",
+                       f"{stats['total_records']:,}",
+                       C["accent"],
+                       f"1 company  ·  {min_dt} → {max_dt}"),
+        ]
+    else:
+        stat_cards = [
+            _stat_card("Best Performer",
+                       f"{stats['best_code']}  {stats['best_pct']:+.1f}%",
+                       C["buy"],
+                       _NAME_MAP.get(stats["best_code"], "")),
+            _stat_card("Worst Performer",
+                       f"{stats['worst_code']}  {stats['worst_pct']:+.1f}%",
+                       C["sell"],
+                       _NAME_MAP.get(stats["worst_code"], "")),
+            _stat_card("Biggest Single-Day Move",
+                       f"{stats['biggest_day_pct']:+.1f}%",
+                       C["hold"],
+                       stats["biggest_day_info"]),
+            _stat_card("Total Records",
+                       f"{stats['total_records']:,}",
+                       C["accent"],
+                       f"{n_codes} companies  ·  {min_dt} → {max_dt}"),
+        ]
+
+    stats_strip = html.Div(stat_cards, style=dict(
         display="flex", gap="12px", flexWrap="wrap",
         padding="16px 24px", borderBottom=f"1px solid {C['border']}",
     ))
 
-    # ── Top Movers strip ────────────────────────────────────────────────────
+    # ── Top Movers strip (hidden for single-company) ─────────────────────────
     mover_badges = []
     gainers = [(c, p) for t, c, p in movers if t == "gain"]
     losers  = [(c, p) for t, c, p in movers if t == "loss"]
     if gainers or losers:
-        mover_badges = [
-            html.Div("Top Gainers", style=dict(
-                fontSize="0.68rem", color=C["buy"], fontWeight=700,
-                textTransform="uppercase", letterSpacing="0.08em",
-                marginRight="4px", alignSelf="center",
-            )),
-            *[_mover_badge(c, p, True)  for c, p in gainers],
-            html.Div("", style=dict(width="1px", background=C["border"],
-                                    margin="0 12px", alignSelf="stretch")),
-            html.Div("Top Losers", style=dict(
-                fontSize="0.68rem", color=C["sell"], fontWeight=700,
-                textTransform="uppercase", letterSpacing="0.08em",
-                marginRight="4px", alignSelf="center",
-            )),
-            *[_mover_badge(c, p, False) for c, p in losers],
-        ]
+        parts = []
+        if gainers:
+            parts += [
+                html.Div("Top Gainers", style=dict(
+                    fontSize="0.68rem", color=C["buy"], fontWeight=700,
+                    textTransform="uppercase", letterSpacing="0.08em",
+                    marginRight="4px", alignSelf="center",
+                )),
+                *[_mover_badge(c, p, True) for c, p in gainers],
+            ]
+        if gainers and losers:
+            parts.append(html.Div("", style=dict(
+                width="1px", background=C["border"],
+                margin="0 12px", alignSelf="stretch",
+            )))
+        if losers:
+            parts += [
+                html.Div("Top Losers", style=dict(
+                    fontSize="0.68rem", color=C["sell"], fontWeight=700,
+                    textTransform="uppercase", letterSpacing="0.08em",
+                    marginRight="4px", alignSelf="center",
+                )),
+                *[_mover_badge(c, p, False) for c, p in losers],
+            ]
+        mover_badges = parts
 
     movers_strip = html.Div(mover_badges, style=dict(
         display="flex", gap="8px", flexWrap="wrap", alignItems="center",
         padding="12px 24px", borderBottom=f"1px solid {C['border']}",
         background=C["panel"],
     )) if mover_badges else html.Div()
+
+    # ── Interpretation panel ─────────────────────────────────────────────────
+    interpretation = _build_interpretation(df, stats, movers)
 
     # ── Data table — all 13 NSE columns ─────────────────────────────────────
     df_disp = df.copy()
@@ -2298,7 +2815,7 @@ def _render_results(df):
 
     ], style=dict(padding="16px 24px 32px"))
 
-    return html.Div([stats_strip, movers_strip, table_section])
+    return html.Div([stats_strip, movers_strip, interpretation, table_section])
 
 
 # ── Explorer Callbacks ────────────────────────────────────────────────────────

@@ -18,7 +18,7 @@ export const Navbar: FC = () => {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center gap-6">
-            <Link to="/" className="text-lg font-bold text-sky-400">
+            <Link to="/companies" className="text-lg font-bold text-sky-400">
               NSE Intelligence
             </Link>
             <Link
@@ -27,14 +27,6 @@ export const Navbar: FC = () => {
             >
               Companies
             </Link>
-            {user && (
-              <Link
-                to="/market"
-                className="text-sm text-slate-400 hover:text-slate-200 transition-colors"
-              >
-                Market
-              </Link>
-            )}
           </div>
           <div className="flex items-center gap-3">
             {user ? (

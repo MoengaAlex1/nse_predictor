@@ -33,7 +33,7 @@ from src.models.ensemble import ensemble_predict, generate_signal, compute_ensem
 from scripts.push_to_firestore import (
     get_db, write_snapshot, write_technicals,
     update_company_public, write_market_overview,
-    download_model_from_storage,
+    download_model_from_storage, prune_old_docs,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -246,6 +246,11 @@ def main() -> None:
             write_snapshot(db, res["ticker"], TODAY, res["snapshot"])
             write_technicals(db, res["ticker"], TODAY, res["technicals"])
             update_company_public(db, res["ticker"], res["public_update"])
+            pruned_s = prune_old_docs(db, res["ticker"], "snapshots")
+            pruned_t = prune_old_docs(db, res["ticker"], "technicals")
+            if pruned_s or pruned_t:
+                log.info("Pruned %d snapshot(s) and %d technical(s) for %s",
+                         pruned_s, pruned_t, res["ticker"])
             results.append(res)
             log.info("Written to Firestore: %s", res["ticker"])
 

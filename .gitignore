@@ -18,6 +18,8 @@ env/
 *.log
 stderr.txt
 stdout.txt
+dash_out.txt
+dash_err.txt
 eabl_rerun.txt
 eqty_test.txt
 run_all_output.txt

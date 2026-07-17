@@ -1,0 +1,184 @@
+/* ── NSE Dashboard — Dash 4.4.0 dropdown dark-theme overrides ──────────── */
+
+/* Outer wrapper */
+.dash-dropdown-wrapper {
+  background: #161b22 !important;
+}
+
+/* The visible control box */
+.dash-dropdown {
+  background: #161b22 !important;
+  border: 1px solid #30363d !important;
+  border-radius: 6px !important;
+  color: #e6edf3 !important;
+}
+.dash-dropdown:hover,
+.dash-dropdown:focus-within {
+  border-color: #38bdf8 !important;
+}
+
+/* Selected value text */
+.dash-dropdown-value {
+  color: #e6edf3 !important;
+  background: transparent !important;
+}
+.dash-dropdown-value-item {
+  color: #e6edf3 !important;
+  background: #1e3a4f !important;
+  border-radius: 4px !important;
+  padding: 2px 6px !important;
+}
+
+/* Placeholder */
+.dash-dropdown-placeholder,
+.dash-dropdown-value.dash-dropdown-placeholder {
+  color: #8b949e !important;
+}
+
+/* Trigger arrow */
+.dash-dropdown-trigger,
+.dash-dropdown-trigger-icon {
+  color: #8b949e !important;
+  background: transparent !important;
+}
+
+/* Popup content panel */
+.dash-dropdown-content {
+  background: #161b22 !important;
+  border: 1px solid #30363d !important;
+  border-radius: 6px !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6) !important;
+  z-index: 9999 !important;
+}
+
+/* Search container */
+.dash-dropdown-search-container {
+  background: #0d1117 !important;
+  border-bottom: 1px solid #21262d !important;
+}
+
+/* Search input */
+.dash-dropdown-search,
+.dash-dropdown-search input {
+  background: #0d1117 !important;
+  color: #e6edf3 !important;
+  border: none !important;
+}
+.dash-dropdown-search::placeholder,
+.dash-dropdown-search input::placeholder {
+  color: #8b949e !important;
+}
+.dash-dropdown-search-icon {
+  color: #8b949e !important;
+}
+
+/* Options list */
+.dash-dropdown-options {
+  background: #161b22 !important;
+}
+
+/* Individual options */
+.dash-dropdown-option {
+  background: #161b22 !important;
+  color: #e6edf3 !important;
+  padding: 8px 12px !important;
+}
+.dash-dropdown-option:hover {
+  background: #1f2937 !important;
+  color: #38bdf8 !important;
+}
+.dash-dropdown-option[aria-selected="true"],
+.dash-dropdown-option.dash-dropdown-option-selected {
+  background: #1e3a4f !important;
+  color: #38bdf8 !important;
+  font-weight: 600;
+}
+
+/* Clear / action buttons */
+.dash-dropdown-clear,
+.dash-dropdown-action-button {
+  color: #8b949e !important;
+  background: transparent !important;
+}
+.dash-dropdown-clear:hover,
+.dash-dropdown-action-button:hover {
+  color: #e6edf3 !important;
+}
+
+/* Value count badge (multi-select) */
+.dash-dropdown-value-count {
+  background: #1e3a4f !important;
+  color: #38bdf8 !important;
+  border-radius: 10px !important;
+  padding: 1px 7px !important;
+  font-size: 0.78rem !important;
+}
+
+/* ── dcc.DatePickerRange / dcc.DatePickerSingle ───────────────────────── */
+.DateInput_input,
+.DateInput_input__focused {
+  background-color: #161b22 !important;
+  color: #e6edf3 !important;
+  border-bottom: 2px solid #30363d !important;
+}
+.DateInput_input::placeholder {
+  color: #8b949e !important;
+}
+.DateRangePickerInput,
+.SingleDatePickerInput {
+  background-color: #161b22 !important;
+  border: 1px solid #30363d !important;
+  border-radius: 6px !important;
+}
+.DateRangePickerInput__withBorder {
+  border-color: #30363d !important;
+  background: #161b22 !important;
+}
+.DateRangePickerInput_arrow_svg {
+  fill: #8b949e !important;
+}
+.DayPickerNavigation_button,
+.DayPickerNavigation_button__default {
+  background: #161b22 !important;
+  border: 1px solid #30363d !important;
+}
+.DayPickerNavigation_svg__horizontal {
+  fill: #e6edf3 !important;
+}
+.DayPicker,
+.DayPicker__withBorder,
+.CalendarMonthGrid {
+  background: #161b22 !important;
+}
+.CalendarMonth,
+.CalendarMonth_caption {
+  background: #161b22 !important;
+  color: #e6edf3 !important;
+}
+.CalendarDay__default {
+  background: #161b22 !important;
+  color: #e6edf3 !important;
+  border-color: #21262d !important;
+}
+.CalendarDay__default:hover {
+  background: #1f2937 !important;
+  color: #38bdf8 !important;
+}
+.CalendarDay__selected,
+.CalendarDay__selected:hover {
+  background: #38bdf8 !important;
+  color: #010409 !important;
+}
+.CalendarDay__selected_span {
+  background: #1e3a4f !important;
+  color: #e6edf3 !important;
+}
+.DayPickerKeyboardShortcuts_show__bottomRight::before {
+  border-right-color: #38bdf8 !important;
+}
+
+/* ── Page-level dark scrollbars ─────────────────────────────────────── */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #0d1117; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #38bdf8; }
