@@ -157,41 +157,54 @@ CHART_BASE = dict(template="plotly_dark", paper_bgcolor=C["card"], plot_bgcolor=
 _ARCHIVE_DIR = Path(r"C:\Users\moeng\Downloads\archive")
 
 
-def _build_archive_master() -> pd.DataFrame:
-    """Load all NSE archive CSVs (+ daily patch files) into a single dataframe."""
-    frames = []
-    usecols = ["Date", "Code", "Day Price", "Volume"]
+def _normalise_archive_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalise column names: strip whitespace and lowercase, then rename to canonical."""
+    df.columns = [c.strip() for c in df.columns]
+    lower_map = {c: c.lower() for c in df.columns}
+    df = df.rename(columns=lower_map)
+    canonical = {"date": "Date", "code": "Code", "day price": "Day Price", "volume": "Volume"}
+    return df.rename(columns=canonical)
 
-    paths = sorted(_ARCHIVE_DIR.glob("NSE_data_all_stocks_????.csv"))
-    # Also pick up scraped patch files (NSE_patch_YYYY-MM-DD.csv)
-    patches = sorted(_ARCHIVE_DIR.glob("NSE_patch_*.csv"))
-    for path in paths + patches:
+
+def _build_archive_master() -> pd.DataFrame:
+    """Load all NSE archive CSVs (+ daily patch files) into a single dataframe.
+
+    Handles both old (DATE/CODE uppercase, 2000-2021) and new (Date/Code, 2022+) formats.
+    """
+    frames = []
+
+    def _load_chunk(path: Path) -> None:
         try:
-            chunk = pd.read_csv(path, dtype=str, usecols=lambda c: c.strip() in usecols)
-            chunk.columns = [c.strip() for c in chunk.columns]
-            if "Code" not in chunk.columns or "Day Price" not in chunk.columns:
-                continue
-            chunk["Code"] = chunk["Code"].str.strip()
-            chunk["_dt"] = pd.to_datetime(
-                chunk["Date"].str.strip(), dayfirst=False, format="mixed", errors="coerce"
+            raw = pd.read_csv(path, dtype=str)
+            df  = _normalise_archive_cols(raw)
+            if "Code" not in df.columns or "Day Price" not in df.columns:
+                return
+            df["Code"] = df["Code"].str.strip()
+            df["_dt"] = pd.to_datetime(
+                df["Date"].str.strip(), dayfirst=False, format="mixed", errors="coerce"
             )
-            chunk = chunk.dropna(subset=["_dt"])
-            chunk["Close"] = pd.to_numeric(
-                chunk["Day Price"].str.replace(",", "", regex=False).str.strip(),
+            df = df.dropna(subset=["_dt"])
+            df["Close"] = pd.to_numeric(
+                df["Day Price"].str.replace(",", "", regex=False).str.strip(),
                 errors="coerce",
             )
-            chunk["Volume"] = pd.to_numeric(
-                chunk["Volume"].str.replace(",", "", regex=False).str.strip(),
+            df["Volume"] = pd.to_numeric(
+                df["Volume"].str.replace(",", "", regex=False).str.strip(),
                 errors="coerce",
-            ) if "Volume" in chunk.columns else np.nan
-            chunk = chunk[chunk["Close"] > 0].dropna(subset=["Close"])
-            frames.append(chunk[["_dt", "Code", "Close", "Volume"]])
+            ) if "Volume" in df.columns else np.nan
+            df = df[df["Close"] > 0].dropna(subset=["Close"])
+            frames.append(df[["_dt", "Code", "Close", "Volume"]])
         except Exception:
-            continue
+            pass
+
+    for path in sorted(_ARCHIVE_DIR.glob("NSE_data_all_stocks_????.csv")):
+        _load_chunk(path)
+    for patch in sorted(_ARCHIVE_DIR.glob("NSE_patch_*.csv")):
+        _load_chunk(patch)
+
     if not frames:
         return pd.DataFrame(columns=["_dt", "Code", "Close", "Volume"])
     master = pd.concat(frames, ignore_index=True)
-    # Drop duplicate (date, code) rows — patch files take precedence (they're last)
     master = master.sort_values(["Code", "_dt"])
     master = master.drop_duplicates(subset=["_dt", "Code"], keep="last")
     return master
@@ -226,33 +239,109 @@ def _load_company_archive(code: str):
         return None
 
 
-def _repair_decimal_errors(s: pd.Series, window: int = 5) -> pd.Series:
-    """Fix rows where the decimal point was dropped (e.g. 3540 → 35.40).
-    For each value, compute the median of up to `window` neighbors on each side.
-    If value / local_median is within 15% of 10, 100, or 1000, divide by that factor."""
-    arr = s.values.astype(float)
+def _repair_decimal_errors(s: pd.Series) -> pd.Series:
+    """Fix decimal-point-dropped prices using a trailing-year reference window.
+
+    Why trailing window instead of global median:
+    - Some NSE stocks have genuinely changed price scale over 20 years (e.g. a company
+      at 25 KES in 2006 that declined to 0.68 KES today). Global median would flag
+      the 2006 legitimate prices as corrupt.
+    - Trailing window (preceding ~1 year) gives a clean local reference: for 2026
+      corrupt data, it compares against 2025 correct prices; for 2006 data, it
+      compares against other 2006 prices.
+
+    Algorithm (iterated until stable):
+    1. For each price, compute the log10 median of the preceding 252 rows.
+       Fall back to global log10 median when fewer than 20 preceding rows exist.
+    2. Flag values that are more than 20x ABOVE the trailing reference.
+    3. Among factors 10 / 100 / 1000, pick the one whose result is CLOSEST to
+       the reference median (avoids over-dividing 185 → 0.185 when 1.85 is correct).
+    4. Repeat until convergence so that runs of consecutive corrupt rows are fully
+       resolved in successive passes.
+    """
+    arr = s.values.astype(float).copy()
     n = len(arr)
-    result = arr.copy()
+
+    valid = arr[(arr > 0) & ~np.isnan(arr)]
+    if len(valid) < 10:
+        return s
+
+    LOG_THRESH  = np.log10(20)   # 20x from reference → suspect
+    TRAIL       = 252            # ≈ 1 trading year look-back
+    MIN_CONTEXT = 20             # minimum trailing rows for reliable median
+
+    # Global fallback: used only for the first MIN_CONTEXT rows
+    global_log_med = float(np.median(np.log10(valid)))
+
+    for _ in range(30):
+        changed = False
+        for i in range(n):
+            val = arr[i]
+            if np.isnan(val) or val <= 0:
+                continue
+
+            # Trailing context: preceding rows in the window
+            lo = max(0, i - TRAIL)
+            ctx = arr[lo:i]
+            ctx = ctx[(ctx > 0) & ~np.isnan(ctx)]
+            log_med = float(np.median(np.log10(ctx))) if len(ctx) >= MIN_CONTEXT else global_log_med
+
+            log_val = np.log10(val)
+            if log_val - log_med <= LOG_THRESH:
+                continue  # within expected range — not corrupt
+
+            # Pick the factor whose divided result is CLOSEST to the reference
+            best_candidate, best_dist = None, float("inf")
+            for factor in (1000.0, 100.0, 10.0):
+                candidate = val / factor
+                dist = abs(np.log10(candidate) - log_med)
+                if dist < LOG_THRESH and dist < best_dist:
+                    best_dist, best_candidate = dist, candidate
+
+            if best_candidate is not None:
+                arr[i] = best_candidate
+                changed = True
+
+        if not changed:
+            break
+
+    # Fine-tune pass: catch isolated values that converged to the wrong factor.
+    # Uses BIDIRECTIONAL context (both preceding AND following neighbors) so that
+    # a genuine multi-year price-level change (e.g. stock jumping from 0.45→11.90)
+    # is not mistaken for corruption — because the following rows are also at the
+    # new price level, so the value is NOT an outlier relative to what comes after.
+    FTUNE_LOCAL  = 5
+    FTUNE_THRESH = np.log10(8)
     for i in range(n):
         val = arr[i]
         if np.isnan(val) or val <= 0:
             continue
-        lo = max(0, i - window)
-        hi = min(n, i + window + 1)
-        neighbors = np.concatenate([arr[lo:i], arr[i + 1:hi]])
-        neighbors = neighbors[~np.isnan(neighbors)]
-        neighbors = neighbors[neighbors > 0]
-        if len(neighbors) < 2:
+        lo = max(0, i - FTUNE_LOCAL)
+        hi = min(n, i + FTUNE_LOCAL + 1)
+        ctx_b = arr[lo:i]
+        ctx_a = arr[i + 1:hi]
+        ctx_b = ctx_b[(ctx_b > 0) & ~np.isnan(ctx_b)]
+        ctx_a = ctx_a[(ctx_a > 0) & ~np.isnan(ctx_a)]
+        if len(ctx_b) < 3 or len(ctx_a) < 3:
             continue
-        local_ref = np.median(neighbors)
-        if local_ref <= 0:
+        log_val     = np.log10(val)
+        log_med_b   = float(np.median(np.log10(ctx_b)))
+        log_med_a   = float(np.median(np.log10(ctx_a)))
+        # Value must be above threshold relative to BOTH sides; if it matches
+        # the following prices it's a legitimate step change, not corruption.
+        if log_val - log_med_b <= FTUNE_THRESH or log_val - log_med_a <= FTUNE_THRESH:
             continue
-        ratio = val / local_ref
+        log_med_local = (log_med_b + log_med_a) / 2
+        best_candidate, best_dist = None, float("inf")
         for factor in (1000.0, 100.0, 10.0):
-            if 0.85 * factor <= ratio <= 1.15 * factor:
-                result[i] = val / factor
-                break
-    return pd.Series(result, index=s.index)
+            candidate = val / factor
+            dist = abs(np.log10(candidate) - log_med_local)
+            if dist < FTUNE_THRESH and dist < best_dist:
+                best_dist, best_candidate = dist, candidate
+        if best_candidate is not None:
+            arr[i] = best_candidate
+
+    return pd.Series(arr, index=s.index)
 
 
 def _clean_price_series(s: pd.Series) -> pd.Series:
@@ -2075,8 +2164,8 @@ def _load_archive_range(codes, start_date, end_date):
 
     def _load_one(path):
         try:
-            df = pd.read_csv(path, dtype=str)
-            df.columns = [c.strip() for c in df.columns]
+            raw = pd.read_csv(path, dtype=str)
+            df  = _normalise_archive_cols(raw)
             if "Code" not in df.columns or "Date" not in df.columns:
                 return
             df["Code"] = df["Code"].str.strip()
