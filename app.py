@@ -365,7 +365,12 @@ def _clean_price_series(s: pd.Series) -> pd.Series:
     return s.clip(lower=max(lower, 0.0), upper=upper)
 
 
+_load_df_cache: dict = {}
+
+
 def load_df(ticker: str):
+    if ticker in _load_df_cache:
+        return _load_df_cache[ticker]
     code = ticker.split(".")[0].upper()
     p = DATA_CLEANED / f"{ticker.replace('.','_')}_cleaned.csv"
     if p.exists():
@@ -396,8 +401,11 @@ def load_df(ticker: str):
                                 s[corrupt_orphan] = np.nan
                                 s = s.interpolate(method="time").ffill().bfill()
                                 df[col] = s
+        _load_df_cache[ticker] = df
         return df
-    return _load_company_archive(code)
+    result = _load_company_archive(code)
+    _load_df_cache[ticker] = result
+    return result
 
 
 def _compute_ta_signal(df) -> dict:
@@ -804,24 +812,22 @@ app.layout = html.Div([
     # Permanent overview controls bar — always in DOM, hidden on other tabs
     html.Div([
         html.Div([
-            html.Span("Filter: ", style=dict(color=C["muted"], fontSize="0.8rem", marginRight="6px")),
-            html.Button("All Companies", id="ov-s-all",  n_clicks=0,
-                        style=dict(border=f"1px solid {C['border']}", borderRadius="20px",
-                                   padding="5px 16px", cursor="pointer", fontSize="0.8rem",
-                                   fontWeight=600, background=C["accent"], color=C["header"])),
-            html.Button("Banking",       id="ov-s-banking", n_clicks=0,
-                        style=dict(border=f"1px solid {C['border']}", borderRadius="20px",
-                                   padding="5px 16px", cursor="pointer", fontSize="0.8rem",
-                                   fontWeight=600, background=C["card"], color=C["text"])),
-            html.Button("Telecom",       id="ov-s-telecom", n_clicks=0,
-                        style=dict(border=f"1px solid {C['border']}", borderRadius="20px",
-                                   padding="5px 16px", cursor="pointer", fontSize="0.8rem",
-                                   fontWeight=600, background=C["card"], color=C["text"])),
-            html.Button("Beverages",     id="ov-s-beverages", n_clicks=0,
-                        style=dict(border=f"1px solid {C['border']}", borderRadius="20px",
-                                   padding="5px 16px", cursor="pointer", fontSize="0.8rem",
-                                   fontWeight=600, background=C["card"], color=C["text"])),
-        ], style=dict(display="flex", alignItems="center", flexWrap="wrap", gap="4px")),
+            html.Span("Sector: ", style=dict(color=C["muted"], fontSize="0.8rem", marginRight="6px")),
+            dcc.Dropdown(
+                id="ov-sector-dropdown",
+                options=[{"label": k, "value": k} for k in SECTORS],
+                value="All Companies",
+                clearable=False,
+                style=dict(background=C["card"], color=C["text"], fontSize="0.82rem",
+                           border=f"1px solid {C['border']}", borderRadius="8px",
+                           width="220px", minWidth="180px"),
+            ),
+            # Hidden buttons kept for callback compatibility (no_clicks, never shown)
+            html.Button(id="ov-s-all",       n_clicks=0, style=dict(display="none")),
+            html.Button(id="ov-s-banking",   n_clicks=0, style=dict(display="none")),
+            html.Button(id="ov-s-telecom",   n_clicks=0, style=dict(display="none")),
+            html.Button(id="ov-s-beverages", n_clicks=0, style=dict(display="none")),
+        ], style=dict(display="flex", alignItems="center", flexWrap="wrap", gap="8px")),
         html.Div([
             html.Button("☰  Table", id="ov-v-table", n_clicks=0,
                         style=dict(border=f"1px solid {C['border']}", borderRadius="20px",
@@ -879,20 +885,11 @@ def toggle_controls_bar(tab):
 # ── Overview sector filter (fixed IDs — no pattern matching) ─────────────────
 @app.callback(
     Output("overview-sector","data"),
-    Input("ov-s-all","n_clicks"),
-    Input("ov-s-banking","n_clicks"),
-    Input("ov-s-telecom","n_clicks"),
-    Input("ov-s-beverages","n_clicks"),
+    Input("ov-sector-dropdown","value"),
     prevent_initial_call=True,
 )
-def set_ov_sector(n_all, n_bk, n_tel, n_bev):
-    sector_map = {
-        "ov-s-all":      "All Companies",
-        "ov-s-banking":  "Banking",
-        "ov-s-telecom":  "Telecom",
-        "ov-s-beverages":"Beverages",
-    }
-    return sector_map.get(ctx.triggered_id, "All Companies")
+def set_ov_sector(sector):
+    return sector or "All Companies"
 
 
 # ── Overview view toggle (fixed IDs) ─────────────────────────────────────────
@@ -917,24 +914,7 @@ def update_overview_body(sector, view):
     return _build_overview_content(sector or "All Companies", view or "table")
 
 
-# ── Highlight active sector button ───────────────────────────────────────────
-_btn_base = dict(border=f"1px solid {C['border']}", borderRadius="20px",
-                 padding="5px 16px", cursor="pointer", fontSize="0.8rem", fontWeight=600)
 
-@app.callback(
-    Output("ov-s-all","style"),
-    Output("ov-s-banking","style"),
-    Output("ov-s-telecom","style"),
-    Output("ov-s-beverages","style"),
-    Input("overview-sector","data"),
-)
-def update_sector_btn_styles(sector):
-    sector = sector or "All Companies"
-    keys = ["All Companies","Banking","Telecom","Beverages"]
-    return [dict(**_btn_base,
-                 background=C["accent"] if s==sector else C["card"],
-                 color=C["header"]      if s==sector else C["text"])
-            for s in keys]
 
 
 # ── Highlight active view button ─────────────────────────────────────────────
@@ -1512,6 +1492,11 @@ def _build_summary_table(tickers):
             {"if":{"filter_query":"{Signal} = HOLD"}, "color":C["hold"], "fontWeight":700},
             {"if":{"filter_query":"{Source} = ML"},   "color":C["accent"]},
         ],
+        tooltip_header={
+            "Signal": "BUY = good time to invest · HOLD = keep what you have · SELL = consider exiting",
+            "Source": "ML = AI/machine-learning model (more accurate) · TA = Technical Analysis rules (fallback when no ML data)",
+        },
+        tooltip_delay=0, tooltip_duration=None,
     )
 
 
@@ -1619,9 +1604,10 @@ def build_analytics(days=252, sector="All Companies", heatmap_ticker="SCOM.NR", 
                         marginBottom="4px")),
                     html.Div("If you had invested KES 100 in each company at the start — who made you more money?",
                              style=dict(fontSize="0.72rem", color=C["muted"], marginBottom="8px")),
-                    dcc.Graph(id="chart-indexed",
+                    dcc.Loading(dcc.Graph(id="chart-indexed",
                               figure=chart_comparison_indexed(tickers, days),
                               config=dict(displayModeBar=False)),
+                              type="circle", color=C["accent"]),
                 ], style=dict(flex="2", background=C["card"],
                               border=f"1px solid {C['border']}", borderRadius="10px",
                               padding="16px")),
@@ -1631,9 +1617,10 @@ def build_analytics(days=252, sector="All Companies", heatmap_ticker="SCOM.NR", 
                         marginBottom="4px")),
                     html.Div("Which company gained or lost the most?",
                              style=dict(fontSize="0.72rem", color=C["muted"], marginBottom="8px")),
-                    dcc.Graph(id="chart-ranked",
+                    dcc.Loading(dcc.Graph(id="chart-ranked",
                               figure=chart_performance_ranked(tickers, days),
                               config=dict(displayModeBar=False)),
+                              type="circle", color=C["accent"]),
                 ], style=dict(flex="1", background=C["card"],
                               border=f"1px solid {C['border']}", borderRadius="10px",
                               padding="16px")),
@@ -1646,9 +1633,10 @@ def build_analytics(days=252, sector="All Companies", heatmap_ticker="SCOM.NR", 
                     marginBottom="4px")),
                 html.Div("Actual share price in Kenyan Shillings for each company over the selected period.",
                          style=dict(fontSize="0.72rem", color=C["muted"], marginBottom="8px")),
-                dcc.Graph(id="chart-all-prices",
+                dcc.Loading(dcc.Graph(id="chart-all-prices",
                           figure=chart_all_prices(tickers, days),
                           config=dict(displayModeBar=True, scrollZoom=True)),
+                          type="circle", color=C["accent"]),
             ], style=dict(background=C["card"], border=f"1px solid {C['border']}",
                           borderRadius="10px", padding="16px")),
 
@@ -1679,9 +1667,10 @@ def build_analytics(days=252, sector="All Companies", heatmap_ticker="SCOM.NR", 
                         )),
                 ], style=dict(display="flex", gap="12px", alignItems="center",
                               marginBottom="12px", flexWrap="wrap")),
-                dcc.Graph(id="chart-heatmap",
+                dcc.Loading(dcc.Graph(id="chart-heatmap",
                           figure=chart_monthly_heatmap(heatmap_ticker),
                           config=dict(displayModeBar=False)),
+                          type="circle", color=C["accent"]),
             ], style=dict(background=C["card"], border=f"1px solid {C['border']}",
                           borderRadius="10px", padding="16px")),
 
@@ -1971,8 +1960,17 @@ def _process_csv_quick(n, name, contents, store):
                           style=dict(color=C["buy"])),
                 "company")
     except Exception as e:
+        err = str(e).lower()
+        if any(w in err for w in ("column", "columns", "keyerror")):
+            msg = "CSV must have columns: Date, Open, High, Low, Close, Volume. Please check your file."
+        elif any(w in err for w in ("date", "parse", "time")):
+            msg = "Could not read dates. Ensure the Date column uses YYYY-MM-DD format."
+        elif "empty" in err or "no data" in err:
+            msg = "The file appears to be empty. Please upload a valid CSV with price data."
+        else:
+            msg = "Import failed. Please check your CSV format and try again."
         return (dash.no_update, store or {},
-                html.Span(f"Error: {e}", style=dict(color=C["sell"], fontSize="0.75rem")),
+                html.Span(msg, style=dict(color=C["sell"], fontSize="0.75rem")),
                 dash.no_update)
 
 
