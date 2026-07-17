@@ -154,13 +154,18 @@ CHART_BASE = dict(template="plotly_dark", paper_bgcolor=C["card"], plot_bgcolor=
                   legend=dict(bgcolor="rgba(0,0,0,0)"))
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
+_ARCHIVE_DIR = Path(r"C:\Users\moeng\Downloads\archive")
+
+
 def _build_archive_master() -> pd.DataFrame:
-    """Load all NSE archive CSVs once into a single dataframe keyed by (Date, Code).
-    Called once at module load; subsequent company lookups are O(1) groupby filters."""
-    archive_dir = Path(r"C:\Users\moeng\Downloads\archive")
+    """Load all NSE archive CSVs (+ daily patch files) into a single dataframe."""
     frames = []
     usecols = ["Date", "Code", "Day Price", "Volume"]
-    for path in sorted(archive_dir.glob("NSE_data_all_stocks_????.csv")):
+
+    paths = sorted(_ARCHIVE_DIR.glob("NSE_data_all_stocks_????.csv"))
+    # Also pick up scraped patch files (NSE_patch_YYYY-MM-DD.csv)
+    patches = sorted(_ARCHIVE_DIR.glob("NSE_patch_*.csv"))
+    for path in paths + patches:
         try:
             chunk = pd.read_csv(path, dtype=str, usecols=lambda c: c.strip() in usecols)
             chunk.columns = [c.strip() for c in chunk.columns]
@@ -186,7 +191,9 @@ def _build_archive_master() -> pd.DataFrame:
     if not frames:
         return pd.DataFrame(columns=["_dt", "Code", "Close", "Volume"])
     master = pd.concat(frames, ignore_index=True)
+    # Drop duplicate (date, code) rows — patch files take precedence (they're last)
     master = master.sort_values(["Code", "_dt"])
+    master = master.drop_duplicates(subset=["_dt", "Code"], keep="last")
     return master
 
 
@@ -219,8 +226,38 @@ def _load_company_archive(code: str):
         return None
 
 
+def _repair_decimal_errors(s: pd.Series, window: int = 5) -> pd.Series:
+    """Fix rows where the decimal point was dropped (e.g. 3540 → 35.40).
+    For each value, compute the median of up to `window` neighbors on each side.
+    If value / local_median is within 15% of 10, 100, or 1000, divide by that factor."""
+    arr = s.values.astype(float)
+    n = len(arr)
+    result = arr.copy()
+    for i in range(n):
+        val = arr[i]
+        if np.isnan(val) or val <= 0:
+            continue
+        lo = max(0, i - window)
+        hi = min(n, i + window + 1)
+        neighbors = np.concatenate([arr[lo:i], arr[i + 1:hi]])
+        neighbors = neighbors[~np.isnan(neighbors)]
+        neighbors = neighbors[neighbors > 0]
+        if len(neighbors) < 2:
+            continue
+        local_ref = np.median(neighbors)
+        if local_ref <= 0:
+            continue
+        ratio = val / local_ref
+        for factor in (1000.0, 100.0, 10.0):
+            if 0.85 * factor <= ratio <= 1.15 * factor:
+                result[i] = val / factor
+                break
+    return pd.Series(result, index=s.index)
+
+
 def _clean_price_series(s: pd.Series) -> pd.Series:
-    """Cap price outliers using log-space IQR so single corrupt data points don't spike charts."""
+    """Repair decimal-dropped outliers, then cap remaining spikes with log-space IQR."""
+    s = _repair_decimal_errors(s)
     if len(s) < 10:
         return s
     log_s = np.log(s.clip(lower=1e-6))
@@ -2035,33 +2072,65 @@ def _load_archive_range(codes, start_date, end_date):
     end   = pd.to_datetime(end_date)
     years = range(start.year, end.year + 1)
     frames = []
-    for year in years:
-        path = _ARCHIVE_DIR / f"NSE_data_all_stocks_{year}.csv"
-        if not path.exists():
-            continue
+
+    def _load_one(path):
         try:
             df = pd.read_csv(path, dtype=str)
             df.columns = [c.strip() for c in df.columns]
             if "Code" not in df.columns or "Date" not in df.columns:
-                continue
+                return
             df["Code"] = df["Code"].str.strip()
             if codes:
                 df = df[df["Code"].isin(codes)]
             if df.empty:
-                continue
-            # dayfirst=False: handles M/D/YYYY (2026 files) and named-month formats correctly
+                return
             df["_dt"] = pd.to_datetime(
                 df["Date"].str.strip(), dayfirst=False, format="mixed", errors="coerce"
             )
             df = df.dropna(subset=["_dt"])
             frames.append(df)
         except Exception:
+            pass
+
+    for year in years:
+        _load_one(_ARCHIVE_DIR / f"NSE_data_all_stocks_{year}.csv")
+
+    # Load patch files whose dates fall in the requested range
+    for patch in sorted(_ARCHIVE_DIR.glob("NSE_patch_*.csv")):
+        try:
+            patch_date = pd.to_datetime(patch.stem.replace("NSE_patch_", ""))
+            if start <= patch_date <= end:
+                _load_one(patch)
+        except Exception:
             continue
     if not frames:
         return pd.DataFrame()
     combined = pd.concat(frames, ignore_index=True)
     combined = combined[(combined["_dt"] >= start) & (combined["_dt"] <= end)]
-    return combined.sort_values(["_dt", "Code"]).reset_index(drop=True)
+    combined = combined.sort_values(["_dt", "Code"]).reset_index(drop=True)
+
+    # Repair decimal-point-dropped prices (e.g. 3540 → 35.40) per company per price column
+    _PRICE_REPAIR_COLS = [
+        c for c in ["Day Price", "Day High", "Day Low", "Previous", "12m Low", "12m High"]
+        if c in combined.columns
+    ]
+    for col in _PRICE_REPAIR_COLS:
+        numeric = pd.to_numeric(
+            combined[col].astype(str).str.replace(",", "", regex=False).str.strip(),
+            errors="coerce",
+        )
+        repaired = numeric.copy()
+        for code in combined["Code"].unique():
+            mask = combined["Code"] == code
+            sub_sorted = combined.loc[mask].sort_values("_dt")
+            s = numeric.loc[sub_sorted.index]
+            if s.notna().sum() >= 3:
+                repaired.loc[sub_sorted.index] = _repair_decimal_errors(s).values
+        changed = (repaired - numeric).abs() > 0.01
+        if changed.any():
+            combined.loc[changed, col] = repaired[changed].round(2).astype(str)
+
+    return combined
 
 
 def _to_num(series):
