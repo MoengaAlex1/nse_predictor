@@ -273,6 +273,11 @@ def _repair_decimal_errors(s: pd.Series) -> pd.Series:
     # Global fallback: used only for the first MIN_CONTEXT rows
     global_log_med = float(np.median(np.log10(valid)))
 
+    # Track which indices the main loop modifies so the fine-tune pass can
+    # restrict itself to those rows only — never touching values the main loop
+    # left alone (those are within the 20x threshold and considered legitimate).
+    main_modified: set[int] = set()
+
     for _ in range(30):
         changed = False
         for i in range(n):
@@ -280,7 +285,6 @@ def _repair_decimal_errors(s: pd.Series) -> pd.Series:
             if np.isnan(val) or val <= 0:
                 continue
 
-            # Trailing context: preceding rows in the window
             lo = max(0, i - TRAIL)
             ctx = arr[lo:i]
             ctx = ctx[(ctx > 0) & ~np.isnan(ctx)]
@@ -288,9 +292,8 @@ def _repair_decimal_errors(s: pd.Series) -> pd.Series:
 
             log_val = np.log10(val)
             if log_val - log_med <= LOG_THRESH:
-                continue  # within expected range — not corrupt
+                continue
 
-            # Pick the factor whose divided result is CLOSEST to the reference
             best_candidate, best_dist = None, float("inf")
             for factor in (1000.0, 100.0, 10.0):
                 candidate = val / factor
@@ -301,21 +304,20 @@ def _repair_decimal_errors(s: pd.Series) -> pd.Series:
             if best_candidate is not None:
                 arr[i] = best_candidate
                 changed = True
+                main_modified.add(i)
 
         if not changed:
             break
 
-    # Fine-tune pass: catch isolated values that converged to the wrong factor.
-    # Uses BIDIRECTIONAL context (both preceding AND following neighbors) so that
-    # a genuine multi-year price-level change (e.g. stock jumping from 0.45→11.90)
-    # is not mistaken for corruption — because the following rows are also at the
-    # new price level, so the value is NOT an outlier relative to what comes after.
-    # Run iteratively so that later-fixed neighbors help clean earlier-skipped rows.
+    # Fine-tune pass: only refines rows the main loop already changed.
+    # Bidirectional context prevents confusing a genuine price-level step
+    # change with corruption. Iterating lets later-cleaned neighbours
+    # unblock rows that were skipped in earlier passes.
     FTUNE_LOCAL  = 5
     FTUNE_THRESH = np.log10(8)
     for _ in range(10):
         ftune_changed = False
-        for i in range(n):
+        for i in sorted(main_modified):
             val = arr[i]
             if np.isnan(val) or val <= 0:
                 continue
@@ -345,37 +347,6 @@ def _repair_decimal_errors(s: pd.Series) -> pd.Series:
         if not ftune_changed:
             break
 
-    # End-of-series cleanup: rows too close to the end to have forward context
-    # are checked against a longer backward window only.  Requires 10 stable
-    # preceding rows so that genuine late-era price-level changes are not touched.
-    TRAIL_END  = 10
-    END_THRESH = np.log10(8)
-    for i in range(n):
-        val = arr[i]
-        if np.isnan(val) or val <= 0:
-            continue
-        ctx_a = arr[i + 1:min(n, i + FTUNE_LOCAL + 1)]
-        ctx_a = ctx_a[(ctx_a > 0) & ~np.isnan(ctx_a)]
-        if len(ctx_a) >= 3:
-            continue  # has enough forward context — handled by iterative fine-tune
-        lo = max(0, i - TRAIL_END)
-        ctx_b = arr[lo:i]
-        ctx_b = ctx_b[(ctx_b > 0) & ~np.isnan(ctx_b)]
-        if len(ctx_b) < TRAIL_END:
-            continue
-        log_val   = np.log10(val)
-        log_med_b = float(np.median(np.log10(ctx_b)))
-        if log_val - log_med_b <= END_THRESH:
-            continue
-        best_candidate, best_dist = None, float("inf")
-        for factor in (1000.0, 100.0, 10.0):
-            candidate = val / factor
-            dist = abs(np.log10(candidate) - log_med_b)
-            if dist < END_THRESH and dist < best_dist:
-                best_dist, best_candidate = dist, candidate
-        if best_candidate is not None:
-            arr[i] = best_candidate
-
     return pd.Series(arr, index=s.index)
 
 
@@ -395,10 +366,37 @@ def _clean_price_series(s: pd.Series) -> pd.Series:
 
 
 def load_df(ticker: str):
+    code = ticker.split(".")[0].upper()
     p = DATA_CLEANED / f"{ticker.replace('.','_')}_cleaned.csv"
     if p.exists():
-        return pd.read_csv(p, index_col="Date", parse_dates=True)
-    code = ticker.split(".")[0].upper()
+        df = pd.read_csv(p, index_col="Date", parse_dates=True)
+        # Replace OHLC with archive-repaired prices (decimal corruption fixed there).
+        arc = _load_company_archive(code)
+        if arc is not None and not arc.empty and "Close" in arc.columns:
+            raw_close = df["Close"].copy()
+            arc_close = arc["Close"].reindex(df.index)
+            valid = arc_close.notna()
+            if valid.any():
+                df.loc[valid, "Close"] = arc_close[valid]
+                ratio = arc_close.div(raw_close.replace(0, np.nan)).fillna(1.0).clip(1e-4, 1e4)
+                for col in ["Open", "High", "Low"]:
+                    if col in df.columns:
+                        df.loc[valid, col] = (df[col].mul(ratio)).loc[valid]
+                # Pass 2: for dates not in archive that are still clearly corrupt
+                # (>20x from the archive-corrected median), interpolate from neighbors.
+                if not valid.all():
+                    close = df["Close"].astype(float)
+                    log_close = np.log(close.clip(lower=1e-9))
+                    log_med = float(np.median(log_close[valid]))
+                    corrupt_orphan = ~valid & (np.abs(log_close - log_med) > np.log(20))
+                    if corrupt_orphan.any():
+                        for col in ["Close", "Open", "High", "Low"]:
+                            if col in df.columns:
+                                s = df[col].astype(float).copy()
+                                s[corrupt_orphan] = np.nan
+                                s = s.interpolate(method="time").ffill().bfill()
+                                df[col] = s
+        return df
     return _load_company_archive(code)
 
 
