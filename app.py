@@ -310,33 +310,68 @@ def _repair_decimal_errors(s: pd.Series) -> pd.Series:
     # a genuine multi-year price-level change (e.g. stock jumping from 0.45→11.90)
     # is not mistaken for corruption — because the following rows are also at the
     # new price level, so the value is NOT an outlier relative to what comes after.
+    # Run iteratively so that later-fixed neighbors help clean earlier-skipped rows.
     FTUNE_LOCAL  = 5
     FTUNE_THRESH = np.log10(8)
+    for _ in range(10):
+        ftune_changed = False
+        for i in range(n):
+            val = arr[i]
+            if np.isnan(val) or val <= 0:
+                continue
+            lo = max(0, i - FTUNE_LOCAL)
+            hi = min(n, i + FTUNE_LOCAL + 1)
+            ctx_b = arr[lo:i]
+            ctx_a = arr[i + 1:hi]
+            ctx_b = ctx_b[(ctx_b > 0) & ~np.isnan(ctx_b)]
+            ctx_a = ctx_a[(ctx_a > 0) & ~np.isnan(ctx_a)]
+            if len(ctx_b) < 3 or len(ctx_a) < 3:
+                continue
+            log_val     = np.log10(val)
+            log_med_b   = float(np.median(np.log10(ctx_b)))
+            log_med_a   = float(np.median(np.log10(ctx_a)))
+            if log_val - log_med_b <= FTUNE_THRESH or log_val - log_med_a <= FTUNE_THRESH:
+                continue
+            log_med_local = (log_med_b + log_med_a) / 2
+            best_candidate, best_dist = None, float("inf")
+            for factor in (1000.0, 100.0, 10.0):
+                candidate = val / factor
+                dist = abs(np.log10(candidate) - log_med_local)
+                if dist < FTUNE_THRESH and dist < best_dist:
+                    best_dist, best_candidate = dist, candidate
+            if best_candidate is not None:
+                arr[i] = best_candidate
+                ftune_changed = True
+        if not ftune_changed:
+            break
+
+    # End-of-series cleanup: rows too close to the end to have forward context
+    # are checked against a longer backward window only.  Requires 10 stable
+    # preceding rows so that genuine late-era price-level changes are not touched.
+    TRAIL_END  = 10
+    END_THRESH = np.log10(8)
     for i in range(n):
         val = arr[i]
         if np.isnan(val) or val <= 0:
             continue
-        lo = max(0, i - FTUNE_LOCAL)
-        hi = min(n, i + FTUNE_LOCAL + 1)
-        ctx_b = arr[lo:i]
-        ctx_a = arr[i + 1:hi]
-        ctx_b = ctx_b[(ctx_b > 0) & ~np.isnan(ctx_b)]
+        ctx_a = arr[i + 1:min(n, i + FTUNE_LOCAL + 1)]
         ctx_a = ctx_a[(ctx_a > 0) & ~np.isnan(ctx_a)]
-        if len(ctx_b) < 3 or len(ctx_a) < 3:
+        if len(ctx_a) >= 3:
+            continue  # has enough forward context — handled by iterative fine-tune
+        lo = max(0, i - TRAIL_END)
+        ctx_b = arr[lo:i]
+        ctx_b = ctx_b[(ctx_b > 0) & ~np.isnan(ctx_b)]
+        if len(ctx_b) < TRAIL_END:
             continue
-        log_val     = np.log10(val)
-        log_med_b   = float(np.median(np.log10(ctx_b)))
-        log_med_a   = float(np.median(np.log10(ctx_a)))
-        # Value must be above threshold relative to BOTH sides; if it matches
-        # the following prices it's a legitimate step change, not corruption.
-        if log_val - log_med_b <= FTUNE_THRESH or log_val - log_med_a <= FTUNE_THRESH:
+        log_val   = np.log10(val)
+        log_med_b = float(np.median(np.log10(ctx_b)))
+        if log_val - log_med_b <= END_THRESH:
             continue
-        log_med_local = (log_med_b + log_med_a) / 2
         best_candidate, best_dist = None, float("inf")
         for factor in (1000.0, 100.0, 10.0):
             candidate = val / factor
-            dist = abs(np.log10(candidate) - log_med_local)
-            if dist < FTUNE_THRESH and dist < best_dist:
+            dist = abs(np.log10(candidate) - log_med_b)
+            if dist < END_THRESH and dist < best_dist:
                 best_dist, best_candidate = dist, candidate
         if best_candidate is not None:
             arr[i] = best_candidate
