@@ -14,7 +14,7 @@ import io
 import yfinance as yf
 import pandas as pd
 from pathlib import Path
-from config import NSE_TICKERS, START_DATE, DATA_RAW
+from config import NSE_TICKERS, START_DATE, DATA_RAW, DATA_CLEANED
 
 # Force UTF-8 output on Windows to avoid cp1252 encode errors
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -111,10 +111,19 @@ def fetch_nse_data(
         except Exception as e:
             print(f"  [WARN] NSE archive loader failed ({e}); trying CSV fallback...")
 
+        # Try pre-cleaned CSVs committed to the repo (53 companies included)
+        cleaned_csv = DATA_CLEANED / f"{safe_name}_cleaned.csv"
+        if cleaned_csv.exists():
+            print(f"  Loading from cleaned CSV: {cleaned_csv.name}")
+            df = load_from_csv(cleaned_csv, ticker=ticker)
+            if start:
+                df = df[df.index >= pd.to_datetime(start)]
+            return df
+
         raise ValueError(
-            f"NSE ticker '{ticker}': archive not found.\n"
-            f"Place yearly CSVs in: {Path(r'C:/Users/moeng/Downloads/archive')}\n"
-            f"Or pass --csv path/to/file.csv to the CLI."
+            f"NSE ticker '{ticker}': no data source found.\n"
+            f"Checked: data/raw/{safe_name}_raw.csv, data/cleaned/{safe_name}_cleaned.csv\n"
+            f"Or pass csv_path=... when calling fetch_nse_data()."
         )
 
     # Non-NSE ticker: use yfinance

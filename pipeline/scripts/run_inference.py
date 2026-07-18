@@ -72,6 +72,12 @@ _ARTIFACT_SUFFIXES = [
     "_arima.pkl",
     "_feature_cols.json",
 ]
+_CORE_SUFFIXES = [
+    "_lstm.pt",
+    "_lstm_scaler.pkl",
+    "_xgboost.pkl",
+    "_arima.pkl",
+]
 
 
 # ── Model helpers ─────────────────────────────────────────────────────────────
@@ -95,6 +101,11 @@ def _models_cached(safe: str) -> bool:
     return all((MODELS_TMP / f"{safe}{s}").exists() for s in _ARTIFACT_SUFFIXES)
 
 
+def _core_models_cached(safe: str) -> bool:
+    """True when LSTM/XGBoost/ARIMA artifacts exist but feature_cols.json may be absent."""
+    return all((MODELS_TMP / f"{safe}{s}").exists() for s in _CORE_SUFFIXES)
+
+
 def _load_or_train_models(
     ticker: str,
     safe: str,
@@ -111,7 +122,6 @@ def _load_or_train_models(
     if _models_cached(safe):
         log.info("  Loading saved models for %s", ticker)
         try:
-            # Feature cols
             with open(MODELS_TMP / f"{safe}_feature_cols.json") as f:
                 feature_cols = json.load(f)
 
@@ -127,24 +137,59 @@ def _load_or_train_models(
 
             scaler    = joblib.load(MODELS_TMP / f"{safe}_lstm_scaler.pkl")
             xgb_model = joblib.load(MODELS_TMP / f"{safe}_xgboost.pkl")
-            arima_fit  = joblib.load(MODELS_TMP / f"{safe}_arima.pkl")
+            arima_fit = joblib.load(MODELS_TMP / f"{safe}_arima.pkl")
 
             return lstm_model, scaler, xgb_model, arima_fit, feature_cols, device
 
         except Exception as e:
             log.warning("  Failed to load saved models for %s (%s) — retraining", ticker, e)
 
-    # ── Fallback: train from scratch (should only happen on first-ever run) ───
+    elif _core_models_cached(safe):
+        # feature_cols.json missing (models trained before v2 feature persistence).
+        # Recover feature list from XGBoost's stored feature names — no retraining needed.
+        log.info("  Core models present, feature_cols.json missing for %s — recovering", ticker)
+        try:
+            xgb_model = joblib.load(MODELS_TMP / f"{safe}_xgboost.pkl")
+            feature_cols = list(xgb_model.feature_names_in_)
+            save_feature_cols(feature_cols, ticker, model_dir=MODELS_TMP)
+            log.info("  Recovered %d feature cols for %s from XGBoost", len(feature_cols), ticker)
+
+            n_features = 1 + len(feature_cols)
+            lstm_model = NSELSTMModel(n_features)
+            state = torch.load(
+                MODELS_TMP / f"{safe}_lstm.pt",
+                map_location="cpu",
+                weights_only=True,
+            )
+            lstm_model.load_state_dict(state)
+            lstm_model.eval()
+
+            scaler    = joblib.load(MODELS_TMP / f"{safe}_lstm_scaler.pkl")
+            arima_fit = joblib.load(MODELS_TMP / f"{safe}_arima.pkl")
+
+            try:
+                from scripts.push_to_firestore import upload_model_to_storage
+                fname = f"{safe}_feature_cols.json"
+                upload_model_to_storage(str(MODELS_TMP / fname), f"models/{fname}")
+                log.info("  Uploaded recovered feature_cols.json for %s", ticker)
+            except Exception as ue:
+                log.warning("  Could not upload recovered feature_cols.json: %s", ue)
+
+            return lstm_model, scaler, xgb_model, arima_fit, feature_cols, device
+
+        except Exception as e:
+            log.warning("  Feature recovery failed for %s (%s) — retraining", ticker, e)
+
+    # ── Fallback: train from scratch (first run or all artifacts missing) ─────
     log.info("  No cached models for %s — training (first run or Storage empty)", ticker)
     lstm_model, scaler, _, _ = train_lstm(feature_df, feature_cols, epochs=50, patience=10)
     xgb_model, _, _, _       = train_xgboost(feature_df, feature_cols)
     arima_fit                 = train_arima(cleaned_df["Close"], order=(2, 1, 2))
 
-    # Cache locally and upload so future runs are fast
     MODELS_TMP.mkdir(parents=True, exist_ok=True)
     save_lstm(lstm_model, scaler, ticker, model_dir=MODELS_TMP)
-    save_xgboost(xgb_model, ticker)        # saves to MODELS_DIR; move to tmp too
-    save_arima(arima_fit, ticker)
+    save_xgboost(xgb_model, ticker, model_dir=MODELS_TMP)
+    save_arima(arima_fit, ticker, model_dir=MODELS_TMP)
     save_feature_cols(feature_cols, ticker, model_dir=MODELS_TMP)
 
     try:
@@ -399,6 +444,14 @@ def main() -> None:
     MODELS_TMP.mkdir(parents=True, exist_ok=True)
     db        = get_db()
     companies = load_companies()
+
+    ticker_filter = os.environ.get("NSE_TICKERS_FILTER", "").strip()
+    if ticker_filter:
+        allowed = {t.strip().upper() for t in ticker_filter.split(",") if t.strip()}
+        companies = [c for c in companies if c["ticker"].upper() in allowed]
+        log.info("NSE_TICKERS_FILTER active — running %d/%d companies: %s",
+                 len(companies), len(load_companies()), ", ".join(allowed))
+
     results: list[dict] = []
 
     # Pre-download all model artifacts before parallel inference
