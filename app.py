@@ -4,8 +4,8 @@ Run:  python app.py   →   open http://127.0.0.1:8050
 """
 import sys, io, json, base64, subprocess, tempfile, os
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
-sys.path.insert(0, str(Path(__file__).parent / "pipeline"))  # exposes src.* and pipeline config
+sys.path.insert(0, str(Path(__file__).parent / "pipeline"))  # exposes src.*
+sys.path.insert(0, str(Path(__file__).parent))               # repo root wins (config, data paths)
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
