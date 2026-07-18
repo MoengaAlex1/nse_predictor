@@ -3,12 +3,19 @@ name: Daily NSE Inference
 on:
   schedule:
     - cron: "0 15 * * 1-5"   # 15:00 UTC = 18:00 EAT, Mon–Fri
-  workflow_dispatch:           # allow manual trigger
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: "Comma-separated tickers to process (blank = all)"
+        required: false
+        default: ""
 
 jobs:
   inference:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Inference loads pre-trained models + runs fast XGBoost/ARIMA.
+    # LSTM forward-pass only (no retraining): ~30 s per company → 62 companies ≈ 35 min
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -28,10 +35,22 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
           FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          NSE_TICKERS_FILTER: ${{ github.event.inputs.tickers }}
         run: |
           cd $GITHUB_WORKSPACE
-          python pipeline/scripts/run_inference.py
+          python pipeline/scripts/run_inference.py 2>&1 | tee /tmp/inference.log
+
+      - name: Upload inference log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inference-log-${{ github.run_id }}
+          path: /tmp/inference.log
+          retention-days: 7
 
       - name: Notify on failure
         if: failure()
-        run: echo "::error::Daily inference failed — check logs above"
+        run: |
+          echo "::error::Daily inference failed — review the artifact log above"
+          echo "Last 30 lines of log:"
+          tail -30 /tmp/inference.log || true

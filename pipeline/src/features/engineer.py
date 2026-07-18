@@ -1,7 +1,8 @@
+import json
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from config import DATA_FEATURES, TOP_FEATURES
+from config import DATA_FEATURES, TOP_FEATURES, MODELS_DIR
 
 try:
     import ta
@@ -111,3 +112,22 @@ def save_features(df: pd.DataFrame, ticker: str) -> Path:
     path = DATA_FEATURES / f"{ticker.replace('.', '_')}_features.csv"
     df.to_csv(path)
     return path
+
+
+def save_feature_cols(feature_cols: list, ticker: str, model_dir: Path = MODELS_DIR) -> Path:
+    """Persist the RFE-selected feature list alongside the model artifacts."""
+    model_dir.mkdir(parents=True, exist_ok=True)
+    path = model_dir / f"{ticker.replace('.', '_')}_feature_cols.json"
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(feature_cols, f)
+    print(f"  Feature cols saved → {path.name}  ({len(feature_cols)} features)")
+    return path
+
+
+def load_feature_cols(ticker: str, model_dir: Path = MODELS_DIR) -> list:
+    """Load the feature list that was used when the model was trained."""
+    path = model_dir / f"{ticker.replace('.', '_')}_feature_cols.json"
+    if not path.exists():
+        raise FileNotFoundError(f"Feature cols not found: {path}")
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)

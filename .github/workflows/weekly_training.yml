@@ -8,7 +8,7 @@ on:
 jobs:
   training:
     runs-on: ubuntu-latest
-    timeout-minutes: 300      # up to 5 hrs for 70 companies
+    timeout-minutes: 360     # 6 hours: 62 companies × ~5 min LSTM + overhead
 
     steps:
       - name: Checkout
@@ -30,8 +30,19 @@ jobs:
           FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
         run: |
           cd $GITHUB_WORKSPACE
-          python pipeline/scripts/run_training.py
+          python pipeline/scripts/run_training.py 2>&1 | tee /tmp/training.log
+
+      - name: Upload training log as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: training-log-${{ github.run_id }}
+          path: /tmp/training.log
+          retention-days: 14
 
       - name: Notify on failure
         if: failure()
-        run: echo "::error::Weekly training failed — check logs above"
+        run: |
+          echo "::error::Weekly training failed — review the artifact log above"
+          echo "Last 50 lines of log:"
+          tail -50 /tmp/training.log || true

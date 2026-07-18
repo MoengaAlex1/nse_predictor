@@ -1,6 +1,5 @@
 """
-PyTorch LSTM — mirrors the plan's architecture (128→64→32 stacked LSTM).
-Replaces tensorflow/keras for Python 3.14 compatibility.
+PyTorch LSTM — 3-layer stacked architecture (128→64→32).
 """
 import numpy as np
 import pandas as pd
@@ -13,14 +12,14 @@ from pathlib import Path
 from config import SEQUENCE_LENGTH, TRAIN_SPLIT, MODELS_DIR
 
 
-# ── Dataset ───────────────────────────────────────────────────────────────
+# ── Dataset ───────────────────────────────────────────────────────────────────
 
 class SequenceDataset(Dataset):
     def __init__(self, data: np.ndarray, seq_len: int = SEQUENCE_LENGTH):
         self.X, self.y = [], []
         for i in range(seq_len, len(data)):
             self.X.append(data[i - seq_len:i])
-            self.y.append(data[i, 0])  # Close price is index 0
+            self.y.append(data[i, 0])  # Close is column 0
         self.X = torch.tensor(np.array(self.X), dtype=torch.float32)
         self.y = torch.tensor(np.array(self.y), dtype=torch.float32)
 
@@ -31,7 +30,7 @@ class SequenceDataset(Dataset):
         return self.X[idx], self.y[idx]
 
 
-# ── Model ─────────────────────────────────────────────────────────────────
+# ── Model ─────────────────────────────────────────────────────────────────────
 
 class NSELSTMModel(nn.Module):
     def __init__(self, n_features: int):
@@ -61,13 +60,13 @@ class NSELSTMModel(nn.Module):
         out = self.bn2(out.transpose(1, 2)).transpose(1, 2)
 
         out, _ = self.lstm3(out)
-        out = self.drop3(out[:, -1, :])  # last timestep
+        out = self.drop3(out[:, -1, :])  # last timestep only
 
         out = self.relu(self.fc1(out))
         return self.fc2(out).squeeze(1)
 
 
-# ── Training ──────────────────────────────────────────────────────────────
+# ── Training ──────────────────────────────────────────────────────────────────
 
 def train_lstm(
     df: pd.DataFrame,
@@ -78,24 +77,40 @@ def train_lstm(
     patience: int = 15,
     lr: float = 1e-3,
 ):
+    """
+    Train LSTM on chronological 80/10/10 split.
+    Returns (model, scaler, test_ds, device).
+    The scaler is fitted ONLY on training data to prevent look-ahead bias.
+    """
+    torch.manual_seed(42)
+    np.random.seed(42)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[LSTM] Training on {device}")
 
-    data = df[[target_col] + feature_cols].values
-    split = int(len(data) * TRAIN_SPLIT)
-    train_data, test_data = data[:split], data[split:]
+    cols = [target_col] + feature_cols
+    data = df[cols].values.astype(float)
 
+    split = int(len(data) * TRAIN_SPLIT)
+    val_size = int(split * 0.1)
+    train_end = split - val_size
+
+    train_data = data[:train_end]
+    val_data   = data[train_end:split]
+    test_data  = data[split:]
+
+    # Fit scaler on training data only
     scaler = MinMaxScaler(feature_range=(0, 1))
     train_scaled = scaler.fit_transform(train_data)
+    val_scaled   = scaler.transform(val_data)
     test_scaled  = scaler.transform(test_data)
-
-    val_size = int(len(train_scaled) * 0.1)
-    val_scaled   = train_scaled[-val_size:]
-    train_scaled = train_scaled[:-val_size]
 
     train_ds = SequenceDataset(train_scaled)
     val_ds   = SequenceDataset(val_scaled)
     test_ds  = SequenceDataset(test_scaled)
+
+    if len(train_ds) == 0:
+        raise ValueError(f"Training set too small after sequence splitting (need >{SEQUENCE_LENGTH} rows)")
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=False)
     val_loader   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False)
@@ -113,7 +128,6 @@ def train_lstm(
     no_improve = 0
 
     for epoch in range(1, epochs + 1):
-        # Train
         model.train()
         train_loss = 0.0
         for X_batch, y_batch in train_loader:
@@ -122,18 +136,17 @@ def train_lstm(
             pred = model(X_batch)
             loss = criterion(pred, y_batch)
             loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             train_loss += loss.item() * len(y_batch)
         train_loss /= len(train_ds)
 
-        # Validate
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
             for X_batch, y_batch in val_loader:
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-                pred = model(X_batch)
-                val_loss += criterion(pred, y_batch).item() * len(y_batch)
+                val_loss += criterion(model(X_batch), y_batch).item() * len(y_batch)
         val_loss /= max(len(val_ds), 1)
 
         scheduler.step(val_loss)
@@ -146,7 +159,7 @@ def train_lstm(
             no_improve += 1
 
         if epoch % 10 == 0 or epoch == 1:
-            print(f"  Epoch {epoch:3d}/{epochs} — train_loss: {train_loss:.6f}  val_loss: {val_loss:.6f}")
+            print(f"  Epoch {epoch:3d}/{epochs} — train: {train_loss:.6f}  val: {val_loss:.6f}")
 
         if no_improve >= patience:
             print(f"  Early stopping at epoch {epoch}")
@@ -158,8 +171,16 @@ def train_lstm(
     return model, scaler, test_ds, device
 
 
-def lstm_predict(model, test_ds: SequenceDataset, scaler, device,
-                 n_price_features: int) -> tuple[np.ndarray, np.ndarray]:
+# ── Evaluation (test-set, used during training to log metrics) ────────────────
+
+def lstm_predict(
+    model: NSELSTMModel,
+    test_ds: SequenceDataset,
+    scaler,
+    device,
+    n_total_features: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Run model on prebuilt test SequenceDataset and return (preds, actuals) in original scale."""
     model.eval()
     loader = DataLoader(test_ds, batch_size=64, shuffle=False)
     preds, actuals = [], []
@@ -169,29 +190,105 @@ def lstm_predict(model, test_ds: SequenceDataset, scaler, device,
             preds.extend(pred)
             actuals.extend(y_batch.numpy())
 
-    # Inverse-transform the Close price (index 0)
     def inverse_close(vals):
-        dummy = np.zeros((len(vals), n_price_features))
+        dummy = np.zeros((len(vals), n_total_features))
         dummy[:, 0] = vals
         return scaler.inverse_transform(dummy)[:, 0]
 
     return inverse_close(np.array(preds)), inverse_close(np.array(actuals))
 
 
-def save_lstm(model, scaler, ticker: str) -> Path:
-    MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    torch.save(model.state_dict(), MODELS_DIR / f"{ticker.replace('.', '_')}_lstm.pt")
-    joblib.dump(scaler, MODELS_DIR / f"{ticker.replace('.', '_')}_lstm_scaler.pkl")
-    print(f"  LSTM model saved -> {ticker}_lstm.pt")
-    return MODELS_DIR
+# ── Forward Prediction (used during inference) ────────────────────────────────
 
-
-def load_lstm(ticker: str, n_features: int):
-    model = NSELSTMModel(n_features)
-    model.load_state_dict(
-        torch.load(MODELS_DIR / f"{ticker.replace('.', '_')}_lstm.pt",
-                   map_location="cpu")
-    )
+def lstm_predict_next(
+    model: NSELSTMModel,
+    df: pd.DataFrame,
+    feature_cols: list,
+    scaler,
+    device,
+    seq_len: int = SEQUENCE_LENGTH,
+) -> float:
+    """
+    Predict the NEXT trading day's Close price.
+    Uses the most recent seq_len rows as the lookback window.
+    """
     model.eval()
-    scaler = joblib.load(MODELS_DIR / f"{ticker.replace('.', '_')}_lstm_scaler.pkl")
+    cols = ["Close"] + feature_cols
+    data = df[cols].values.astype(float)
+    if len(data) < seq_len:
+        raise ValueError(f"Need >= {seq_len} rows for prediction, got {len(data)}")
+
+    window = scaler.transform(data[-seq_len:])
+    x = torch.tensor(window[np.newaxis], dtype=torch.float32).to(device)
+    with torch.no_grad():
+        pred_scaled = model(x).item()
+
+    dummy = np.zeros((1, window.shape[1]))
+    dummy[0, 0] = pred_scaled
+    return float(scaler.inverse_transform(dummy)[0, 0])
+
+
+def lstm_forecast_30d(
+    model: NSELSTMModel,
+    df: pd.DataFrame,
+    feature_cols: list,
+    scaler,
+    device,
+    seq_len: int = SEQUENCE_LENGTH,
+    steps: int = 30,
+) -> list[float]:
+    """
+    Multi-step rolling forecast: each predicted Close feeds back into next window.
+    Non-Close features are carried forward from the last known row.
+    Accuracy degrades beyond 5-10 steps — use ARIMA for longer horizons.
+    """
+    model.eval()
+    cols = ["Close"] + feature_cols
+    data = df[cols].values.astype(float)
+    if len(data) < seq_len:
+        raise ValueError(f"Need >= {seq_len} rows for forecast, got {len(data)}")
+
+    window = scaler.transform(data[-seq_len:]).copy()
+    forecasts = []
+
+    for _ in range(steps):
+        x = torch.tensor(window[np.newaxis], dtype=torch.float32).to(device)
+        with torch.no_grad():
+            pred_scaled = model(x).item()
+
+        dummy = np.zeros((1, window.shape[1]))
+        dummy[0, 0] = pred_scaled
+        pred_price = float(scaler.inverse_transform(dummy)[0, 0])
+        forecasts.append(pred_price)
+
+        new_row = window[-1].copy()
+        new_row[0] = pred_scaled
+        window = np.vstack([window[1:], new_row])
+
+    return forecasts
+
+
+# ── Save / Load ───────────────────────────────────────────────────────────────
+
+def save_lstm(model: NSELSTMModel, scaler, ticker: str, model_dir: Path = MODELS_DIR) -> Path:
+    model_dir.mkdir(parents=True, exist_ok=True)
+    safe = ticker.replace(".", "_")
+    torch.save(model.state_dict(), model_dir / f"{safe}_lstm.pt")
+    joblib.dump(scaler, model_dir / f"{safe}_lstm_scaler.pkl")
+    print(f"  LSTM saved → {safe}_lstm.pt")
+    return model_dir
+
+
+def load_lstm(ticker: str, n_features: int, model_dir: Path = MODELS_DIR):
+    """Load LSTM model and scaler from model_dir. n_features = 1 + len(feature_cols)."""
+    safe = ticker.replace(".", "_")
+    model = NSELSTMModel(n_features)
+    state = torch.load(
+        model_dir / f"{safe}_lstm.pt",
+        map_location="cpu",
+        weights_only=True,
+    )
+    model.load_state_dict(state)
+    model.eval()
+    scaler = joblib.load(model_dir / f"{safe}_lstm_scaler.pkl")
     return model, scaler

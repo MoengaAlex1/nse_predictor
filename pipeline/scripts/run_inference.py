@@ -1,6 +1,14 @@
 # pipeline/scripts/run_inference.py
 """
 Daily inference entry point.
+
+Key design decisions:
+- Loads pre-trained models from Firebase Storage (never retrains LSTM/XGBoost).
+- Fallback: if no saved model exists (first run), trains reduced-epoch models.
+- Uses LSTM for true next-day forward prediction (not test-set evaluation).
+- Uses ARIMA's native multi-step forecast for the 30-day price trajectory.
+- Runs up to 4 companies concurrently via ThreadPoolExecutor.
+
 Usage: python pipeline/scripts/run_inference.py
 Env:   FIREBASE_SERVICE_ACCOUNT_JSON, FIREBASE_STORAGE_BUCKET
 """
@@ -14,21 +22,35 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
+import torch
+import joblib
 
 PIPELINE_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PIPELINE_ROOT.parent))
 sys.path.insert(0, str(PIPELINE_ROOT))
 
-from config import load_companies, DEFAULT_INVESTMENT, DEFAULT_CONFIDENCE
+from config import (
+    load_companies, MODELS_DIR,
+    DEFAULT_INVESTMENT, DEFAULT_CONFIDENCE,
+    ENSEMBLE_WEIGHTS, SEQUENCE_LENGTH,
+)
 from src.data.fetcher import fetch_nse_data
 from src.data.cleaner import clean_ohlcv
 from src.analysis.returns import daily_return_analysis
 from src.analysis.moving_averages import compute_moving_averages
 from src.analysis.risk import value_at_risk
-from src.features.engineer import build_feature_matrix, select_top_features
-from src.models.arima_model import arima_predict_test
-from src.models.lstm_model import train_lstm, lstm_predict, save_lstm
-from src.models.xgboost_model import train_xgboost, save_xgboost
+from src.features.engineer import (
+    build_feature_matrix, select_top_features,
+    save_feature_cols, load_feature_cols,
+)
+from src.models.lstm_model import (
+    NSELSTMModel, train_lstm, save_lstm,
+    lstm_predict, lstm_predict_next, lstm_forecast_30d,
+)
+from src.models.xgboost_model import train_xgboost, save_xgboost, load_xgboost
+from src.models.arima_model import (
+    train_arima, arima_forecast, arima_predict_test, save_arima, load_arima,
+)
 from src.models.ensemble import ensemble_predict, generate_signal, compute_ensemble_metrics
 from scripts.push_to_firestore import (
     get_db, write_snapshot, write_technicals,
@@ -40,44 +62,110 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 TODAY = date.today().isoformat()
-MODELS_TMP = Path("/tmp/nse_models")
+MODELS_TMP = Path("/tmp/nse_models")   # ephemeral cache on GitHub Actions runners
+
+# Artifact filenames (must match run_training.py)
+_ARTIFACT_SUFFIXES = [
+    "_lstm.pt",
+    "_lstm_scaler.pkl",
+    "_xgboost.pkl",
+    "_arima.pkl",
+    "_feature_cols.json",
+]
 
 
-def _download_models(ticker: str) -> bool:
-    safe = ticker.replace(".", "_")
-    files = [f"{safe}_lstm.pt", f"{safe}_lstm_scaler.pkl", f"{safe}_xgboost.pkl"]
+# ── Model helpers ─────────────────────────────────────────────────────────────
+
+def _download_models(safe: str) -> bool:
+    """Download all 5 artifacts from Firebase Storage into MODELS_TMP. Returns True if all found."""
     all_ok = True
-    for fname in files:
+    for suffix in _ARTIFACT_SUFFIXES:
+        fname = f"{safe}{suffix}"
         ok = download_model_from_storage(
             storage_path=f"models/{fname}",
             local_path=str(MODELS_TMP / fname),
         )
         if not ok:
-            log.warning("Model not found in Storage: %s — will train from scratch", fname)
+            log.warning("Not found in Storage: %s", fname)
             all_ok = False
     return all_ok
 
 
-def build_company_result(
-    signal: dict,
-    metrics: dict,
-    actuals: np.ndarray,
-    preds: np.ndarray,
-    forecast: np.ndarray,
-) -> dict:
-    return {
-        **signal,
-        "metrics": metrics,
-        "actuals": actuals.tolist(),
-        "preds": preds.tolist(),
-        "forecast": forecast.tolist(),
-    }
+def _models_cached(safe: str) -> bool:
+    return all((MODELS_TMP / f"{safe}{s}").exists() for s in _ARTIFACT_SUFFIXES)
 
+
+def _load_or_train_models(
+    ticker: str,
+    safe: str,
+    feature_df: pd.DataFrame,
+    feature_cols: list,
+    cleaned_df: pd.DataFrame,
+) -> tuple:
+    """
+    Returns (lstm_model, scaler, xgb_model, arima_fitted, feature_cols, device).
+    Attempts to load from MODELS_TMP; falls back to training if artifacts are missing.
+    """
+    device = torch.device("cpu")
+
+    if _models_cached(safe):
+        log.info("  Loading saved models for %s", ticker)
+        try:
+            # Feature cols
+            with open(MODELS_TMP / f"{safe}_feature_cols.json") as f:
+                feature_cols = json.load(f)
+
+            n_features = 1 + len(feature_cols)
+            lstm_model = NSELSTMModel(n_features)
+            state = torch.load(
+                MODELS_TMP / f"{safe}_lstm.pt",
+                map_location="cpu",
+                weights_only=True,
+            )
+            lstm_model.load_state_dict(state)
+            lstm_model.eval()
+
+            scaler    = joblib.load(MODELS_TMP / f"{safe}_lstm_scaler.pkl")
+            xgb_model = joblib.load(MODELS_TMP / f"{safe}_xgboost.pkl")
+            arima_fit  = joblib.load(MODELS_TMP / f"{safe}_arima.pkl")
+
+            return lstm_model, scaler, xgb_model, arima_fit, feature_cols, device
+
+        except Exception as e:
+            log.warning("  Failed to load saved models for %s (%s) — retraining", ticker, e)
+
+    # ── Fallback: train from scratch (should only happen on first-ever run) ───
+    log.info("  No cached models for %s — training (first run or Storage empty)", ticker)
+    lstm_model, scaler, _, _ = train_lstm(feature_df, feature_cols, epochs=50, patience=10)
+    xgb_model, _, _, _       = train_xgboost(feature_df, feature_cols)
+    arima_fit                 = train_arima(cleaned_df["Close"], order=(2, 1, 2))
+
+    # Cache locally and upload so future runs are fast
+    MODELS_TMP.mkdir(parents=True, exist_ok=True)
+    save_lstm(lstm_model, scaler, ticker, model_dir=MODELS_TMP)
+    save_xgboost(xgb_model, ticker)        # saves to MODELS_DIR; move to tmp too
+    save_arima(arima_fit, ticker)
+    save_feature_cols(feature_cols, ticker, model_dir=MODELS_TMP)
+
+    try:
+        from scripts.push_to_firestore import upload_model_to_storage
+        for suffix in _ARTIFACT_SUFFIXES:
+            fname = f"{safe}{suffix}"
+            local = MODELS_TMP / fname
+            if local.exists():
+                upload_model_to_storage(str(local), f"models/{fname}")
+    except Exception as e:
+        log.warning("  Upload after fallback training failed: %s", e)
+
+    return lstm_model, scaler, xgb_model, arima_fit, feature_cols, device
+
+
+# ── Per-company pipeline ──────────────────────────────────────────────────────
 
 def build_technicals_result(df: pd.DataFrame, date_str: str) -> dict:
     try:
         import ta
-        close = df["Close"]
+        close  = df["Close"]
         volume = df["Volume"] if "Volume" in df.columns else pd.Series(0, index=df.index)
 
         rsi    = ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1]
@@ -89,59 +177,42 @@ def build_technicals_result(df: pd.DataFrame, date_str: str) -> dict:
         ema12  = close.ewm(span=12).mean().iloc[-1]
         ema26  = close.ewm(span=26).mean().iloc[-1]
 
-        monthly = (
-            df["Close"].resample("ME").last().pct_change() * 100
-        ).dropna()
-        monthly_heatmap = {
-            str(k)[:7]: round(float(v), 2)
-            for k, v in monthly.items()
-        }
+        monthly = (df["Close"].resample("ME").last().pct_change() * 100).dropna()
+        monthly_heatmap = {str(k)[:7]: round(float(v), 2) for k, v in monthly.items()}
 
         def _f(x):
             return None if (isinstance(x, float) and np.isnan(x)) else round(float(x), 4)
 
         return {
-            "date": date_str,
-            "rsi_14":        _f(rsi),
-            "macd":          _f(macd_i.macd().iloc[-1]),
-            "macd_signal":   _f(macd_i.macd_signal().iloc[-1]),
-            "macd_hist":     _f(macd_i.macd_diff().iloc[-1]),
-            "bb_upper":      _f(bb.bollinger_hband().iloc[-1]),
-            "bb_mid":        _f(bb.bollinger_mavg().iloc[-1]),
-            "bb_lower":      _f(bb.bollinger_lband().iloc[-1]),
-            "sma_20":        _f(sma20),
-            "sma_50":        _f(sma50),
-            "sma_200":       _f(sma200),
-            "ema_12":        _f(ema12),
-            "ema_26":        _f(ema26),
-            "volume":        int(volume.iloc[-1]) if len(volume) else 0,
+            "date":           date_str,
+            "rsi_14":         _f(rsi),
+            "macd":           _f(macd_i.macd().iloc[-1]),
+            "macd_signal":    _f(macd_i.macd_signal().iloc[-1]),
+            "macd_hist":      _f(macd_i.macd_diff().iloc[-1]),
+            "bb_upper":       _f(bb.bollinger_hband().iloc[-1]),
+            "bb_mid":         _f(bb.bollinger_mavg().iloc[-1]),
+            "bb_lower":       _f(bb.bollinger_lband().iloc[-1]),
+            "sma_20":         _f(sma20),
+            "sma_50":         _f(sma50),
+            "sma_200":        _f(sma200),
+            "ema_12":         _f(ema12),
+            "ema_26":         _f(ema26),
+            "volume":         int(volume.iloc[-1]) if len(volume) else 0,
             "avg_volume_30d": int(volume.tail(30).mean()) if len(volume) else 0,
-            "daily_return":  _f(df["Close"].pct_change().iloc[-1] * 100),
+            "daily_return":   _f(df["Close"].pct_change().iloc[-1] * 100),
             "volatility_30d": _f(df["Close"].pct_change().tail(30).std() * 100),
             "monthly_heatmap": monthly_heatmap,
         }
     except Exception as e:
         log.error("Technicals failed: %s", e)
         return {
-            "date": date_str,
-            "error": str(e),
-            "rsi_14": None,
-            "macd": None,
-            "macd_signal": None,
-            "macd_hist": None,
-            "bb_upper": None,
-            "bb_mid": None,
-            "bb_lower": None,
-            "sma_20": None,
-            "sma_50": None,
-            "sma_200": None,
-            "ema_12": None,
-            "ema_26": None,
-            "volume": 0,
-            "avg_volume_30d": 0,
-            "daily_return": None,
-            "volatility_30d": None,
-            "monthly_heatmap": {},
+            "date": date_str, "error": str(e),
+            "rsi_14": None, "macd": None, "macd_signal": None, "macd_hist": None,
+            "bb_upper": None, "bb_mid": None, "bb_lower": None,
+            "sma_20": None, "sma_50": None, "sma_200": None,
+            "ema_12": None, "ema_26": None,
+            "volume": 0, "avg_volume_30d": 0,
+            "daily_return": None, "volatility_30d": None, "monthly_heatmap": {},
         }
 
 
@@ -152,57 +223,148 @@ def run_company(company: dict) -> dict | None:
     log.info("Processing %s ...", ticker)
 
     try:
-        raw_df = fetch_nse_data(ticker, csv_path=str(csv_p) if csv_p.exists() else None)
+        # ── 1. Data ──────────────────────────────────────────────────────────
+        raw_df     = fetch_nse_data(ticker, csv_path=str(csv_p) if csv_p.exists() else None)
         cleaned_df, _ = clean_ohlcv(raw_df, ticker=ticker)
+        ret_df, _  = daily_return_analysis(cleaned_df)
+        ma_df      = compute_moving_averages(ret_df)
+        var_res    = value_at_risk(cleaned_df, investment=DEFAULT_INVESTMENT,
+                                   confidence=DEFAULT_CONFIDENCE)
+        feature_df = build_feature_matrix(ma_df)
 
-        ret_df, _   = daily_return_analysis(cleaned_df)
-        ma_df       = compute_moving_averages(ret_df)
-        var_res     = value_at_risk(cleaned_df, investment=DEFAULT_INVESTMENT,
-                                    confidence=DEFAULT_CONFIDENCE)
-        feature_df  = build_feature_matrix(ma_df)
-        feature_cols = select_top_features(feature_df)
+        # Use placeholder feature_cols; _load_or_train_models will override from saved JSON
+        placeholder_cols = select_top_features(feature_df) if not _models_cached(safe) else []
 
-        arima_preds, arima_actuals = arima_predict_test(cleaned_df["Close"])
+        # ── 2. Load (or train) models ─────────────────────────────────────────
+        lstm_model, scaler, xgb_model, arima_fit, feature_cols, device = (
+            _load_or_train_models(ticker, safe, feature_df, placeholder_cols, cleaned_df)
+        )
 
-        model, scaler, test_ds, device = train_lstm(feature_df, feature_cols)
-        n_price = 1 + len(feature_cols)
-        lstm_preds, lstm_actuals = lstm_predict(model, test_ds, scaler, device, n_price)
+        # Ensure feature_df contains all required columns
+        missing = [c for c in feature_cols if c not in feature_df.columns]
+        if missing:
+            log.warning("%s: %d feature cols missing from current data, rebuilding features", ticker, len(missing))
+            feature_df = build_feature_matrix(ma_df)
 
-        xgb_model, _, xgb_actuals, xgb_preds = train_xgboost(feature_df, feature_cols)
+        # ── 3. Next-day predictions from each model ───────────────────────────
+        # LSTM: true forward prediction on most recent SEQUENCE_LENGTH rows
+        try:
+            lstm_next = lstm_predict_next(lstm_model, feature_df, feature_cols, scaler, device)
+        except Exception as e:
+            log.warning("%s LSTM predict_next failed (%s) — using last Close", ticker, e)
+            lstm_next = float(cleaned_df["Close"].iloc[-1])
 
-        n = min(len(lstm_preds), len(xgb_preds), len(arima_preds))
-        ens_preds   = ensemble_predict(lstm_preds[-n:], xgb_preds[-n:], arima_preds[-n:])
-        ens_metrics = compute_ensemble_metrics(lstm_actuals[-n:], ens_preds)
+        # XGBoost: predict on the last row of feature matrix
+        last_row = feature_df[feature_cols].iloc[[-1]]
+        xgb_next = float(xgb_model.predict(last_row)[0])
 
-        current_price  = float(cleaned_df["Close"].iloc[-1])
-        predicted_next = float(ens_preds[-1]) if len(ens_preds) > 0 else current_price
-        var_pct        = var_res["historical_var_pct"]
-        signal_result  = generate_signal(current_price, predicted_next, var_pct)
+        # ARIMA: refit on latest Close and forecast 30 days
+        # We refit because ARIMA state degrades without new data; it's fast (< 1s)
+        try:
+            arima_fit_latest = train_arima(cleaned_df["Close"], order=(2, 1, 2))
+            arima_30d = arima_forecast(arima_fit_latest, steps=30).tolist()
+        except Exception as e:
+            log.warning("%s ARIMA refit failed (%s) — using loaded model", ticker, e)
+            arima_30d = arima_forecast(arima_fit, steps=30).tolist()
 
-        forecast = [float(predicted_next)] * 30
+        arima_next = arima_30d[0]
 
-        snapshot   = build_company_result(signal_result, ens_metrics,
-                                          lstm_actuals[-n:], ens_preds, np.array(forecast))
+        # ── 4. Ensemble next-day prediction ───────────────────────────────────
+        w_lstm, w_xgb, w_arima = ENSEMBLE_WEIGHTS
+        predicted_next = w_lstm * lstm_next + w_xgb * xgb_next + w_arima * arima_next
+
+        # ── 5. 30-day forecast for display ───────────────────────────────────
+        # Use ARIMA for the trajectory (native multi-step); blend with LSTM rolling
+        try:
+            lstm_30d = lstm_forecast_30d(lstm_model, feature_df, feature_cols, scaler, device)
+            forecast_30d = [
+                round(w_lstm * l + w_arima * a + w_xgb * xgb_next, 4)
+                for l, a in zip(lstm_30d, arima_30d)
+            ]
+        except Exception as e:
+            log.warning("%s LSTM 30d forecast failed (%s) — using ARIMA only", ticker, e)
+            forecast_30d = [round(float(v), 4) for v in arima_30d]
+
+        # ── 6. Ensemble metrics on historical test set (diagnostic) ──────────
+        try:
+            from src.models.lstm_model import lstm_predict, SequenceDataset
+            from src.data.cleaner import clean_ohlcv
+            from sklearn.preprocessing import MinMaxScaler
+            import math
+
+            cols_for_eval = ["Close"] + feature_cols
+            data_eval = feature_df[cols_for_eval].values.astype(float)
+            split = int(len(data_eval) * 0.80)
+            test_data = data_eval[split:]
+
+            test_scaled = scaler.transform(test_data)
+            test_ds = SequenceDataset(test_scaled)
+
+            if len(test_ds) >= 2:
+                lstm_preds_hist, lstm_act_hist = lstm_predict(
+                    lstm_model, test_ds, scaler, device, 1 + len(feature_cols)
+                )
+                arima_preds_hist, arima_act_hist = arima_predict_test(cleaned_df["Close"])
+                xgb_preds_hist = xgb_model.predict(feature_df[feature_cols].iloc[split:])
+                xgb_act_hist   = feature_df["Close"].iloc[split:].values
+
+                n = min(len(lstm_preds_hist), len(xgb_preds_hist), len(arima_preds_hist))
+                ens_h = ensemble_predict(
+                    lstm_preds_hist[-n:], xgb_preds_hist[-n:], arima_preds_hist[-n:]
+                )
+                ens_metrics = compute_ensemble_metrics(lstm_act_hist[-n:], ens_h)
+                actuals_out = lstm_act_hist[-n:].tolist()
+                preds_out   = ens_h.tolist()
+            else:
+                ens_metrics = {"rmse": None, "mae": None, "mape": None, "directional_accuracy": None}
+                actuals_out = []
+                preds_out   = []
+        except Exception as e:
+            log.warning("%s metrics eval failed: %s", ticker, e)
+            ens_metrics = {"rmse": None, "mae": None, "mape": None, "directional_accuracy": None}
+            actuals_out = []
+            preds_out   = []
+
+        # ── 7. Signal generation ──────────────────────────────────────────────
+        current_price = float(cleaned_df["Close"].iloc[-1])
+        var_pct       = var_res["historical_var_pct"]
+        signal_result = generate_signal(current_price, predicted_next, var_pct)
+
+        # ── 8. Build Firestore payloads ───────────────────────────────────────
+        snapshot = {
+            **signal_result,
+            "metrics":  ens_metrics,
+            "actuals":  actuals_out,
+            "preds":    preds_out,
+            "forecast": forecast_30d,
+            "lstm_next":   round(lstm_next, 4),
+            "xgb_next":    round(xgb_next, 4),
+            "arima_next":  round(arima_next, 4),
+        }
+
         technicals = build_technicals_result(cleaned_df, TODAY)
 
-        price_preview = cleaned_df["Close"].tail(30).tolist()
+        change_pct = float(cleaned_df["Close"].pct_change().iloc[-1] * 100)
 
         return {
             "ticker": safe,
             "snapshot": snapshot,
             "technicals": technicals,
             "public_update": {
-                "current_price": current_price,
-                "change_pct_today": float(cleaned_df["Close"].pct_change().iloc[-1] * 100),
-                "signal": signal_result["signal"],
-                "price_preview": price_preview,
-                "last_updated": TODAY,
+                "current_price":    round(current_price, 4),
+                "change_pct_today": round(change_pct, 4),
+                "signal":           signal_result["signal"],
+                "price_preview":    [round(float(x), 4) for x in cleaned_df["Close"].tail(30).tolist()],
+                "last_updated":     TODAY,
             },
         }
+
     except Exception as e:
         log.error("FAILED %s: %s", ticker, e, exc_info=True)
         return None
 
+
+# ── Market overview aggregation ───────────────────────────────────────────────
 
 def aggregate_market_overview(results: list[dict]) -> dict:
     rows: list[tuple[str, float]] = []
@@ -221,15 +383,17 @@ def aggregate_market_overview(results: list[dict]) -> dict:
     top_losers  = [{"ticker": t, "change_pct": round(c, 2)} for t, c in rows[-5:]]
 
     return {
-        "date": TODAY,
-        "top_gainers": top_gainers,
-        "top_losers": top_losers,
+        "date":                TODAY,
+        "top_gainers":         top_gainers,
+        "top_losers":          top_losers,
         "signal_distribution": signals,
-        "sector_performance": {},
-        "nse20_value": None,
-        "nse20_change_pct": None,
+        "sector_performance":  {},
+        "nse20_value":         None,
+        "nse20_change_pct":    None,
     }
 
+
+# ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
     MODELS_TMP.mkdir(parents=True, exist_ok=True)
@@ -237,6 +401,15 @@ def main() -> None:
     companies = load_companies()
     results: list[dict] = []
 
+    # Pre-download all model artifacts before parallel inference
+    # (avoids concurrent Firebase Storage requests racing for the same files)
+    log.info("Pre-downloading model artifacts for %d companies...", len(companies))
+    for company in companies:
+        safe = company["ticker"].replace(".", "_")
+        if not _models_cached(safe):
+            _download_models(safe)
+
+    log.info("Starting inference with 4 parallel workers...")
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(run_company, c): c for c in companies}
         for fut in as_completed(futures):
@@ -246,17 +419,25 @@ def main() -> None:
             write_snapshot(db, res["ticker"], TODAY, res["snapshot"])
             write_technicals(db, res["ticker"], TODAY, res["technicals"])
             update_company_public(db, res["ticker"], res["public_update"])
-            pruned_s = prune_old_docs(db, res["ticker"], "snapshots")
-            pruned_t = prune_old_docs(db, res["ticker"], "technicals")
-            if pruned_s or pruned_t:
-                log.info("Pruned %d snapshot(s) and %d technical(s) for %s",
-                         pruned_s, pruned_t, res["ticker"])
+            ps = prune_old_docs(db, res["ticker"], "snapshots")
+            pt = prune_old_docs(db, res["ticker"], "technicals")
+            if ps or pt:
+                log.info("  Pruned %d snapshot(s), %d technical(s) for %s", ps, pt, res["ticker"])
             results.append(res)
-            log.info("Written to Firestore: %s", res["ticker"])
+            log.info("Written to Firestore: %-20s signal=%s  price=%.2f",
+                     res["ticker"],
+                     res["public_update"]["signal"],
+                     res["public_update"]["current_price"])
 
     overview = aggregate_market_overview(results)
     write_market_overview(db, TODAY, overview)
-    log.info("Market overview written. Done — %d companies processed.", len(results))
+    log.info(
+        "Done — %d/%d companies processed. Signals: BUY=%d HOLD=%d SELL=%d",
+        len(results), len(companies),
+        overview["signal_distribution"].get("BUY", 0),
+        overview["signal_distribution"].get("HOLD", 0),
+        overview["signal_distribution"].get("SELL", 0),
+    )
 
 
 if __name__ == "__main__":
