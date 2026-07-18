@@ -155,7 +155,7 @@ CHART_BASE = dict(template="plotly_dark", paper_bgcolor=C["card"], plot_bgcolor=
                   legend=dict(bgcolor="rgba(0,0,0,0)"))
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
-_ARCHIVE_DIR = Path(r"C:\Users\moeng\Downloads\archive")
+_ARCHIVE_DIR = Path(os.environ.get("NSE_ARCHIVE_DIR", r"C:\Users\moeng\Downloads\archive"))
 
 
 def _normalise_archive_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -198,10 +198,11 @@ def _build_archive_master() -> pd.DataFrame:
         except Exception:
             pass
 
-    for path in sorted(_ARCHIVE_DIR.glob("NSE_data_all_stocks_????.csv")):
-        _load_chunk(path)
-    for patch in sorted(_ARCHIVE_DIR.glob("NSE_patch_*.csv")):
-        _load_chunk(patch)
+    if _ARCHIVE_DIR.exists():
+        for path in sorted(_ARCHIVE_DIR.glob("NSE_data_all_stocks_????.csv")):
+            _load_chunk(path)
+        for patch in sorted(_ARCHIVE_DIR.glob("NSE_patch_*.csv")):
+            _load_chunk(patch)
 
     if not frames:
         return pd.DataFrame(columns=["_dt", "Code", "Close", "Volume"])
@@ -462,28 +463,89 @@ def risk_label(var_pct):
     return "High", C["sell"]
 
 # ── Chart builders ────────────────────────────────────────────────────────────
-def chart_price_simple(df, ticker, days=252):
+def chart_price_simple(df, ticker, days=252, chart_type="line"):
     meta = COMPANIES.get(ticker, {})
     name = meta.get("name", ticker)
     color = meta.get("color", C["accent"])
     sub = df.tail(min(days, len(df)))
-    fig = go.Figure()
-    # Fill area under price line
-    fig.add_trace(go.Scatter(
-        x=sub.index, y=sub["Close"], name="Price",
-        line=dict(color=color, width=2),
-        fill="tozeroy", fillcolor=color.replace(")", ",0.08)").replace("rgb","rgba") if "rgb" in color else f"rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.08)",
-    ))
-    # Simple 50-day average line
-    if len(sub) > 50:
-        avg = sub["Close"].rolling(50).mean()
-        fig.add_trace(go.Scatter(x=sub.index, y=avg, name="50-day average",
-                                 line=dict(color="#ffffff", width=1, dash="dot"), opacity=0.5))
-    fig.update_layout(**CHART_BASE, height=320,
-                      title=dict(text=f"{name} — Price History (KES)", font=dict(color=color)),
-                      xaxis_title="", yaxis_title="Price (KES)")
-    fig.update_xaxes(gridcolor=C["border"], zeroline=False)
-    fig.update_yaxes(gridcolor=C["border"], zeroline=False)
+
+    has_ohlc = all(c in sub.columns for c in ["Open", "High", "Low", "Close"])
+    has_vol  = "Volume" in sub.columns and sub["Volume"].sum() > 0
+
+    if has_vol:
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                            row_heights=[0.78, 0.22], vertical_spacing=0.04)
+    else:
+        fig = go.Figure()
+
+    def _add_to(row=1):
+        if chart_type == "candle" and has_ohlc:
+            fig.add_trace(go.Candlestick(
+                x=sub.index,
+                open=sub["Open"], high=sub["High"],
+                low=sub["Low"],   close=sub["Close"],
+                name="OHLC",
+                increasing_line_color=C["buy"],
+                decreasing_line_color=C["sell"],
+                showlegend=False,
+            ), **{"row": row, "col": 1} if has_vol else {})
+        else:
+            hex_c = color.lstrip("#")
+            r, g, b = int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16)
+            fig.add_trace(go.Scatter(
+                x=sub.index, y=sub["Close"], name="Price",
+                line=dict(color=color, width=2),
+                fill="tozeroy", fillcolor=f"rgba({r},{g},{b},0.08)",
+                hovertemplate="<b>%{x|%d %b %Y}</b><br>KES %{y:,.2f}<extra></extra>",
+            ), **{"row": row, "col": 1} if has_vol else {})
+            if len(sub) > 50:
+                avg = sub["Close"].rolling(50).mean()
+                fig.add_trace(go.Scatter(
+                    x=sub.index, y=avg, name="50-day avg",
+                    line=dict(color="#ffffff", width=1, dash="dot"), opacity=0.5,
+                    hovertemplate="50d avg: KES %{y:,.2f}<extra></extra>",
+                ), **{"row": row, "col": 1} if has_vol else {})
+
+    _add_to(row=1)
+
+    if has_vol:
+        vol = sub["Volume"].fillna(0)
+        vol_colors = [C["buy"] if sub["Close"].iloc[i] >= sub["Close"].iloc[max(0,i-1)] else C["sell"]
+                      for i in range(len(sub))]
+        fig.add_trace(go.Bar(
+            x=sub.index, y=vol, name="Volume",
+            marker_color=vol_colors, showlegend=False,
+            hovertemplate="Vol: %{y:,.0f}<extra></extra>",
+        ), row=2, col=1)
+
+    rs = dict(
+        buttons=[
+            dict(count=7,  label="1W", step="day",   stepmode="backward"),
+            dict(count=1,  label="1M", step="month",  stepmode="backward"),
+            dict(count=3,  label="3M", step="month",  stepmode="backward"),
+            dict(count=6,  label="6M", step="month",  stepmode="backward"),
+            dict(count=1,  label="1Y", step="year",   stepmode="backward"),
+            dict(step="all", label="All"),
+        ],
+        bgcolor=C["card"], activecolor=C["accent"],
+        font=dict(color=C["text"], size=10),
+        bordercolor=C["border"], borderwidth=1,
+        x=0, xanchor="left", y=1.04, yanchor="bottom",
+    )
+
+    layout_kwargs = {
+        **CHART_BASE,
+        "height": 380 if has_vol else 320,
+        "title": dict(text=f"{name} — Price History (KES)", font=dict(color=color)),
+        "xaxis": dict(gridcolor=C["border"], zeroline=False, rangeselector=rs,
+                      rangeslider=dict(visible=False)),
+        "yaxis": dict(gridcolor=C["border"], zeroline=False, title="Price (KES)"),
+        "hovermode": "x unified",
+    }
+    if has_vol:
+        layout_kwargs["yaxis2"] = dict(gridcolor=C["border"], zeroline=False,
+                                        title="Volume", showticklabels=False)
+    fig.update_layout(**layout_kwargs)
     return fig
 
 
@@ -667,6 +729,7 @@ def stat_pill(label, value, color=None):
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG],
                 suppress_callback_exceptions=True)
 app.title = "NSE Market Dashboard"
+server = app.server  # Gunicorn entry point: gunicorn app:server
 
 # Inject date-picker CSS directly into the HTML head — works regardless of
 # which react-dates class names the installed Dash version uses.
@@ -808,6 +871,7 @@ app.layout = html.Div([
         dcc.Tab(label="📊  Analytics",        value="analytics",  style=TAB_STYLE, selected_style=TAB_SELECTED),
         dcc.Tab(label="📥  Import & Analyse", value="import_tab", style=TAB_STYLE, selected_style=TAB_SELECTED),
         dcc.Tab(label="📅  Data Explorer",   value="explorer",   style=TAB_STYLE, selected_style=TAB_SELECTED),
+        dcc.Tab(label="⚙️  Admin",           value="admin",      style=TAB_STYLE, selected_style=TAB_SELECTED),
     ], style=dict(background=C["panel"], borderBottom=f"1px solid {C['border']}")),
 
     # Permanent overview controls bar — always in DOM, hidden on other tabs
@@ -869,6 +933,7 @@ def render_tab(tab, ticker, ov_sector, ov_view, store, astate):
         astate.get("custom_start"), astate.get("custom_end"))
     if tab == "import_tab": return build_import_tab()
     if tab == "explorer":   return build_explorer_tab()
+    if tab == "admin":      return build_admin_tab()
     return html.Div()
 
 
@@ -1432,6 +1497,20 @@ def build_company(ticker, store):
                     ),
                 ], style=dict(display="flex", justifyContent="space-between",
                               alignItems="center", marginBottom="8px")),
+                html.Div([
+                    dcc.RadioItems(
+                        id="chart-type-toggle",
+                        options=[
+                            {"label": " Line", "value": "line"},
+                            {"label": " Candle", "value": "candle"},
+                        ],
+                        value="line",
+                        inline=True,
+                        style=dict(fontSize="0.78rem", color=C["muted"]),
+                        inputStyle=dict(marginRight="4px", accentColor=C["accent"]),
+                        labelStyle=dict(marginRight="12px"),
+                    ),
+                ], style=dict(padding="4px 0 0 4px")),
                 dcc.Graph(id="price-chart-company",
                           figure=chart_price_simple(df, ticker),
                           config=dict(displayModeBar=False, scrollZoom=True)),
@@ -1799,13 +1878,14 @@ def build_import_tab():
 @app.callback(
     Output("price-chart-company","figure"),
     Input("price-period","value"),
+    Input("chart-type-toggle","value"),
     State("selected-ticker","data"),
     prevent_initial_call=True,
 )
-def update_price_chart(days, ticker):
+def update_price_chart(days, chart_type, ticker):
     df = load_df(ticker)
     if df is None: return go.Figure()
-    return chart_price_simple(df, ticker, days)
+    return chart_price_simple(df, ticker, days, chart_type=chart_type or "line")
 
 
 @app.callback(
@@ -3226,6 +3306,260 @@ def run_quick_fn(df_clean, ticker):
     from main import _save_signal
     _save_signal(ticker, {k:v for k,v in result.items() if k != "ma_df"})
     return result
+
+
+# ── TAB 6: ADMIN ─────────────────────────────────────────────────────────────
+_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+_GITHUB_TOKEN   = os.environ.get("GITHUB_TOKEN", "")
+_GITHUB_REPO    = os.environ.get("GITHUB_REPO", "MoengaAlex1/nse_predictor")
+
+BTN_STYLE = dict(
+    background=C["accent"], color=C["header"], border="none",
+    borderRadius="8px", padding="8px 20px", fontWeight=700,
+    fontSize="0.82rem", cursor="pointer", marginTop="6px",
+)
+BTN_DANGER = {**BTN_STYLE, "background": C["sell"], "color": "#fff"}
+
+
+def _data_freshness():
+    """Return list of dicts with ticker, name, last_date, days_stale for all companies."""
+    rows = []
+    today = pd.Timestamp.now().normalize()
+    for ticker, meta in COMPANIES.items():
+        df = _load_df_cache.get(ticker)
+        if df is None:
+            p = DATA_CLEANED / f"{ticker.replace('.','_')}_cleaned.csv"
+            if p.exists():
+                try:
+                    df = pd.read_csv(p, index_col="Date", parse_dates=True)
+                except Exception:
+                    df = None
+        last_date = df.index.max() if df is not None and not df.empty else None
+        if last_date is not None:
+            stale = max(0, (today - last_date).days)
+        else:
+            stale = 9999
+        rows.append({
+            "ticker": ticker,
+            "name": meta["name"],
+            "last_date": str(last_date.date()) if last_date else "no data",
+            "days_stale": stale,
+        })
+    rows.sort(key=lambda r: r["days_stale"], reverse=True)
+    return rows
+
+
+def _trigger_github_workflow(workflow_file: str, inputs: dict | None = None) -> tuple[bool, str]:
+    """Trigger a GitHub Actions workflow_dispatch event. Returns (success, message)."""
+    if not _GITHUB_TOKEN:
+        return False, "GITHUB_TOKEN not configured — set it in environment variables."
+    url = f"https://api.github.com/repos/{_GITHUB_REPO}/actions/workflows/{workflow_file}/dispatches"
+    payload = {"ref": "master"}
+    if inputs:
+        payload["inputs"] = inputs
+    try:
+        import requests as _req
+        r = _req.post(url, json=payload,
+                      headers={"Authorization": f"Bearer {_GITHUB_TOKEN}",
+                                "Accept": "application/vnd.github+json",
+                                "X-GitHub-Api-Version": "2022-11-28"},
+                      timeout=15)
+        if r.status_code == 204:
+            return True, "Workflow triggered. Check GitHub Actions for progress."
+        return False, f"GitHub returned {r.status_code}: {r.text[:200]}"
+    except Exception as e:
+        return False, f"Request failed: {e}"
+
+
+def build_admin_tab():
+    freshness = _data_freshness()
+    stale_count = sum(1 for r in freshness if r["days_stale"] > 3)
+
+    badge = lambda text, color: html.Span(text, style=dict(
+        background=color, color="#fff", borderRadius="12px",
+        padding="1px 8px", fontSize="0.7rem", fontWeight=700, marginLeft="6px",
+    ))
+
+    table_rows = []
+    for r in freshness:
+        if r["days_stale"] <= 1:
+            sc, icon = C["buy"], "✓"
+        elif r["days_stale"] <= 7:
+            sc, icon = C["hold"], "~"
+        else:
+            sc, icon = C["sell"], "!"
+        table_rows.append(html.Tr([
+            html.Td(r["ticker"], style=dict(fontFamily="monospace", fontSize="0.78rem")),
+            html.Td(r["name"], style=dict(fontSize="0.78rem")),
+            html.Td(r["last_date"], style=dict(fontSize="0.78rem")),
+            html.Td([
+                html.Span(icon, style=dict(color=sc, fontWeight=700, marginRight="4px")),
+                html.Span(f"{r['days_stale']}d", style=dict(color=sc, fontSize="0.78rem")),
+            ]),
+        ], style=dict(borderBottom=f"1px solid {C['border']}"))
+        )
+
+    return html.Div([
+        html.H4("Admin Panel", style=dict(color=C["accent"], marginBottom="4px")),
+        html.P("Restricted area — controls for managing data and model updates.",
+               style=dict(color=C["muted"], fontSize="0.82rem", marginBottom="20px")),
+
+        # ── Auth gate ──────────────────────────────────────────────────────────
+        html.Div(id="admin-gate", children=[
+            html.Div([
+                html.Label("Admin Password", style=dict(color=C["muted"], fontSize="0.8rem")),
+                dcc.Input(id="admin-pw-input", type="password", debounce=True,
+                          placeholder="Enter password…",
+                          style=dict(background=C["card"], color=C["text"],
+                                     border=f"1px solid {C['border']}", borderRadius="6px",
+                                     padding="8px 12px", width="260px", fontSize="0.85rem")),
+                html.Button("Unlock", id="admin-unlock-btn", n_clicks=0, style=BTN_STYLE),
+                html.Div(id="admin-auth-msg", style=dict(color=C["sell"], fontSize="0.78rem",
+                                                         marginTop="6px")),
+            ], style=dict(display="flex", flexDirection="column", gap="8px",
+                          maxWidth="320px", padding="24px",
+                          background=C["card"], borderRadius="12px",
+                          border=f"1px solid {C['border']}")),
+        ]),
+
+        # ── Admin content (hidden until unlocked) ─────────────────────────────
+        html.Div(id="admin-content", style=dict(display="none"), children=[
+
+            # Status summary
+            html.Div([
+                html.Div([
+                    html.Div("Total Companies", style=dict(fontSize="0.62rem", color=C["muted"],
+                                                           textTransform="uppercase")),
+                    html.Div(str(len(COMPANIES)), style=dict(fontSize="1.5rem", fontWeight=700,
+                                                             color=C["accent"])),
+                ], style=dict(background=C["card"], borderRadius="10px", padding="16px 24px",
+                              border=f"1px solid {C['border']}", textAlign="center")),
+                html.Div([
+                    html.Div("Stale (>3 days)", style=dict(fontSize="0.62rem", color=C["muted"],
+                                                            textTransform="uppercase")),
+                    html.Div(str(stale_count), style=dict(
+                        fontSize="1.5rem", fontWeight=700,
+                        color=C["sell"] if stale_count > 0 else C["buy"])),
+                ], style=dict(background=C["card"], borderRadius="10px", padding="16px 24px",
+                              border=f"1px solid {C['border']}", textAlign="center")),
+            ], style=dict(display="flex", gap="16px", marginBottom="24px")),
+
+            # Actions
+            html.Div([
+                html.H6("Actions", style=dict(color=C["text"], marginBottom="12px")),
+                html.Div([
+                    html.Div([
+                        html.Div("Daily Price Update", style=dict(fontWeight=600, fontSize="0.85rem")),
+                        html.Div("Scrape NSE prices for today, run ML inference, push signals to Firestore.",
+                                 style=dict(color=C["muted"], fontSize="0.75rem", marginBottom="8px")),
+                        html.Button("Run Daily Update Now", id="admin-run-daily-btn",
+                                    n_clicks=0, style=BTN_STYLE),
+                    ], style=dict(background=C["card"], borderRadius="10px", padding="16px 20px",
+                                  border=f"1px solid {C['border']}", flex=1)),
+                    html.Div([
+                        html.Div("Full Retrain", style=dict(fontWeight=600, fontSize="0.85rem")),
+                        html.Div("Retrain LSTM + XGBoost models for all companies. Takes ~30 min.",
+                                 style=dict(color=C["muted"], fontSize="0.75rem", marginBottom="8px")),
+                        html.Button("Trigger Weekly Retrain", id="admin-run-train-btn",
+                                    n_clicks=0, style=BTN_DANGER),
+                    ], style=dict(background=C["card"], borderRadius="10px", padding="16px 20px",
+                                  border=f"1px solid {C['border']}", flex=1)),
+                ], style=dict(display="flex", gap="16px", flexWrap="wrap")),
+                html.Div(id="admin-action-msg",
+                         style=dict(marginTop="12px", fontSize="0.82rem", color=C["hold"])),
+            ], style=dict(marginBottom="28px")),
+
+            # Update specific company
+            html.Div([
+                html.H6("Update Single Company", style=dict(color=C["text"], marginBottom="10px")),
+                html.Div([
+                    dcc.Dropdown(
+                        id="admin-ticker-select",
+                        options=[{"label": f"{t} — {m['name']}", "value": t}
+                                 for t, m in COMPANIES.items()],
+                        placeholder="Select company…",
+                        clearable=True,
+                        style=dict(background=C["card"], color=C["text"], fontSize="0.82rem",
+                                   border=f"1px solid {C['border']}", borderRadius="8px",
+                                   width="320px"),
+                    ),
+                    html.Button("Update This Company", id="admin-run-single-btn",
+                                n_clicks=0, style=BTN_STYLE),
+                ], style=dict(display="flex", gap="12px", alignItems="center", flexWrap="wrap")),
+            ], style=dict(background=C["card"], borderRadius="10px", padding="16px 20px",
+                          border=f"1px solid {C['border']}", marginBottom="28px")),
+
+            # Data freshness table
+            html.Div([
+                html.H6(["Data Freshness",
+                          badge(f"{stale_count} stale", C["sell"]) if stale_count else badge("All fresh", C["buy"])],
+                        style=dict(color=C["text"], marginBottom="10px")),
+                html.Div(style=dict(maxHeight="400px", overflowY="auto"), children=[
+                    html.Table([
+                        html.Thead(html.Tr([
+                            html.Th("Ticker", style=dict(padding="6px 12px", color=C["muted"],
+                                                          fontSize="0.72rem", textAlign="left")),
+                            html.Th("Company", style=dict(padding="6px 12px", color=C["muted"],
+                                                           fontSize="0.72rem", textAlign="left")),
+                            html.Th("Last Date", style=dict(padding="6px 12px", color=C["muted"],
+                                                             fontSize="0.72rem", textAlign="left")),
+                            html.Th("Staleness", style=dict(padding="6px 12px", color=C["muted"],
+                                                             fontSize="0.72rem", textAlign="left")),
+                        ], style=dict(borderBottom=f"2px solid {C['border']}"))),
+                        html.Tbody(table_rows),
+                    ], style=dict(width="100%", borderCollapse="collapse")),
+                ]),
+            ], style=dict(background=C["card"], borderRadius="10px", padding="16px 20px",
+                          border=f"1px solid {C['border']}")),
+        ]),
+    ], style=dict(padding="24px", maxWidth="960px"))
+
+
+# ── Admin callbacks ───────────────────────────────────────────────────────────
+@app.callback(
+    Output("admin-content", "style"),
+    Output("admin-gate", "style"),
+    Output("admin-auth-msg", "children"),
+    Input("admin-unlock-btn", "n_clicks"),
+    State("admin-pw-input", "value"),
+    prevent_initial_call=True,
+)
+def admin_unlock(n, pw):
+    if not pw:
+        return dash.no_update, dash.no_update, "Enter the admin password."
+    if not _ADMIN_PASSWORD:
+        return dash.no_update, dash.no_update, "ADMIN_PASSWORD not configured on this server."
+    if pw == _ADMIN_PASSWORD:
+        return dict(display="block"), dict(display="none"), ""
+    return dash.no_update, dash.no_update, "Incorrect password."
+
+
+@app.callback(
+    Output("admin-action-msg", "children"),
+    Input("admin-run-daily-btn", "n_clicks"),
+    Input("admin-run-train-btn", "n_clicks"),
+    Input("admin-run-single-btn", "n_clicks"),
+    State("admin-ticker-select", "value"),
+    prevent_initial_call=True,
+)
+def admin_actions(n_daily, n_train, n_single, selected_ticker):
+    triggered = ctx.triggered_id
+    if triggered == "admin-run-daily-btn" and n_daily:
+        ok, msg = _trigger_github_workflow("daily_price_update.yml")
+        return html.Span(("✓ " if ok else "✗ ") + msg,
+                         style=dict(color=C["buy"] if ok else C["sell"]))
+    if triggered == "admin-run-train-btn" and n_train:
+        ok, msg = _trigger_github_workflow("weekly_training.yml")
+        return html.Span(("✓ " if ok else "✗ ") + msg,
+                         style=dict(color=C["buy"] if ok else C["sell"]))
+    if triggered == "admin-run-single-btn" and n_single:
+        if not selected_ticker:
+            return html.Span("Select a company first.", style=dict(color=C["hold"]))
+        ok, msg = _trigger_github_workflow("daily_price_update.yml",
+                                           inputs={"tickers": selected_ticker})
+        return html.Span(("✓ " if ok else "✗ ") + msg,
+                         style=dict(color=C["buy"] if ok else C["sell"]))
+    return dash.no_update
 
 
 if __name__ == "__main__":

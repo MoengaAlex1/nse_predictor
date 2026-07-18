@@ -1,6 +1,6 @@
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
 .Python
@@ -8,38 +8,48 @@ __pycache__/
 dist/
 build/
 .eggs/
-
-# Virtual environments
 venv/
 .venv/
 env/
+.env
 
-# Logs
-*.log
-stderr.txt
-stdout.txt
-dash_out.txt
-dash_err.txt
-eabl_rerun.txt
-eqty_test.txt
-run_all_output.txt
-
-# Large data files — raw CSVs stay local
+# Data - local only (cleaned CSVs ARE committed, raw and features are not)
 data/raw/
-data/cleaned/
+data/features/
+pipeline/data/
+models/saved/
 
-# Notebooks checkpoints
+# Reports
+reports/outputs/
+
+# Jupyter
 .ipynb_checkpoints/
+*.ipynb
 
-# IDE
-.vscode/
-.idea/
+# Node / Frontend build
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# Secrets (NEVER commit)
+*.pem
+service-account*.json
+firebase-adminsdk*.json
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Pipeline data (keep raw CSVs, ignore cleaned/features output)
-pipeline/data/cleaned/
-pipeline/data/features/
-pipeline/models/saved/
+# Temp files from dev
+stdout.txt
+stderr.txt
+eqty_test.txt
+eabl_rerun.txt
+run_all_output.txt
+*.output
+
+# IDE
+.vscode/
+.idea/
+*.swp

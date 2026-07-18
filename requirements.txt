@@ -12,27 +12,28 @@ scikit-learn>=1.3.0
 xgboost>=2.0.0
 statsmodels>=0.14.0
 
-# Deep learning (PyTorch — broader Python 3.14 support than TensorFlow)
+# Deep learning
 torch>=2.0.0
 
 # Visualization
-matplotlib>=3.7.0
-seaborn>=0.12.0
 plotly>=5.17.0
+dash>=2.14.0
+dash-bootstrap-components>=1.5.0
 
 # Risk metrics
 scipy>=1.11.0
 
-# Sentiment (optional)
-vaderSentiment>=3.3.2
+# Web requests
 requests>=2.31.0
 beautifulsoup4>=4.12.0
+
+# Firebase
+firebase-admin>=6.2.0
+
+# Production server
+gunicorn>=21.2.0
 
 # Utilities
 joblib>=1.3.0
 python-dotenv>=1.0.0
-tqdm>=4.65.0
-
-# Notebooks
-jupyter>=1.0.0
-ipykernel>=6.0.0
+openpyxl>=3.1.0
