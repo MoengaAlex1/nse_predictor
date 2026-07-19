@@ -116,11 +116,20 @@ export const CompanyDeepDive: FC = () => {
                   ? new Date(company.last_updated + "T00:00:00")
                   : new Date();
                 const n = company.price_preview.length;
-                return company.price_preview.map((price, i) => {
-                  const d = new Date(ref);
-                  d.setDate(ref.getDate() - (n - 1 - i));
-                  return { date: d.toISOString().slice(0, 10), price };
-                });
+                // Walk backwards skipping weekends (NSE doesn't trade Sat/Sun)
+                const tradingDates: string[] = [];
+                const cursor = new Date(ref);
+                while (tradingDates.length < n) {
+                  const day = cursor.getDay();
+                  if (day !== 0 && day !== 6) {
+                    tradingDates.unshift(cursor.toISOString().slice(0, 10));
+                  }
+                  cursor.setDate(cursor.getDate() - 1);
+                }
+                return company.price_preview.map((price, i) => ({
+                  date: tradingDates[i],
+                  price,
+                }));
               })()}
               color={company.color}
             />

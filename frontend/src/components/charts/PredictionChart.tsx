@@ -19,9 +19,15 @@ interface Props {
   runDate: string;
 }
 
-function addDays(base: Date, days: number): string {
+function tradingDaysFrom(base: Date, offset: number): string {
   const d = new Date(base);
-  d.setDate(d.getDate() + days);
+  let remaining = Math.abs(offset);
+  const direction = offset >= 0 ? 1 : -1;
+  while (remaining > 0) {
+    d.setDate(d.getDate() + direction);
+    const day = d.getDay();
+    if (day !== 0 && day !== 6) remaining--;
+  }
   return d.toISOString().slice(0, 10);
 }
 
@@ -42,13 +48,13 @@ export const PredictionChart: FC<Props> = ({ actuals, preds, forecast, runDate }
   const ref = new Date(runDate + "T00:00:00");
 
   const histData = Array.from({ length: n }, (_, i) => ({
-    date: addDays(ref, -(n - 1 - i)),
+    date: tradingDaysFrom(ref, -(n - 1 - i)),
     actual: actuals[i],
     predicted: preds[i],
   }));
 
   const forecastData = forecast.map((v, i) => ({
-    date: addDays(ref, i + 1),
+    date: tradingDaysFrom(ref, i + 1),
     forecast: v,
     actual: undefined,
     predicted: undefined,
