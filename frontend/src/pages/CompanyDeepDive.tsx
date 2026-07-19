@@ -115,8 +115,13 @@ export const CompanyDeepDive: FC = () => {
                 const ref = company.last_updated
                   ? new Date(company.last_updated + "T00:00:00")
                   : new Date();
+                // last_updated is the seed date (often Mon/today), but the
+                // last price in price_preview is from the last trading day
+                // (often Friday). Roll back past weekends to anchor correctly.
+                while (ref.getDay() === 0 || ref.getDay() === 6) {
+                  ref.setDate(ref.getDate() - 1);
+                }
                 const n = company.price_preview.length;
-                // Walk backwards skipping weekends (NSE doesn't trade Sat/Sun)
                 const tradingDates: string[] = [];
                 const cursor = new Date(ref);
                 while (tradingDates.length < n) {
