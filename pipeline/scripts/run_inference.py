@@ -261,7 +261,7 @@ def build_technicals_result(df: pd.DataFrame, date_str: str) -> dict:
         }
 
 
-def run_company(company: dict) -> dict | None:
+def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
     ticker = company["ticker"]
     safe   = ticker.replace(".", "_")
     csv_p  = PIPELINE_ROOT / "data" / "raw" / company["csv"]
@@ -269,7 +269,16 @@ def run_company(company: dict) -> dict | None:
 
     try:
         # ── 1. Data ──────────────────────────────────────────────────────────
-        raw_df     = fetch_nse_data(ticker, csv_path=str(csv_p) if csv_p.exists() else None)
+        csv_local = CSVS_TMP / f"{safe}_cleaned.csv"
+        if csv_override is not None and csv_override.exists():
+            csv_path_arg = str(csv_override)
+        elif csv_local.exists():
+            csv_path_arg = str(csv_local)
+        elif csv_p.exists():
+            csv_path_arg = str(csv_p)
+        else:
+            csv_path_arg = None
+        raw_df     = fetch_nse_data(ticker, csv_path=csv_path_arg)
         cleaned_df, _ = clean_ohlcv(raw_df, ticker=ticker)
         ret_df, _  = daily_return_analysis(cleaned_df)
         ma_df      = compute_moving_averages(ret_df)
@@ -454,6 +463,19 @@ def main() -> None:
 
     results: list[dict] = []
 
+    # Download latest cleaned CSVs from Firebase Storage
+    CSVS_TMP = Path("/tmp/nse_csvs")
+    CSVS_TMP.mkdir(parents=True, exist_ok=True)
+    log.info("Downloading latest cleaned CSVs for %d companies...", len(companies))
+    for company in companies:
+        safe = company["ticker"].replace(".", "_")
+        ok = download_model_from_storage(
+            storage_path=f"data/cleaned/{safe}_cleaned.csv",
+            local_path=str(CSVS_TMP / f"{safe}_cleaned.csv"),
+        )
+        if not ok:
+            log.warning("No CSV in Storage for %s — will use repo fallback", safe)
+
     # Pre-download all model artifacts before parallel inference
     # (avoids concurrent Firebase Storage requests racing for the same files)
     log.info("Pre-downloading model artifacts for %d companies...", len(companies))
@@ -464,7 +486,14 @@ def main() -> None:
 
     log.info("Starting inference with 4 parallel workers...")
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {pool.submit(run_company, c): c for c in companies}
+        futures = {
+            pool.submit(
+                run_company,
+                c,
+                CSVS_TMP / f"{c['ticker'].replace('.', '_')}_cleaned.csv",
+            ): c
+            for c in companies
+        }
         for fut in as_completed(futures):
             res = fut.result()
             if res is None:

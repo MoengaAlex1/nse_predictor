@@ -1,22 +1,19 @@
-name: Daily NSE Inference
-# SUPERSEDED by daily_update.yml which scrapes, retrains XGBoost+ARIMA, and runs
-# inference in a single workflow. This file is kept for manual one-off inference
-# runs only; the automatic schedule has been removed.
+name: Daily NSE Update
 
 on:
+  schedule:
+    - cron: "10 13 * * 1-5"   # 13:10 UTC = 16:10 EAT, Mon-Fri (after NSE close)
   workflow_dispatch:
     inputs:
       tickers:
-        description: "Comma-separated tickers to process (blank = all)"
+        description: "Comma-separated tickers (blank = all)"
         required: false
         default: ""
 
 jobs:
-  inference:
+  update:
     runs-on: ubuntu-latest
-    # Inference loads pre-trained models + runs fast XGBoost/ARIMA.
-    # LSTM forward-pass only (no retraining): ~30 s per company → 62 companies ≈ 35 min
-    timeout-minutes: 60
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -32,7 +29,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r pipeline/requirements.txt
 
-      - name: Run inference
+      - name: Run daily update
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
           FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
@@ -40,19 +37,18 @@ jobs:
         run: |
           set -o pipefail
           cd $GITHUB_WORKSPACE
-          python pipeline/scripts/run_inference.py 2>&1 | tee /tmp/inference.log
+          python pipeline/scripts/run_daily_update.py 2>&1 | tee /tmp/daily_update.log
 
-      - name: Upload inference log
+      - name: Upload log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: inference-log-${{ github.run_id }}
-          path: /tmp/inference.log
+          name: daily-update-log-${{ github.run_id }}
+          path: /tmp/daily_update.log
           retention-days: 7
 
       - name: Notify on failure
         if: failure()
         run: |
-          echo "::error::Daily inference failed — review the artifact log above"
-          echo "Last 30 lines of log:"
-          tail -30 /tmp/inference.log || true
+          echo "::error::Daily update failed — check the artifact log"
+          tail -30 /tmp/daily_update.log || true
