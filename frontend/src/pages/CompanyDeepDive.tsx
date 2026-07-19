@@ -1,11 +1,9 @@
 import type { FC } from "react";
 import { useParams, Link } from "react-router-dom";
 import { PageShell } from "../components/layout/PageShell";
-import { AuthGuard } from "../components/layout/AuthGuard";
 import { Card } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { SignalBadge } from "../components/ui/Badge";
-import { SignInPrompt } from "../components/company/SignInPrompt";
 import { SparkLine } from "../components/charts/SparkLine";
 import { PredictionChart } from "../components/charts/PredictionChart";
 import { useCompany, useLatestSnapshot, useLatestTechnicals } from "../hooks/useCompany";

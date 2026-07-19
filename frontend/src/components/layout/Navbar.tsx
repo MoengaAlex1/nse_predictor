@@ -1,18 +1,7 @@
 import type { FC } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { useAuthStore } from "../../store/useAuthStore";
-import { logout } from "../../lib/auth";
-import { Button } from "../ui/Button";
+import { Link } from "react-router-dom";
 
 export const Navbar: FC = () => {
-  const { user } = useAuthStore();
-  const navigate = useNavigate();
-
-  async function handleLogout() {
-    await logout();
-    navigate("/");
-  }
-
   return (
     <nav className="border-b border-slate-700 bg-slate-900">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">

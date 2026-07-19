@@ -4,8 +4,8 @@ import { initAuthListener } from "./lib/auth";
 import { Home } from "./pages/Home";
 import { Companies } from "./pages/Companies";
 import { CompanyDeepDive } from "./pages/CompanyDeepDive";
-import { Login } from "./pages/Login";
-import { Register } from "./pages/Register";
+// import { Login } from "./pages/Login";
+// import { Register } from "./pages/Register";
 
 export default function App() {
   useEffect(() => {
