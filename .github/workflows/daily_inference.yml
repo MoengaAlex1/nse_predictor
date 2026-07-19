@@ -37,6 +37,7 @@ jobs:
           FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
           NSE_TICKERS_FILTER: ${{ github.event.inputs.tickers }}
         run: |
+          set -o pipefail
           cd $GITHUB_WORKSPACE
           python pipeline/scripts/run_inference.py 2>&1 | tee /tmp/inference.log
 
