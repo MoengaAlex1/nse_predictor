@@ -102,15 +102,26 @@ export const CompanyDeepDive: FC = () => {
           </Card>
         ) : company.price_preview.length > 0 ? (
           <Card>
-            <h2 className="mb-1 text-sm font-semibold uppercase tracking-wider text-slate-400">
-              30-Day Price Trend
-            </h2>
-            <p className="mb-3 text-xs text-slate-500">Date labels unavailable — re-seed pending</p>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
+                30-Day Price Trend
+              </h2>
+              <span className="text-xs text-slate-500">
+                Approximate dates — re-seed for exact trading dates
+              </span>
+            </div>
             <SparkLine
-              data={company.price_preview.map((price, i) => ({
-                date: `Day ${i + 1}`,
-                price,
-              }))}
+              data={(() => {
+                const ref = company.last_updated
+                  ? new Date(company.last_updated + "T00:00:00")
+                  : new Date();
+                const n = company.price_preview.length;
+                return company.price_preview.map((price, i) => {
+                  const d = new Date(ref);
+                  d.setDate(ref.getDate() - (n - 1 - i));
+                  return { date: d.toISOString().slice(0, 10), price };
+                });
+              })()}
               color={company.color}
             />
           </Card>
