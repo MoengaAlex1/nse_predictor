@@ -27,7 +27,8 @@ export async function fetchLatestSnapshot(safeTicker: string): Promise<SnapshotD
   const q = query(ref, orderBy("__name__", "desc"), limit(1));
   const snap = await getDocs(q);
   if (snap.empty) return null;
-  return snap.docs[0].data() as SnapshotDoc;
+  const d = snap.docs[0];
+  return { run_date: d.id, ...(d.data() as Omit<SnapshotDoc, "run_date">) };
 }
 
 export async function fetchLatestTechnicals(safeTicker: string): Promise<TechnicalsDoc | null> {

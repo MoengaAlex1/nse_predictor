@@ -387,6 +387,7 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         # ── 8. Build Firestore payloads ───────────────────────────────────────
         snapshot = {
             **signal_result,
+            "run_date": TODAY,
             "metrics":  ens_metrics,
             "actuals":  actuals_out,
             "preds":    preds_out,
@@ -399,6 +400,11 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         technicals = build_technicals_result(cleaned_df, TODAY)
 
         change_pct = float(cleaned_df["Close"].pct_change().iloc[-1] * 100)
+        hist_90 = cleaned_df["Close"].tail(90)
+        price_history = [
+            {"date": str(idx.date()), "price": round(float(val), 4)}
+            for idx, val in hist_90.items()
+        ]
 
         return {
             "ticker": safe,
@@ -408,7 +414,8 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
                 "current_price":    round(current_price, 4),
                 "change_pct_today": round(change_pct, 4),
                 "signal":           signal_result["signal"],
-                "price_preview":    [round(float(x), 4) for x in cleaned_df["Close"].tail(30).tolist()],
+                "price_history":    price_history,
+                "price_preview":    [p["price"] for p in price_history[-30:]],
                 "last_updated":     TODAY,
             },
         }

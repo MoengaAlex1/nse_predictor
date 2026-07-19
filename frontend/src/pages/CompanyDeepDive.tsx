@@ -9,6 +9,16 @@ import { PredictionChart } from "../components/charts/PredictionChart";
 import { useCompany, useLatestSnapshot, useLatestTechnicals } from "../hooks/useCompany";
 import type { SnapshotDoc, TechnicalsDoc } from "../types";
 
+const fmtDate = (iso: string | null) => {
+  if (!iso) return "—";
+  return new Date(iso + "T00:00:00").toLocaleDateString("en-KE", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+};
+
 export const CompanyDeepDive: FC = () => {
   const { ticker = "" } = useParams<{ ticker: string }>();
   const { data: company, isLoading, isError } = useCompany(ticker);
@@ -39,6 +49,7 @@ export const CompanyDeepDive: FC = () => {
   return (
     <PageShell>
       <div className="space-y-6">
+        {/* Header */}
         <div className="flex flex-wrap items-start gap-4">
           <div className="flex-1">
             <div className="flex flex-wrap items-center gap-3">
@@ -66,21 +77,45 @@ export const CompanyDeepDive: FC = () => {
                     {company.change_pct_today.toFixed(2)}% today
                   </p>
                 )}
+                {company.last_updated && (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Data as of {fmtDate(company.last_updated)}
+                  </p>
+                )}
               </>
             )}
           </div>
         </div>
 
-        {company.price_preview.length > 0 && (
+        {/* Historical price chart */}
+        {company.price_history?.length > 0 ? (
           <Card>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-400">
-              30-Day Price Preview
-            </h2>
-            <SparkLine data={company.price_preview} color={company.color} />
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
+                Price History ({company.price_history.length} days)
+              </h2>
+              <span className="text-xs text-slate-500">
+                {company.price_history[0]?.date} → {company.price_history[company.price_history.length - 1]?.date}
+              </span>
+            </div>
+            <SparkLine data={company.price_history} color={company.color} />
           </Card>
-        )}
+        ) : company.price_preview.length > 0 ? (
+          <Card>
+            <h2 className="mb-1 text-sm font-semibold uppercase tracking-wider text-slate-400">
+              30-Day Price Trend
+            </h2>
+            <p className="mb-3 text-xs text-slate-500">Date labels unavailable — re-seed pending</p>
+            <SparkLine
+              data={company.price_preview.map((price, i) => ({
+                date: `Day ${i + 1}`,
+                price,
+              }))}
+              color={company.color}
+            />
+          </Card>
+        ) : null}
 
-        {/* AuthGuard disabled — all content public; re-enable when auth is re-introduced */}
         <GatedContent ticker={ticker} />
       </div>
     </PageShell>
@@ -113,13 +148,19 @@ const GatedContent: FC<{ ticker: string }> = ({ ticker }) => {
 
       {snapshot && snapshot.actuals.length > 0 && (
         <Card>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-400">
-            Actual vs Predicted
-          </h2>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
+              Actual vs Model Prediction
+            </h2>
+            <span className="text-xs text-slate-500">
+              Dashed line = today · Green shading = 30-day forecast
+            </span>
+          </div>
           <PredictionChart
             actuals={snapshot.actuals}
             preds={snapshot.preds}
             forecast={snapshot.forecast}
+            runDate={snapshot.run_date}
           />
         </Card>
       )}
@@ -131,9 +172,14 @@ const GatedContent: FC<{ ticker: string }> = ({ ticker }) => {
 
 const SnapshotSection: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => (
   <Card>
-    <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-400">
-      AI Signal
-    </h2>
+    <div className="mb-4 flex items-center justify-between">
+      <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
+        AI Signal
+      </h2>
+      <span className="text-xs text-slate-500">
+        Analysis run: {fmtDate(snapshot.run_date)}
+      </span>
+    </div>
     <div className="flex flex-wrap gap-6">
       <Metric label="Signal" value={<SignalBadge signal={snapshot.signal} size="lg" />} />
       <Metric
@@ -182,9 +228,14 @@ const TechnicalsSection: FC<{ technicals: TechnicalsDoc }> = ({ technicals }) =>
 
   return (
     <Card>
-      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-400">
-        Technical Indicators
-      </h2>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
+          Technical Indicators
+        </h2>
+        <span className="text-xs text-slate-500">
+          As of {fmtDate(technicals.date)}
+        </span>
+      </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         <MetricChip label="RSI (14)" value={fmt(technicals.rsi_14)} />
         <MetricChip label="SMA 20" value={technicals.sma_20 !== null ? `KES ${fmt(technicals.sma_20)}` : "N/A"} />

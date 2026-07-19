@@ -1,3 +1,8 @@
+export interface PricePoint {
+  date: string;
+  price: number;
+}
+
 export interface CompanyDoc {
   id: string;
   ticker: string;
@@ -10,11 +15,13 @@ export interface CompanyDoc {
   current_price: number | null;
   change_pct_today: number | null;
   signal: "BUY" | "HOLD" | "SELL" | null;
+  price_history: PricePoint[];
   price_preview: number[];
   last_updated: string | null;
 }
 
 export interface SnapshotDoc {
+  run_date: string;
   signal: "BUY" | "HOLD" | "SELL";
   risk_adjusted_signal: "BUY" | "HOLD" | "SELL";
   current_price_KES: number;

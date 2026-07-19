@@ -8,6 +8,7 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
+  ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
 
@@ -15,55 +16,98 @@ interface Props {
   actuals: number[];
   preds: number[];
   forecast: number[];
+  runDate: string;
 }
 
-export const PredictionChart: FC<Props> = ({ actuals, preds, forecast }) => {
+function addDays(base: Date, days: number): string {
+  const d = new Date(base);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+const fmtShort = (dateStr: string) => {
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-KE", { month: "short", day: "numeric" });
+};
+
+const fmtFull = (dateStr: string) =>
+  new Date(dateStr + "T00:00:00").toLocaleDateString("en-KE", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+
+export const PredictionChart: FC<Props> = ({ actuals, preds, forecast, runDate }) => {
   const n = Math.min(actuals.length, preds.length);
+  const ref = new Date(runDate + "T00:00:00");
 
   const histData = Array.from({ length: n }, (_, i) => ({
-    i,
+    date: addDays(ref, -(n - 1 - i)),
     actual: actuals[i],
     predicted: preds[i],
   }));
 
   const forecastData = forecast.map((v, i) => ({
-    i: n + i,
+    date: addDays(ref, i + 1),
     forecast: v,
     actual: undefined,
     predicted: undefined,
   }));
 
   const allData = [...histData, ...forecastData];
+  const totalLen = allData.length;
+  const step = Math.max(1, Math.floor(totalLen / 8));
 
   return (
-    <ResponsiveContainer width="100%" height={280}>
-      <ComposedChart data={allData}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-        <XAxis dataKey="i" tick={false} />
+    <ResponsiveContainer width="100%" height={320}>
+      <ComposedChart data={allData} margin={{ top: 8, right: 8, left: 8, bottom: 4 }}>
+        <defs>
+          <linearGradient id="forecast-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#34d399" stopOpacity={0.25} />
+            <stop offset="95%" stopColor="#34d399" stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+        <XAxis
+          dataKey="date"
+          tick={{ fill: "#64748b", fontSize: 11 }}
+          tickLine={false}
+          tickFormatter={fmtShort}
+          interval={step - 1}
+        />
         <YAxis
-          tickFormatter={(v: number) => v.toFixed(0)}
-          tick={{ fill: "#94a3b8", fontSize: 11 }}
-          width={55}
+          tickFormatter={(v: number) =>
+            v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(2)
+          }
+          tick={{ fill: "#64748b", fontSize: 11 }}
+          tickLine={false}
+          axisLine={false}
+          width={60}
         />
         <Tooltip
           contentStyle={{
-            background: "#1e293b",
-            border: "1px solid #334155",
+            background: "#0f172a",
+            border: "1px solid #1e293b",
             borderRadius: 8,
             fontSize: 12,
           }}
+          labelFormatter={(label) => fmtFull(String(label))}
           formatter={(v, name) => [
             v != null ? `KES ${Number(v).toFixed(2)}` : "—",
             name,
           ]}
         />
-        <Legend />
+        <Legend
+          wrapperStyle={{ fontSize: 12, color: "#94a3b8", paddingTop: 8 }}
+        />
+        <ReferenceLine x={runDate} stroke="#475569" strokeDasharray="4 2" />
         <Line
           type="monotone"
           dataKey="actual"
           stroke="#38bdf8"
           strokeWidth={2}
           dot={false}
+          activeDot={{ r: 3 }}
           name="Actual"
         />
         <Line
@@ -72,17 +116,19 @@ export const PredictionChart: FC<Props> = ({ actuals, preds, forecast }) => {
           stroke="#a78bfa"
           strokeWidth={2}
           dot={false}
-          strokeDasharray="4 2"
-          name="Predicted"
+          strokeDasharray="5 3"
+          activeDot={{ r: 3 }}
+          name="Model (test)"
         />
         <Area
           type="monotone"
           dataKey="forecast"
           stroke="#34d399"
-          fill="#34d39920"
+          fill="url(#forecast-grad)"
           strokeWidth={2}
           dot={false}
-          name="Forecast"
+          activeDot={{ r: 3 }}
+          name="Forecast (30d)"
         />
       </ComposedChart>
     </ResponsiveContainer>
