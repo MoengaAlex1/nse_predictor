@@ -18,8 +18,9 @@ export default function App() {
       <Route path="/" element={<Home />} />
       <Route path="/companies" element={<Companies />} />
       <Route path="/company/:ticker" element={<CompanyDeepDive />} />
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
+      {/* Auth routes hidden — re-enable when auth is re-introduced */}
+      {/* <Route path="/login" element={<Login />} /> */}
+      {/* <Route path="/register" element={<Register />} /> */}
     </Routes>
   );
 }

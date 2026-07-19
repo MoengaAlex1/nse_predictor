@@ -28,22 +28,7 @@ export const Navbar: FC = () => {
               Companies
             </Link>
           </div>
-          <div className="flex items-center gap-3">
-            {user ? (
-              <Button variant="ghost" size="sm" onClick={handleLogout}>
-                Sign out
-              </Button>
-            ) : (
-              <>
-                <Link to="/login">
-                  <Button variant="ghost" size="sm">Sign in</Button>
-                </Link>
-                <Link to="/register">
-                  <Button size="sm">Get started free</Button>
-                </Link>
-              </>
-            )}
-          </div>
+          {/* Auth buttons hidden — re-enable when auth is re-introduced */}
         </div>
       </div>
     </nav>

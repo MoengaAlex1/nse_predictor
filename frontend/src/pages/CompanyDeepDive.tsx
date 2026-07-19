@@ -82,9 +82,8 @@ export const CompanyDeepDive: FC = () => {
           </Card>
         )}
 
-        <AuthGuard fallback={<SignInPrompt />}>
-          <GatedContent ticker={ticker} />
-        </AuthGuard>
+        {/* AuthGuard disabled — all content public; re-enable when auth is re-introduced */}
+        <GatedContent ticker={ticker} />
       </div>
     </PageShell>
   );
