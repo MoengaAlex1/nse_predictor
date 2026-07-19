@@ -17,7 +17,7 @@ import os
 import json
 import logging
 from pathlib import Path
-from datetime import date
+from datetime import date, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
@@ -63,6 +63,25 @@ log = logging.getLogger(__name__)
 
 TODAY = date.today().isoformat()
 MODELS_TMP = Path("/tmp/nse_models")   # ephemeral cache on GitHub Actions runners
+
+
+def _next_trading_day(from_date: date | None = None) -> date:
+    """First NSE trading day (Mon-Fri) strictly after from_date."""
+    d = (from_date or date.today()) + timedelta(days=1)
+    while d.weekday() >= 5:          # 5=Saturday, 6=Sunday
+        d += timedelta(days=1)
+    return d
+
+
+def _forecast_trading_dates(base: date, n: int) -> list[str]:
+    """n consecutive trading-day ISO dates starting the day after base."""
+    dates: list[str] = []
+    d = base
+    while len(dates) < n:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            dates.append(d.isoformat())
+    return dates
 
 # Artifact filenames (must match run_training.py)
 _ARTIFACT_SUFFIXES = [
@@ -385,16 +404,21 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         signal_result = generate_signal(current_price, predicted_next, var_pct)
 
         # ── 8. Build Firestore payloads ───────────────────────────────────────
+        target_date = _next_trading_day(date.today())
+        forecast_dates = _forecast_trading_dates(date.today(), len(forecast_30d))
+
         snapshot = {
             **signal_result,
-            "run_date": TODAY,
-            "metrics":  ens_metrics,
-            "actuals":  actuals_out,
-            "preds":    preds_out,
-            "forecast": forecast_30d,
-            "lstm_next":   round(lstm_next, 4),
-            "xgb_next":    round(xgb_next, 4),
-            "arima_next":  round(arima_next, 4),
+            "run_date":          TODAY,
+            "next_trading_day":  target_date.isoformat(),
+            "forecast_dates":    forecast_dates,
+            "metrics":           ens_metrics,
+            "actuals":           actuals_out,
+            "preds":             preds_out,
+            "forecast":          forecast_30d,
+            "lstm_next":         round(lstm_next, 4),
+            "xgb_next":          round(xgb_next, 4),
+            "arima_next":        round(arima_next, 4),
         }
 
         technicals = build_technicals_result(cleaned_df, TODAY)

@@ -22,6 +22,8 @@ export interface CompanyDoc {
 
 export interface SnapshotDoc {
   run_date: string;
+  next_trading_day: string;
+  forecast_dates?: string[];
   signal: "BUY" | "HOLD" | "SELL";
   risk_adjusted_signal: "BUY" | "HOLD" | "SELL";
   current_price_KES: number;
@@ -38,6 +40,8 @@ export interface SnapshotDoc {
   actuals: number[];
   preds: number[];
   forecast: number[];
+  recent_mape?: number;
+  recent_direction_acc?: number;
 }
 
 export interface TechnicalsDoc {

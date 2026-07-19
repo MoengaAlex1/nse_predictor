@@ -17,6 +17,7 @@ interface Props {
   preds: number[];
   forecast: number[];
   runDate: string;
+  forecastDates?: string[];
 }
 
 function tradingDaysFrom(base: Date, offset: number): string {
@@ -43,7 +44,7 @@ const fmtFull = (dateStr: string) =>
     day: "numeric",
   });
 
-export const PredictionChart: FC<Props> = ({ actuals, preds, forecast, runDate }) => {
+export const PredictionChart: FC<Props> = ({ actuals, preds, forecast, runDate, forecastDates }) => {
   const n = Math.min(actuals.length, preds.length);
   const ref = new Date(runDate + "T00:00:00");
 
@@ -53,8 +54,9 @@ export const PredictionChart: FC<Props> = ({ actuals, preds, forecast, runDate }
     predicted: preds[i],
   }));
 
+  // Use stored trading-day dates from pipeline when available, else derive client-side
   const forecastData = forecast.map((v, i) => ({
-    date: tradingDaysFrom(ref, i + 1),
+    date: forecastDates?.[i] ?? tradingDaysFrom(ref, i + 1),
     forecast: v,
     actual: undefined,
     predicted: undefined,

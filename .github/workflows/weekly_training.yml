@@ -2,13 +2,23 @@ name: Weekly NSE Model Training
 
 on:
   schedule:
-    - cron: "0 23 * * 0"    # 23:00 UTC Saturday = 02:00 EAT Sunday
+    - cron: "0 15 * * 6"    # 15:00 UTC Saturday = 18:00 EAT — refinement analysis
+    - cron: "0 23 * * 0"    # 23:00 UTC Sunday   = 02:00 EAT Monday — full retrain
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run mode: refinement | training | both"
+        required: false
+        default: "both"
 
 jobs:
-  training:
+  weekend-refinement:
+    name: Weekend Refinement Analysis (Saturday)
     runs-on: ubuntu-latest
-    timeout-minutes: 360     # 6 hours: 62 companies × ~5 min LSTM + overhead
+    timeout-minutes: 30
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && contains(github.event.schedule, '* * 6'))
 
     steps:
       - name: Checkout
@@ -24,7 +34,52 @@ jobs:
       - name: Install dependencies
         run: pip install -r pipeline/requirements.txt
 
-      - name: Run training
+      - name: Run weekend refinement analysis
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          set -o pipefail
+          cd $GITHUB_WORKSPACE
+          python pipeline/scripts/weekend_refinement.py 2>&1 | tee /tmp/refinement.log
+
+      - name: Upload refinement log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: refinement-log-${{ github.run_id }}
+          path: /tmp/refinement.log
+          retention-days: 14
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Weekend refinement failed — check the artifact log"
+          tail -30 /tmp/refinement.log || true
+
+  training:
+    name: Full Model Retrain (Sunday)
+    runs-on: ubuntu-latest
+    timeout-minutes: 360     # 6 hours: 62 companies × ~5 min LSTM + overhead
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && contains(github.event.schedule, '* * 0'))
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Run full retrain
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
           FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}

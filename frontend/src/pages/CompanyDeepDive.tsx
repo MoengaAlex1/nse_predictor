@@ -186,6 +186,7 @@ const GatedContent: FC<{ ticker: string }> = ({ ticker }) => {
             preds={snapshot.preds}
             forecast={snapshot.forecast}
             runDate={snapshot.run_date}
+            forecastDates={snapshot.forecast_dates}
           />
         </Card>
       )}
@@ -205,6 +206,15 @@ const SnapshotSection: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => (
         Analysis run: {fmtDate(snapshot.run_date)}
       </span>
     </div>
+
+    {/* Next trading day target — prominent */}
+    <div className="mb-4 rounded-lg border border-sky-800/40 bg-sky-900/20 px-4 py-2">
+      <p className="text-xs text-sky-400/70 uppercase tracking-wider">Prediction target</p>
+      <p className="text-sm font-semibold text-sky-300">
+        {fmtDate(snapshot.next_trading_day)}
+      </p>
+    </div>
+
     <div className="flex flex-wrap gap-6">
       <Metric label="Signal" value={<SignalBadge signal={snapshot.signal} size="lg" />} />
       <Metric
@@ -212,7 +222,7 @@ const SnapshotSection: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => (
         value={<SignalBadge signal={snapshot.risk_adjusted_signal} size="lg" />}
       />
       <Metric
-        label="Predicted Price"
+        label={`Predicted Close (${snapshot.next_trading_day})`}
         value={
           <span className="text-xl font-bold text-slate-100">
             KES {snapshot.predicted_price_KES.toFixed(2)}
@@ -243,6 +253,16 @@ const SnapshotSection: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => (
         value={`${snapshot.metrics.directional_accuracy.toFixed(0)}%`}
       />
     </div>
+    {(snapshot.recent_mape !== undefined || snapshot.recent_direction_acc !== undefined) && (
+      <div className="mt-3 flex gap-4 text-xs text-slate-500">
+        {snapshot.recent_mape !== undefined && (
+          <span>Recent MAPE: <span className="font-medium text-slate-400">{snapshot.recent_mape.toFixed(1)}%</span></span>
+        )}
+        {snapshot.recent_direction_acc !== undefined && (
+          <span>Recent Direction Acc.: <span className="font-medium text-slate-400">{snapshot.recent_direction_acc.toFixed(0)}%</span></span>
+        )}
+      </div>
+    )}
     <p className="mt-2 text-xs text-slate-600">VaR (95%): {snapshot.var_95_pct.toFixed(2)}%</p>
   </Card>
 );
