@@ -60,7 +60,7 @@ def _upload_artifacts(safe: str) -> None:
 def train_company(company: dict, db: Any) -> dict | None:
     ticker = company["ticker"]
     safe   = ticker.replace(".", "_")
-    csv_p  = PIPELINE_ROOT / "data" / "raw" / company["csv"]
+    csv_p  = PIPELINE_ROOT.parent / "data" / "raw" / company["csv"]
     log.info("Training %s ...", ticker)
 
     try:

@@ -264,7 +264,7 @@ def build_technicals_result(df: pd.DataFrame, date_str: str) -> dict:
 def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
     ticker = company["ticker"]
     safe   = ticker.replace(".", "_")
-    csv_p  = PIPELINE_ROOT / "data" / "raw" / company["csv"]
+    csv_p  = PIPELINE_ROOT.parent / "data" / "raw" / company["csv"]
     log.info("Processing %s ...", ticker)
 
     try:

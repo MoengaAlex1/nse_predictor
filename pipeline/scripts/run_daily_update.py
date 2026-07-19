@@ -195,7 +195,7 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
 
     try:
         # ── 1. Load data ──────────────────────────────────────────────────────
-        repo_csv = PIPELINE_ROOT / "data" / "raw" / company["csv"]
+        repo_csv = PIPELINE_ROOT.parent / "data" / "raw" / company["csv"]
 
         if csv_override is not None and csv_override.exists():
             csv_path_str = str(csv_override)

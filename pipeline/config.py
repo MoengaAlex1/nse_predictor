@@ -1,10 +1,12 @@
 import json
 from pathlib import Path
 
-BASE_DIR      = Path(__file__).parent
-DATA_RAW      = BASE_DIR / "data" / "raw"
-DATA_CLEANED  = BASE_DIR / "data" / "cleaned"
-DATA_FEATURES = BASE_DIR / "data" / "features"
+BASE_DIR      = Path(__file__).parent   # pipeline/
+REPO_ROOT     = BASE_DIR.parent         # repo root
+
+DATA_RAW      = REPO_ROOT / "data" / "raw"
+DATA_CLEANED  = REPO_ROOT / "data" / "cleaned"
+DATA_FEATURES = REPO_ROOT / "data" / "features"
 MODELS_DIR    = BASE_DIR / "models" / "saved"
 REPORTS_DIR   = BASE_DIR / "reports" / "outputs"
 

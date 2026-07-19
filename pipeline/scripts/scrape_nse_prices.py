@@ -109,7 +109,7 @@ def scrape_company(company: dict) -> dict:
 
     if not in_storage:
         # Seed from the repo's cleaned CSV if it exists
-        repo_csv = PIPELINE_ROOT / "data" / "cleaned" / f"{safe}_cleaned.csv"
+        repo_csv = PIPELINE_ROOT.parent / "data" / "cleaned" / f"{safe}_cleaned.csv"
         if repo_csv.exists():
             import shutil
             CSVS_TMP.mkdir(parents=True, exist_ok=True)
