@@ -30,6 +30,8 @@ reports/outputs/
 frontend/node_modules/
 frontend/dist/
 frontend/.env
+frontend/.env.production
+frontend/.env.local
 
 # Secrets (NEVER commit)
 *.pem
