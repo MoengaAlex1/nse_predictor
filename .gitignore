@@ -44,6 +44,9 @@ Thumbs.db
 desktop.ini
 
 # Temp files from dev
+*.log
+*_out.txt
+*_err.txt
 stdout.txt
 stderr.txt
 eqty_test.txt

@@ -11,22 +11,34 @@ import { PredictionChart } from "../components/charts/PredictionChart";
 import { useCompany, useLatestSnapshot, useLatestTechnicals } from "../hooks/useCompany";
 import type { PricePoint, SnapshotDoc, TechnicalsDoc } from "../types";
 
-type RangeKey = "1M" | "3M" | "6M" | "1Y" | "ALL";
+type RangeKey = "1M" | "3M" | "6M" | "1Y" | "ALL" | "Custom";
 
-const RANGES: { label: RangeKey; days: number | null }[] = [
+const PRESETS: { label: RangeKey; days: number | null }[] = [
   { label: "1M", days: 30 },
   { label: "3M", days: 90 },
   { label: "6M", days: 180 },
   { label: "1Y", days: 365 },
   { label: "ALL", days: null },
+  { label: "Custom", days: null },
 ];
 
-function filterByRange(data: PricePoint[], days: number | null): PricePoint[] {
-  if (!days || data.length === 0) return data;
+function filterByRange(
+  data: PricePoint[],
+  range: RangeKey,
+  customFrom: string,
+  customTo: string,
+): PricePoint[] {
+  if (data.length === 0) return data;
+  if (range === "Custom") {
+    return data.filter(
+      (p) => (!customFrom || p.date >= customFrom) && (!customTo || p.date <= customTo),
+    );
+  }
+  const days = PRESETS.find((r) => r.label === range)?.days ?? null;
+  if (!days) return data;
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
-  const cutoffStr = cutoff.toISOString().slice(0, 10);
-  return data.filter((p) => p.date >= cutoffStr);
+  return data.filter((p) => p.date >= cutoff.toISOString().slice(0, 10));
 }
 
 
@@ -34,6 +46,8 @@ export const CompanyDeepDive: FC = () => {
   const { ticker = "" } = useParams<{ ticker: string }>();
   const { data: company, isLoading, isError } = useCompany(ticker);
   const [range, setRange] = useState<RangeKey>("3M");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
 
   if (isLoading) {
     return (
@@ -106,6 +120,10 @@ export const CompanyDeepDive: FC = () => {
             color={company.color}
             range={range}
             onRangeChange={setRange}
+            customFrom={customFrom}
+            customTo={customTo}
+            onCustomFromChange={setCustomFrom}
+            onCustomToChange={setCustomTo}
           />
         ) : company.price_preview.length > 0 ? (
           <Card>
@@ -174,11 +192,16 @@ const PriceHistoryCard: FC<{
   color: string;
   range: RangeKey;
   onRangeChange: (r: RangeKey) => void;
-}> = ({ priceHistory, color, range, onRangeChange }) => {
-  const selectedDays = RANGES.find((r) => r.label === range)?.days ?? null;
-  const visible = filterByRange(priceHistory, selectedDays);
+  customFrom: string;
+  customTo: string;
+  onCustomFromChange: (v: string) => void;
+  onCustomToChange: (v: string) => void;
+}> = ({ priceHistory, color, range, onRangeChange, customFrom, customTo, onCustomFromChange, onCustomToChange }) => {
+  const visible = filterByRange(priceHistory, range, customFrom, customTo);
   const first = visible[0]?.date ?? "—";
   const last = visible[visible.length - 1]?.date ?? "—";
+  const dataMin = priceHistory[0]?.date ?? "";
+  const dataMax = priceHistory[priceHistory.length - 1]?.date ?? "";
 
   return (
     <Card>
@@ -191,15 +214,38 @@ const PriceHistoryCard: FC<{
             {first} → {last} · {visible.length} trading days
           </p>
         </div>
-        <div className="flex gap-1 rounded-lg bg-slate-800 p-1">
-          {RANGES.map((r) => (
-            <RangeButton
-              key={r.label}
-              label={r.label}
-              active={range === r.label}
-              onClick={() => onRangeChange(r.label)}
-            />
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1 rounded-lg bg-slate-800 p-1">
+            {PRESETS.map((r) => (
+              <RangeButton
+                key={r.label}
+                label={r.label}
+                active={range === r.label}
+                onClick={() => onRangeChange(r.label)}
+              />
+            ))}
+          </div>
+          {range === "Custom" && (
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={customFrom}
+                min={dataMin}
+                max={customTo || dataMax}
+                onChange={(e) => onCustomFromChange(e.target.value)}
+                className="rounded border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
+              />
+              <span className="text-xs text-slate-500">to</span>
+              <input
+                type="date"
+                value={customTo}
+                min={customFrom || dataMin}
+                max={dataMax}
+                onChange={(e) => onCustomToChange(e.target.value)}
+                className="rounded border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
+              />
+            </div>
+          )}
         </div>
       </div>
       <SparkLine data={visible} color={color} />
