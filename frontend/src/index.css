@@ -1,3 +1,36 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ── Theme tokens ────────────────────────────────────────────────────────────
+   Light = Google Material Design palette
+   Dark  = slate-based terminal palette (current design)
+
+   Values are space-separated RGB channels so Tailwind's <alpha-value>
+   interpolation works: e.g. bg-canvas/50 → rgb(var(--canvas) / 0.5)
+   ─────────────────────────────────────────────────────────────────────────── */
+:root {
+  --canvas:  248 249 250;   /* #f8f9fa  Google light base bg  */
+  --surface: 255 255 255;   /* #ffffff  card / panel          */
+  --raised:  241 243 244;   /* #f1f3f4  inputs, table header  */
+  --rim:     218 220 224;   /* #dadce0  standard border       */
+  --seam:    232 234 237;   /* #e8eaed  subtle inner border   */
+  --ink:     32  33  36;    /* #202124  primary text          */
+  --sub:     95  99  104;   /* #5f6368  secondary text        */
+  --muted:   128 134 139;   /* #80868b  label / muted text    */
+  --hint:    154 160 166;   /* #9aa0a6  very faint text       */
+  --accent:  26  115 232;   /* #1a73e8  Google Blue           */
+}
+
+.dark {
+  --canvas:  2   6   23;    /* #020617  slate-950             */
+  --surface: 15  23  42;    /* #0f172a  slate-900             */
+  --raised:  30  41  59;    /* #1e293b  slate-800             */
+  --rim:     51  65  85;    /* #334155  slate-700             */
+  --seam:    30  41  59;    /* #1e293b  slate-800             */
+  --ink:     241 245 249;   /* #f1f5f9  slate-100             */
+  --sub:     148 163 184;   /* #94a3b8  slate-400             */
+  --muted:   100 116 139;   /* #64748b  slate-500             */
+  --hint:    71  85  105;   /* #475569  slate-600             */
+  --accent:  56  189 248;   /* #38bdf8  sky-400               */
+}

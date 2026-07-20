@@ -7,9 +7,9 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variants = {
-  primary: "bg-sky-500 hover:bg-sky-400 text-white",
-  secondary: "bg-slate-700 hover:bg-slate-600 text-slate-200",
-  ghost: "hover:bg-slate-700 text-slate-400 hover:text-slate-200",
+  primary:   "bg-accent hover:bg-accent/90 text-white",
+  secondary: "bg-raised hover:bg-rim text-ink border border-rim",
+  ghost:     "hover:bg-raised text-sub hover:text-ink",
 };
 
 const sizes = {
@@ -26,7 +26,7 @@ export const Button: FC<Props> = ({
   ...rest
 }) => (
   <button
-    className={`inline-flex items-center justify-center rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-sky-400 disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${sizes[size]} ${className}`}
+    className={`inline-flex items-center justify-center rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${sizes[size]} ${className}`}
     {...rest}
   >
     {children}

@@ -13,8 +13,8 @@ export const Home: FC = () => {
     <PageShell>
       <div className="space-y-8">
         <div>
-          <h1 className="text-3xl font-bold text-slate-100">NSE Market Overview</h1>
-          <p className="mt-1 text-slate-400">
+          <h1 className="text-3xl font-bold text-ink">NSE Market Overview</h1>
+          <p className="mt-1 text-sub">
             Nairobi Securities Exchange — AI-powered analytics
           </p>
         </div>
@@ -34,7 +34,7 @@ export const Home: FC = () => {
         {market && (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             <Card>
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-400">
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted">
                 Signal Distribution
               </h2>
               <div className="flex gap-6">
@@ -60,7 +60,7 @@ export const Home: FC = () => {
             </Card>
 
             <Card>
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-400">
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted">
                 Top Gainers
               </h2>
               <ul className="space-y-2">
@@ -68,11 +68,11 @@ export const Home: FC = () => {
                   <li key={g.ticker} className="flex items-center justify-between">
                     <Link
                       to={`/company/${g.ticker}`}
-                      className="text-sm font-medium text-slate-200 hover:text-sky-400"
+                      className="text-sm font-medium text-sub hover:text-accent"
                     >
                       {g.ticker}
                     </Link>
-                    <span className="text-sm font-medium text-emerald-400">
+                    <span className="text-sm font-medium text-emerald-500">
                       +{g.change_pct.toFixed(2)}%
                     </span>
                   </li>
@@ -81,7 +81,7 @@ export const Home: FC = () => {
             </Card>
 
             <Card>
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-400">
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted">
                 Top Losers
               </h2>
               <ul className="space-y-2">
@@ -89,11 +89,11 @@ export const Home: FC = () => {
                   <li key={l.ticker} className="flex items-center justify-between">
                     <Link
                       to={`/company/${l.ticker}`}
-                      className="text-sm font-medium text-slate-200 hover:text-sky-400"
+                      className="text-sm font-medium text-sub hover:text-accent"
                     >
                       {l.ticker}
                     </Link>
-                    <span className="text-sm font-medium text-red-400">
+                    <span className="text-sm font-medium text-red-500">
                       {l.change_pct.toFixed(2)}%
                     </span>
                   </li>
@@ -105,14 +105,14 @@ export const Home: FC = () => {
 
         {!isLoading && !isError && !market && (
           <Card>
-            <p className="text-slate-400">
+            <p className="text-sub">
               No market data yet. Pipeline runs daily at 18:00 EAT.
             </p>
           </Card>
         )}
 
         <p className="text-center text-sm">
-          <Link to="/companies" className="text-sky-400 hover:underline">
+          <Link to="/companies" className="text-accent hover:underline">
             View all companies →
           </Link>
         </p>
