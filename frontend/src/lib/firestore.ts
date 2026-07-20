@@ -8,7 +8,7 @@ import {
   limit,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, MarketOverviewDoc } from "../types";
+import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, MarketOverviewDoc, EventsDoc, CorporateEvent } from "../types";
 
 export async function fetchAllCompanies(): Promise<CompanyDoc[]> {
   const snap = await getDocs(collection(db, "companies"));
@@ -37,6 +37,14 @@ export async function fetchLatestTechnicals(safeTicker: string): Promise<Technic
   const snap = await getDocs(q);
   if (snap.empty) return null;
   return snap.docs[0].data() as TechnicalsDoc;
+}
+
+export async function fetchCorporateEvents(safeTicker: string): Promise<CorporateEvent[]> {
+  const ref = doc(db, "events", safeTicker);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return [];
+  const data = snap.data() as EventsDoc;
+  return data.items ?? [];
 }
 
 export async function fetchMarketOverview(): Promise<MarketOverviewDoc | null> {

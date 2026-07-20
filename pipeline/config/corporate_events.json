@@ -1,0 +1,558 @@
+{
+  "SCOM_NR": {
+    "items": [
+      {
+        "date": "2022-05-20",
+        "type": "expansion",
+        "title": "Safaricom Ethiopia Goes Live",
+        "summary": "Safaricom Ethiopia launched commercial mobile network services across five Ethiopian cities, marking the company's first expansion outside Kenya. The launch signalled heavy near-term capital expenditure and startup losses that would weigh on group profitability for subsequent years."
+      },
+      {
+        "date": "2022-11-11",
+        "type": "earnings",
+        "title": "H1 FY2023 Results — Profit Decline",
+        "summary": "Safaricom reported a significant drop in net profit for the half-year ending September 2022, driven by Ethiopia startup losses and a weaker Kenyan shilling reducing the USD value of M-Pesa revenues. Management maintained its Ethiopia investment thesis despite short-term pressure on the share price."
+      },
+      {
+        "date": "2023-05-12",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "Full-year profit fell approximately 13% as Ethiopia continued to absorb investment capital. The M-Pesa business in Kenya remained resilient, but investor sentiment was dampened by the pace of Ethiopian losses and currency depreciation on the Kenya shilling."
+      },
+      {
+        "date": "2023-11-10",
+        "type": "earnings",
+        "title": "H1 FY2024 Results — Ethiopia Losses Narrowing",
+        "summary": "Safaricom's Ethiopia subsidiary showed early signs of improved subscriber acquisition, and the half-year results showed the rate of losses narrowing. The market responded positively to management commentary indicating Ethiopia would approach breakeven ahead of earlier guidance."
+      },
+      {
+        "date": "2024-05-10",
+        "type": "earnings",
+        "title": "FY2024 Full Year Results — Recovery Narrative",
+        "summary": "Full-year results showed improved group profitability as Ethiopia losses continued to narrow and Kenya's core business delivered strong M-Pesa transaction growth. Management outlined a path to Ethiopia profitability and upgraded medium-term guidance."
+      },
+      {
+        "date": "2024-11-08",
+        "type": "earnings",
+        "title": "H1 FY2025 Results",
+        "summary": "The interim results reflected continued recovery in group margins and a stronger M-Pesa performance driven by increased merchant and enterprise payments. Ethiopia's trajectory remained positive, supporting a recovery in investor confidence."
+      }
+    ]
+  },
+  "EABL_NR": {
+    "items": [
+      {
+        "date": "2022-08-26",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results — Strong Recovery",
+        "summary": "EABL reported robust full-year results as on-trade volumes recovered post-COVID lockdowns. Senator Keg volumes and Tusker brand performance drove a strong rebound in net revenue and profit after tax, exceeding pre-pandemic levels."
+      },
+      {
+        "date": "2023-02-24",
+        "type": "earnings",
+        "title": "H1 FY2023 Results — Margin Pressure Begins",
+        "summary": "The interim results showed volume growth but margin compression due to a weakening Kenya shilling making imported raw materials (barley, hops) more expensive. Management flagged cost pressure from the currency depreciation as a key risk."
+      },
+      {
+        "date": "2023-08-25",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results — FX and Cost Headwinds",
+        "summary": "Full-year profit growth slowed as foreign exchange losses and high input costs squeezed margins. The KES/USD depreciation meaningfully increased the cost of imported raw materials, and the group took a significant forex revaluation hit on USD-denominated payables."
+      },
+      {
+        "date": "2024-02-23",
+        "type": "earnings",
+        "title": "H1 FY2024 Results — FX Stabilisation Boosts Outlook",
+        "summary": "Interim results surprised positively as KES/USD stabilised, reducing the forex drag. Revenue growth was supported by Senator Keg and spirits volumes, and management guided for full-year margin recovery."
+      },
+      {
+        "date": "2024-08-23",
+        "type": "earnings",
+        "title": "FY2024 Full Year Results",
+        "summary": "EABL reported improved full-year profitability as currency stabilisation and operational cost efficiencies flowed through. Investor sentiment improved on the back of a higher dividend than the prior year."
+      }
+    ]
+  },
+  "EQTY_NR": {
+    "items": [
+      {
+        "date": "2023-03-07",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results — Strong Pan-African Growth",
+        "summary": "Equity Group reported record net profit driven by strong loan book growth across its East African markets, particularly Kenya and DRC. The group's digital banking platform saw significant transaction volume growth."
+      },
+      {
+        "date": "2023-08-25",
+        "type": "earnings",
+        "title": "H1 2023 Results",
+        "summary": "Interim results showed continued strong performance, with Kenya and DRC subsidiaries driving growth. Net interest income expanded as interest rates in Kenya rose, widening margins on the loan book."
+      },
+      {
+        "date": "2024-03-06",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results — Record Profit",
+        "summary": "Equity Group delivered another record net profit, fuelled by higher interest rates in Kenya and strong non-funded income from M-Pesa-equivalent mobile banking services. The group declared a higher dividend, boosting the share price."
+      },
+      {
+        "date": "2024-08-23",
+        "type": "earnings",
+        "title": "H1 2024 Results",
+        "summary": "Interim results reflected a moderation in net profit growth as the CBK started cutting interest rates, reducing lending margins. Asset quality remained strong and the group maintained its pan-African expansion strategy."
+      }
+    ]
+  },
+  "KCB_NR": {
+    "items": [
+      {
+        "date": "2022-01-15",
+        "type": "expansion",
+        "title": "TMB (DRC) Acquisition Completed",
+        "summary": "KCB Group completed its acquisition of Trust Merchant Bank (TMB) in the Democratic Republic of Congo, giving it access to one of Africa's fastest-growing banking markets. The acquisition was funded partly through a rights issue, adding a new growth engine to the group."
+      },
+      {
+        "date": "2023-03-23",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results — NPL Concerns Raised",
+        "summary": "Full-year results showed healthy profit growth but investor focus shifted to a rise in non-performing loans, particularly in the South Sudan subsidiary. Management guided for a resolution over 12-18 months, but NPL concerns weighed on the share price."
+      },
+      {
+        "date": "2023-09-01",
+        "type": "earnings",
+        "title": "H1 2023 Results",
+        "summary": "Interim results showed continued expansion in the loan book and net interest income, supported by Kenya's high interest rate environment. TMB (DRC) contributed positively for the first full reporting period post-acquisition."
+      },
+      {
+        "date": "2024-03-21",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "KCB Group reported record net profit as strong performance across Kenya, DRC, and Uganda offset challenges in South Sudan. Management declared a higher dividend and outlined a strategy to reduce non-performing loans."
+      },
+      {
+        "date": "2024-09-06",
+        "type": "earnings",
+        "title": "H1 2024 Results",
+        "summary": "Interim results reflected resilient profitability despite a declining interest rate environment in Kenya. The group's diversification across seven markets helped cushion the revenue impact of lower domestic rates."
+      }
+    ]
+  },
+  "NCBA_NR": {
+    "items": [
+      {
+        "date": "2022-03-24",
+        "type": "earnings",
+        "title": "FY2021 Full Year Results",
+        "summary": "NCBA reported strong full-year results, with M-Shwari and mobile lending driving significant fee income. The integration of the NIC and CBA businesses was declared complete, with synergies tracking ahead of schedule."
+      },
+      {
+        "date": "2023-03-23",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results — Robust Performance",
+        "summary": "NCBA delivered a strong set of results, with net profit growing substantially year-on-year. The group's M-Shwari mobile lending book grew, and regional subsidiaries in Uganda, Tanzania, and Rwanda posted improved contributions."
+      },
+      {
+        "date": "2024-03-28",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "Full-year profit growth continued, supported by Kenya's high interest rate environment. The group declared a higher dividend than the prior year. Management highlighted digital lending and transaction banking as key growth vectors."
+      }
+    ]
+  },
+  "COOP_NR": {
+    "items": [
+      {
+        "date": "2023-03-17",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results",
+        "summary": "Co-operative Bank reported strong full-year results underpinned by growth in interest income and fees from its cooperative banking network. The bank's MCo-op Cash mobile banking platform continued to see strong uptake."
+      },
+      {
+        "date": "2024-03-15",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results — Record Profit",
+        "summary": "Co-operative Bank achieved record net profit, driven by higher lending rates and growing non-funded income from transactional banking. The board approved a higher dividend, and the cooperative movement's anchor shareholding provided share price stability."
+      }
+    ]
+  },
+  "KQ_NR": {
+    "items": [
+      {
+        "date": "2021-10-22",
+        "type": "restructuring",
+        "title": "Government Announces KQ Restructuring Plan",
+        "summary": "The Government of Kenya announced a plan to restructure Kenya Airways' balance sheet, converting some debt to equity and exploring a potential renationalisation. The announcement triggered volatility as investors assessed the dilution impact of converting creditor debt to equity."
+      },
+      {
+        "date": "2022-08-26",
+        "type": "earnings",
+        "title": "H1 2022 Results — Passenger Recovery",
+        "summary": "Kenya Airways reported a meaningful recovery in passenger numbers as international travel rebounded from COVID-19 restrictions. Revenues increased substantially, though the airline remained loss-making due to high fuel costs and legacy debt obligations."
+      },
+      {
+        "date": "2023-04-14",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results — Reduced Losses",
+        "summary": "Full-year losses narrowed significantly as passenger volumes recovered toward pre-pandemic levels. Management outlined a turnaround strategy focused on fleet optimisation and route profitability, but the airline remained in a net loss position."
+      },
+      {
+        "date": "2024-04-12",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "Kenya Airways reported its narrowest annual loss since 2019 as yield management improved and cargo revenues grew. The path to profitability remained contingent on completing balance sheet restructuring and securing long-term capital."
+      }
+    ]
+  },
+  "KEGN_NR": {
+    "items": [
+      {
+        "date": "2022-09-30",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results",
+        "summary": "KenGen reported solid full-year results, with geothermal generation driving steady revenue. The company's capital-intensive nature meant high depreciation charges, but strong operating cash flow supported the dividend."
+      },
+      {
+        "date": "2023-04-21",
+        "type": "regulatory",
+        "title": "Electricity Tariff Review Announced",
+        "summary": "The Energy and Petroleum Regulatory Authority announced a review of electricity generation tariffs, with implications for KenGen's power purchase agreement revenues. Investors monitored the outcome closely as tariff changes directly affect KenGen's profitability."
+      },
+      {
+        "date": "2023-09-29",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "KenGen delivered improved results, supported by higher generation volumes from its geothermal plants and better tariff recovery. The company announced plans to expand its geothermal capacity in the Olkaria fields."
+      }
+    ]
+  },
+  "KPLC_NR": {
+    "items": [
+      {
+        "date": "2022-07-12",
+        "type": "management",
+        "title": "New CEO Appointed Amid Government Intervention",
+        "summary": "The Government of Kenya intervened in Kenya Power's management, appointing a new CEO as part of a broader effort to reform the electricity distributor's operational and financial performance. The announcement initially caused uncertainty about the company's strategic direction."
+      },
+      {
+        "date": "2023-03-31",
+        "type": "regulatory",
+        "title": "Electricity Tariff Adjustment",
+        "summary": "The government announced an adjustment to retail electricity tariffs, the first significant revision in several years. The tariff change was designed to reduce Kenya Power's funding gap and allow for capital reinvestment in the distribution network."
+      },
+      {
+        "date": "2023-09-29",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "Kenya Power reported improved results following the tariff adjustment, with losses narrowing and revenue recovering. The results showed early signs of the government's reform programme taking effect, though significant capital investment needs remained."
+      }
+    ]
+  },
+  "JUB_NR": {
+    "items": [
+      {
+        "date": "2022-03-31",
+        "type": "earnings",
+        "title": "FY2021 Full Year Results",
+        "summary": "Jubilee Holdings reported resilient full-year results, with medical insurance and general insurance underwriting performance recovering as COVID-19 claims normalised. The group declared a dividend, maintaining its track record of consistent shareholder returns."
+      },
+      {
+        "date": "2022-06-24",
+        "type": "expansion",
+        "title": "Allianz Strategic Partnership Deepened",
+        "summary": "Jubilee Holdings deepened its strategic partnership with Allianz SE of Germany, with Allianz taking a larger equity stake in the general insurance business. The partnership brought reinsurance capacity, technical expertise, and global distribution relationships."
+      },
+      {
+        "date": "2023-03-31",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results",
+        "summary": "The group reported strong full-year results with net profit growth across life and general insurance. Higher interest rates boosted investment income from the group's fixed income portfolio, which is a key driver of life insurance profitability."
+      },
+      {
+        "date": "2024-03-28",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "Jubilee Holdings delivered another strong set of results, with medical insurance claims stabilising after post-COVID volatility. The Allianz partnership continued to enhance underwriting discipline and profitability."
+      }
+    ]
+  },
+  "BRIT_NR": {
+    "items": [
+      {
+        "date": "2022-04-29",
+        "type": "earnings",
+        "title": "FY2021 Full Year Results",
+        "summary": "Britam Holdings reported improved results as the group's diversified financial services portfolio recovered from COVID-19 impacts. The asset management business benefited from rising bond yields, boosting returns on the life insurance float."
+      },
+      {
+        "date": "2023-04-14",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results",
+        "summary": "Britam reported mixed full-year results, with strong performance in general insurance offset by mark-to-market losses on the equity investment portfolio. Management announced cost-reduction measures as part of a multi-year efficiency drive."
+      },
+      {
+        "date": "2024-03-28",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "The group returned to stronger profitability as equity markets recovered and insurance underwriting discipline improved. Management outlined plans to streamline the portfolio by focusing on higher-margin insurance lines."
+      }
+    ]
+  },
+  "ABSA_NR": {
+    "items": [
+      {
+        "date": "2022-02-25",
+        "type": "earnings",
+        "title": "FY2021 Full Year Results",
+        "summary": "Absa Bank Kenya (rebranded from Barclays in 2020) reported strong full-year results as loan book growth and higher transaction volumes drove net interest and fee income. The new Absa brand strategy had increased digital customer acquisition."
+      },
+      {
+        "date": "2023-02-24",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results — Strong Loan Growth",
+        "summary": "Absa Kenya reported record profit, with strong loan book growth and improved net interest margins as CBK hiked rates. The board approved a higher dividend than the prior year."
+      },
+      {
+        "date": "2023-08-25",
+        "type": "earnings",
+        "title": "H1 2023 Results",
+        "summary": "Interim results continued to reflect strong profitability driven by high interest rates. However, management flagged rising credit costs in some segments as a risk to second-half performance."
+      },
+      {
+        "date": "2024-02-23",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "Absa Kenya delivered another strong year with profit growth sustained. The declining interest rate cycle beginning in late 2023 prompted investors to re-assess the bank's net interest income outlook."
+      }
+    ]
+  },
+  "SCBK_NR": {
+    "items": [
+      {
+        "date": "2023-02-24",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results",
+        "summary": "Standard Chartered Bank Kenya reported record profit, driven by significantly higher interest income as CBK rates rose. The bank's focus on upper-market clients and trade finance delivered strong fee income alongside net interest income growth."
+      },
+      {
+        "date": "2023-08-18",
+        "type": "earnings",
+        "title": "H1 2023 Results",
+        "summary": "Interim profit continued at a high level, with net interest income benefiting from elevated CBK rates. Management declared a high interim dividend, reflecting strong capital generation."
+      },
+      {
+        "date": "2024-02-23",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results — Record Dividend",
+        "summary": "Standard Chartered Kenya delivered its highest-ever dividend following another year of record profit. The market re-rated the stock higher on the combination of strong earnings and capital returns."
+      }
+    ]
+  },
+  "DTK_NR": {
+    "items": [
+      {
+        "date": "2023-03-24",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results",
+        "summary": "Diamond Trust Bank reported strong full-year results underpinned by growth across its five-country network. The Kenya operation benefited from higher interest rates while Tanzania and Uganda showed improving contributions."
+      },
+      {
+        "date": "2024-03-22",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "DTB delivered another year of profit growth, with its pan-East African franchise showing resilience. The Aga Khan Fund's long-term shareholding provided stability, and management guided for continued regional expansion."
+      }
+    ]
+  },
+  "BAT_NR": {
+    "items": [
+      {
+        "date": "2023-02-22",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results",
+        "summary": "BAT Kenya reported solid full-year results with strong volumes in premium and mid-tier cigarette segments. The company declared a high dividend, consistent with its policy of distributing a large proportion of earnings to shareholders."
+      },
+      {
+        "date": "2024-02-22",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "BAT Kenya maintained its position as one of the NSE's highest-yielding dividend stocks. Volume growth was modest but the company demonstrated resilience despite illicit trade pressures and excise tax increases."
+      }
+    ]
+  },
+  "SBIC_NR": {
+    "items": [
+      {
+        "date": "2023-03-17",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results",
+        "summary": "Stanbic Holdings reported strong full-year results, with corporate and investment banking driving significant fee income from deal advisory, debt capital markets, and trade finance. Higher interest rates boosted net interest income."
+      },
+      {
+        "date": "2024-03-22",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "Stanbic Kenya delivered record profit, benefiting from high interest rates and strong transactional banking revenues. The group declared its highest-ever dividend, reflecting the strong capital generation and Standard Bank Group's returns policy."
+      }
+    ]
+  },
+  "CTUM_NR": {
+    "items": [
+      {
+        "date": "2022-12-09",
+        "type": "earnings",
+        "title": "FY2022 Interim Results — NAV Update",
+        "summary": "Centum Investment announced its interim net asset value per share, with Two Rivers Lifestyle Centre and private equity investments underpinning the valuation. Investors assessed the discount-to-NAV as an indicator of whether to buy or sell the listed vehicle."
+      },
+      {
+        "date": "2023-06-30",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "Centum reported full-year results showing a mixed portfolio performance. Strong performance in some private equity holdings was offset by challenges in the power infrastructure portfolio. Management focused on monetising mature assets."
+      }
+    ]
+  },
+  "NMG_NR": {
+    "items": [
+      {
+        "date": "2023-04-14",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results",
+        "summary": "Nation Media Group reported continued pressure on print advertising revenues but growth in digital subscriptions and events revenue. Management outlined a digital transformation strategy to offset structural declines in the print business."
+      },
+      {
+        "date": "2024-04-12",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "NMG's results reflected ongoing structural challenges in print media, partially offset by digital growth. The group announced cost rationalisation measures, including headcount adjustments, to protect margins."
+      }
+    ]
+  },
+  "FMLY_NR": {
+    "items": [
+      {
+        "date": "2023-03-24",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results",
+        "summary": "Family Bank reported strong full-year results driven by loan book growth in the SME segment and expanding net interest margins. The bank's agent banking network deepened its reach into underserved markets."
+      },
+      {
+        "date": "2024-03-22",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "Family Bank delivered improved profitability as net interest income grew on the back of higher lending rates. Management guided for continued SME-focused loan book expansion and digital banking investment."
+      }
+    ]
+  },
+  "IMH_NR": {
+    "items": [
+      {
+        "date": "2023-03-24",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results",
+        "summary": "I&M Holdings reported strong full-year results, with its Kenya, Rwanda, and Tanzania operations all contributing positively. Trade finance and corporate banking fee income grew alongside interest income from higher rates."
+      },
+      {
+        "date": "2024-03-22",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "I&M Group delivered another year of record profitability, with the group's five-country network providing diversified income streams. The board declared a higher dividend, rewarding shareholders for the group's consistent performance."
+      }
+    ]
+  },
+  "EABL_NR": {
+    "items": [
+      {
+        "date": "2022-08-26",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results — Strong Recovery",
+        "summary": "EABL reported robust full-year results as on-trade volumes recovered post-COVID lockdowns. Senator Keg volumes and Tusker brand performance drove a strong rebound in net revenue and profit after tax, exceeding pre-pandemic levels."
+      },
+      {
+        "date": "2023-02-24",
+        "type": "earnings",
+        "title": "H1 FY2023 Results — Margin Pressure Begins",
+        "summary": "The interim results showed volume growth but margin compression due to a weakening Kenya shilling making imported raw materials more expensive. Management flagged cost pressure from currency depreciation as a key risk for the full year."
+      },
+      {
+        "date": "2023-08-25",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results — FX and Cost Headwinds",
+        "summary": "Full-year profit growth slowed as foreign exchange losses and high input costs squeezed margins. The group took a significant forex revaluation hit on USD-denominated payables as the KES depreciated sharply."
+      },
+      {
+        "date": "2024-02-23",
+        "type": "earnings",
+        "title": "H1 FY2024 Results — FX Stabilisation",
+        "summary": "Interim results surprised positively as KES/USD stabilised. Revenue growth was supported by Senator Keg and spirits volumes, and management guided for full-year margin recovery."
+      },
+      {
+        "date": "2024-08-23",
+        "type": "earnings",
+        "title": "FY2024 Full Year Results",
+        "summary": "EABL reported improved profitability as currency stabilisation and operational efficiencies flowed through. A higher dividend than the prior year improved investor sentiment."
+      }
+    ]
+  },
+  "HFCK_NR": {
+    "items": [
+      {
+        "date": "2023-03-24",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results",
+        "summary": "HF Group reported mixed results, with mortgage lending subdued by high interest rates discouraging property buyers. The bank's HFC Bank subsidiary showed growth in its broader commercial banking offering, partially offsetting mortgage weakness."
+      },
+      {
+        "date": "2024-03-22",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "HF Group's results reflected the challenging mortgage environment, though net interest income benefited from higher rates. Management guided for increased focus on affordable housing and diaspora mortgage products."
+      }
+    ]
+  },
+  "KNRE_NR": {
+    "items": [
+      {
+        "date": "2023-04-14",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results",
+        "summary": "Kenya Re reported solid full-year results, underpinned by growth in premium income from its COMESA-wide client base. Investment income benefited from higher fixed income yields in Kenya and the region."
+      },
+      {
+        "date": "2024-04-12",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "Kenya Re delivered improved results with premium growth from East and Central African ceding companies. The group's strong capital position enabled it to underwrite more risk from its regional client network."
+      }
+    ]
+  },
+  "SASN_NR": {
+    "items": [
+      {
+        "date": "2023-04-28",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results",
+        "summary": "Sasini reported strong full-year results driven by higher global tea and coffee prices. Both the tea and coffee farming segments contributed positively, and a favourable KES/USD exchange rate boosted export revenues."
+      },
+      {
+        "date": "2024-04-26",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "Sasini's results were mixed as global tea prices softened while coffee remained firm. The company's diversification across two commodities helped smooth income, and a dividend was maintained."
+      }
+    ]
+  },
+  "KUKZ_NR": {
+    "items": [
+      {
+        "date": "2023-04-28",
+        "type": "earnings",
+        "title": "FY2022 Full Year Results",
+        "summary": "Kakuzi reported strong full-year results driven by record avocado export volumes to European markets. Strong demand for Kenyan avocados and favourable pricing drove significant profit growth for the diversified agribusiness."
+      },
+      {
+        "date": "2024-04-26",
+        "type": "earnings",
+        "title": "FY2023 Full Year Results",
+        "summary": "Kakuzi continued to benefit from global avocado demand, though prices softened somewhat from the prior year's peaks. The macadamia business contributed positively, and management outlined plans to expand avocado acreage."
+      }
+    ]
+  }
+}

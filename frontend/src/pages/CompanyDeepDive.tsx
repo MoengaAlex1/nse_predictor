@@ -10,8 +10,8 @@ import { CompanyLogo } from "../components/ui/CompanyLogo";
 import { TradingChart } from "../components/charts/TradingChart";
 import { PredictionChart } from "../components/charts/PredictionChart";
 import { PriceExplainer } from "../components/company/PriceExplainer";
-import { useCompany, useLatestSnapshot, useLatestTechnicals } from "../hooks/useCompany";
-import type { PricePoint, SnapshotDoc, TechnicalsDoc, CompanyDoc } from "../types";
+import { useCompany, useLatestSnapshot, useLatestTechnicals, useCorporateEvents } from "../hooks/useCompany";
+import type { PricePoint, SnapshotDoc, TechnicalsDoc, CompanyDoc, CorporateEvent } from "../types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type RangeKey = "1M" | "3M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL" | "Custom";
@@ -803,6 +803,7 @@ export const CompanyDeepDive: FC = () => {
   const { data: company, isLoading, isError } = useCompany(ticker);
   const { data: snapshot, isLoading: snapLoading } = useLatestSnapshot(ticker);
   const { data: technicals, isLoading: techLoading } = useLatestTechnicals(ticker);
+  const { data: events = [] } = useCorporateEvents(ticker);
 
   // Range state lives here so both StatsStrip and ChartSection share it
   const [range, setRange] = useState<RangeKey>("3M");
@@ -944,6 +945,7 @@ export const CompanyDeepDive: FC = () => {
             visible={visible}
             technicals={technicals}
             rangeLabel={rangeLabel}
+            events={events as CorporateEvent[]}
           />
         )}
 

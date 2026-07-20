@@ -26,6 +26,7 @@ def seed_company(db: Any, company: dict) -> None:
         "icon":             company["icon"],
         "ticker":           company["ticker"],
         "csv":              company["csv"],
+        "description":      company.get("description", ""),
         "current_price":    None,
         "change_pct_today": None,
         "signal":           None,

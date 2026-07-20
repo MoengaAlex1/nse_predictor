@@ -1,141 +1,280 @@
 import type { FC } from "react";
-import { useState, useCallback } from "react";
-import type { CompanyDoc, TechnicalsDoc, PricePoint } from "../../types/index";
+import { useMemo, useState } from "react";
+import type { CompanyDoc, TechnicalsDoc, PricePoint, CorporateEvent } from "../../types/index";
 
-// ── System prompt ──────────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `SYSTEM ROLE:
-You are a financial market educator writing for retail investors learning to read the Nairobi Securities Exchange (NSE). Your job is to explain WHY a listed company's share price moved the way it did over a given period, using only the data provided. You are teaching general stock-market literacy through a real example — you are not a licensed investment advisor and must never issue buy/sell/hold recommendations or price predictions.
+// ── Sector educational context ─────────────────────────────────────────────────
+const SECTOR_NOTES: Record<string, string> = {
+  "Banking":
+    "Banks profit from the gap between lending rates and deposit rates (the \"net interest margin\"). When the Central Bank of Kenya raises its benchmark rate, bank margins often widen — which can lift share prices. Watch for quarterly earnings and NPL (non-performing loan) ratios as key signals.",
+  "Telecommunication and Technology":
+    "Telcos earn from voice, data, and mobile-money services. Subscriber growth and data revenue per user (ARPU) are the metrics that move these stocks. Government spectrum decisions and M-Pesa-style fintech expansion are sector-specific catalysts to watch.",
+  "Energy and Petroleum":
+    "Energy stocks track global oil prices and local fuel demand. When global crude prices rise, margins for downstream distributors can compress even as upstream producers benefit. Government pricing controls in Kenya add another layer of unpredictability.",
+  "Manufacturing and Allied":
+    "Manufacturing margins are squeezed by input costs (energy, raw materials, imported components) and can be hurt by a weak KES. When the shilling depreciates, import costs rise. Strong consumer spending and export contracts are positive signals.",
+  "Insurance":
+    "Insurers earn premium income and invest the float. Rising interest rates increase investment returns, often boosting profitability. Claims ratios and regulatory capital requirements are the key risk factors to monitor.",
+  "Commercial and Services":
+    "These companies are sensitive to consumer confidence and discretionary spending. Economic slowdowns tend to hurt them first; recoveries lift them early.",
+  "Real Estate Investment Trust":
+    "REITs distribute most of their income as dividends, so they are valued like bonds — they become more attractive when interest rates fall. Occupancy rates and rental yields are the core metrics.",
+  "Agricultural":
+    "Agricultural stocks are highly sensitive to rainfall, commodity prices, and seasonal cycles. A poor harvest or falling global commodity prices can quickly affect margins.",
+  "Investment":
+    "Investment holding companies are valued at a discount or premium to their Net Asset Value (NAV) — the sum of their portfolio. Track the underlying assets to understand price moves.",
+};
 
-TASK:
-1. Identify the most significant price movements in the period (define "significant" as any move of 10%+ within a rolling 30-day window, plus the overall period return).
-2. For each significant movement, look for data points (technical indicators, volume patterns, price structure) that fall within or shortly before that window.
-3. Clearly separate findings into:
-   a. "Data-confirmed drivers" — movements that closely align with a specific data point in the provided dataset.
-   b. "Likely contributing context" — broader sector/macro trends that plausibly influenced the move but aren't directly evidenced.
-   c. "Unexplained by available data" — movements where no corresponding data point exists; state this honestly rather than inventing a cause.
-4. For each driver identified, add one or two sentences of general stock-market education explaining the underlying principle so the reader learns a transferable lesson, not just a fact about this one stock.
-5. Note where correlation is being described, not proven causation.
-
-OUTPUT FORMAT:
-- Summary (2-3 sentences): overall direction and magnitude of the price move over the period.
-- Timeline of Key Price Movements: dated list of major inflection points with brief observations.
-- Data-Confirmed Drivers: short paragraphs citing specific numbers and dates from the data.
-- Contextual Factors: what broader sector or macro conditions might apply to this company type.
-- What This Teaches About Investing: 2-4 sentences of general educational takeaway a new NSE investor can apply to other stocks.
-- Limitations & Disclaimer: one short paragraph stating this is an automatically generated educational explanation based on historical price data only, is not investment advice, may omit non-public or qualitative factors, and that past price behavior does not predict future performance.
-
-STYLE CONSTRAINTS:
-- Plain language suitable for a first-time retail investor; define any financial term on first use.
-- No hype, no urgency language, no recommendation to buy/sell/hold.
-- Every factual claim about a price move must reference a specific date and figure from the input data.
-- If input data is insufficient to explain a move, say so explicitly instead of guessing.
-- Keep the full response under 700 words.`;
-
-// ── Prompt builder ─────────────────────────────────────────────────────────────
-function buildPrompt(
-  company: CompanyDoc,
-  visible: PricePoint[],
-  technicals: TechnicalsDoc | null | undefined,
-  rangeLabel: string
-): string {
-  if (visible.length < 2) return "";
-
-  const startPrice = visible[0].price;
-  const endPrice   = visible[visible.length - 1].price;
-  const prices     = visible.map((p) => p.price);
-  const high       = Math.max(...prices);
-  const low        = Math.min(...prices);
-  const highIdx    = prices.indexOf(high);
-  const lowIdx     = prices.indexOf(low);
-  const pctChange  = (((endPrice - startPrice) / startPrice) * 100).toFixed(2);
-  const sign       = Number(pctChange) >= 0 ? "+" : "";
-
-  // Sample to ~60 points to keep context reasonable
-  const step = Math.max(1, Math.floor(visible.length / 60));
-  const sampled = visible.filter((_, i) => i % step === 0 || i === visible.length - 1);
-  const priceJson = JSON.stringify(
-    sampled.map((p) => ({ date: p.date, close: p.price.toFixed(2) }))
-  );
-
-  const techJson = technicals
-    ? JSON.stringify({
-        as_of: technicals.date,
-        rsi_14: technicals.rsi_14,
-        macd: technicals.macd,
-        macd_hist: technicals.macd_hist,
-        bb_upper: technicals.bb_upper,
-        bb_lower: technicals.bb_lower,
-        sma_20: technicals.sma_20,
-        sma_50: technicals.sma_50,
-        sma_200: technicals.sma_200,
-        ema_12: technicals.ema_12,
-        ema_26: technicals.ema_26,
-        volatility_30d: technicals.volatility_30d,
-        avg_volume_30d: technicals.avg_volume_30d,
-        daily_return_pct: technicals.daily_return,
-      })
-    : "Not available.";
-
-  return `Analyse the following NSE-listed company's share price for the ${rangeLabel} period:
-
-COMPANY:
-- Name: ${company.name}
-- Ticker: ${company.ticker}
-- Sector: ${company.sector}
-
-PERIOD STATISTICS:
-- Analysis window: ${visible[0].date} to ${visible[visible.length - 1].date} (${rangeLabel} · ${visible.length} trading days)
-- Start price: KES ${startPrice.toFixed(2)} on ${visible[0].date}
-- End price:   KES ${endPrice.toFixed(2)} on ${visible[visible.length - 1].date}
-- Period high: KES ${high.toFixed(2)} on ${visible[highIdx].date}
-- Period low:  KES ${low.toFixed(2)} on ${visible[lowIdx].date}
-- Overall change: ${sign}${pctChange}%
-
-PRICE DATA (${sampled.length} sampled points, KES close):
-${priceJson}
-
-TECHNICAL INDICATORS (end of period):
-${techJson}
-
-IMPORTANT — DATA GAPS:
-Dividend history, rights issues, EPS/revenue results, M&A events, CBK policy changes, and sector news are not available in this dataset. For any section that requires that data, write "Insufficient data available" rather than speculating. Still provide full educational takeaways.`;
+// ── Analysis functions ─────────────────────────────────────────────────────────
+interface Move {
+  startDate: string;
+  endDate: string;
+  startPrice: number;
+  endPrice: number;
+  pct: number;
 }
 
-// ── Tiny markdown renderer ─────────────────────────────────────────────────────
+function findSignificantMoves(data: PricePoint[]): Move[] {
+  if (data.length < 10) return [];
+
+  // Divide period into segments and find biggest moves
+  const segments = Math.min(8, Math.floor(data.length / 5));
+  const size = Math.floor(data.length / segments);
+  const candidates: Move[] = [];
+
+  for (let i = 0; i < segments; i++) {
+    const from = data[i * size];
+    const to   = data[Math.min((i + 1) * size, data.length - 1)];
+    const pct  = ((to.price - from.price) / from.price) * 100;
+    if (Math.abs(pct) >= 4) {
+      candidates.push({ startDate: from.date, endDate: to.date, startPrice: from.price, endPrice: to.price, pct });
+    }
+  }
+
+  return candidates
+    .sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct))
+    .slice(0, 4);
+}
+
+function fmtDate(d: string) {
+  return new Date(d + "T00:00:00").toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function fmtKES(v: number) {
+  return `KES ${v.toFixed(2)}`;
+}
+
+function sign(n: number) { return n >= 0 ? "+" : ""; }
+
+function describeRSI(rsi: number | null): string {
+  if (rsi === null) return "";
+  if (rsi > 70) return `RSI is **${rsi.toFixed(1)}** — above 70, which traders call "overbought." This means the stock has risen quickly and may be due for a pause or pullback, though it can stay elevated during strong trends.`;
+  if (rsi < 30) return `RSI is **${rsi.toFixed(1)}** — below 30, which traders call "oversold." This suggests the stock has fallen sharply and a bounce is possible, though it can stay low in a sustained downtrend.`;
+  return `RSI is **${rsi.toFixed(1)}** — in the neutral zone (30–70), meaning price momentum is balanced with no extreme buying or selling pressure.`;
+}
+
+function describeSMAPosition(price: number | null, sma20: number | null, sma50: number | null, sma200: number | null): string {
+  if (!price) return "";
+  const parts: string[] = [];
+  if (sma20) {
+    const d = ((price - sma20) / sma20) * 100;
+    parts.push(`**${Math.abs(d).toFixed(1)}% ${d >= 0 ? "above" : "below"}** the 20-day average (SMA20 = ${fmtKES(sma20)})`);
+  }
+  if (sma50) {
+    const d = ((price - sma50) / sma50) * 100;
+    parts.push(`**${Math.abs(d).toFixed(1)}% ${d >= 0 ? "above" : "below"}** the 50-day average (SMA50 = ${fmtKES(sma50)})`);
+  }
+  if (sma200) {
+    const d = ((price - sma200) / sma200) * 100;
+    parts.push(`**${Math.abs(d).toFixed(1)}% ${d >= 0 ? "above" : "below"}** the 200-day average (SMA200 = ${fmtKES(sma200)})`);
+  }
+  if (!parts.length) return "";
+  return `Current price is ${parts.join(", ")}. Moving averages act as dynamic support and resistance levels — being above them is generally considered bullish.`;
+}
+
+function describeMACd(macd: number | null, hist: number | null): string {
+  if (macd === null) return "";
+  const direction = (hist ?? macd) >= 0 ? "positive" : "negative";
+  const trend     = (hist ?? macd) >= 0 ? "upward" : "downward";
+  return `MACD histogram is **${direction}** (${(hist ?? macd).toFixed(3)}), suggesting short-term **${trend} momentum**. MACD measures the gap between two moving averages — when it turns positive, it often signals that short-term buying pressure is exceeding selling pressure.`;
+}
+
+function describeVolatility(vol: number | null): string {
+  if (vol === null) return "";
+  const level = vol > 3 ? "high" : vol > 1.5 ? "moderate" : "low";
+  return `30-day volatility is **${vol.toFixed(2)}%** per day — ${level} for an NSE-listed stock. Higher volatility means the stock moves more sharply in both directions, which can amplify both gains and losses.`;
+}
+
+// ── Event matching ─────────────────────────────────────────────────────────────
+function findNearbyEvent(events: CorporateEvent[], dateStr: string, windowDays = 21): CorporateEvent | null {
+  const target = new Date(dateStr + "T00:00:00").getTime();
+  const window = windowDays * 24 * 60 * 60 * 1000;
+  for (const ev of events) {
+    const evTime = new Date(ev.date + "T00:00:00").getTime();
+    if (Math.abs(evTime - target) <= window) return ev;
+  }
+  return null;
+}
+
+const EVENT_TYPE_LABEL: Record<CorporateEvent["type"], string> = {
+  earnings: "Earnings Release",
+  dividend: "Dividend Announcement",
+  rights_issue: "Rights Issue / Capital Raise",
+  expansion: "Business Expansion",
+  management: "Management Change",
+  regulatory: "Regulatory Decision",
+  restructuring: "Restructuring",
+  other: "Corporate Event",
+};
+
+// ── Main generator ─────────────────────────────────────────────────────────────
+function generateExplanation(
+  company: CompanyDoc,
+  data: PricePoint[],
+  technicals: TechnicalsDoc | null | undefined,
+  rangeLabel: string,
+  events: CorporateEvent[]
+): string {
+  if (data.length < 2) return "";
+
+  const startPrice  = data[0].price;
+  const endPrice    = data[data.length - 1].price;
+  const prices      = data.map((p) => p.price);
+  const high        = Math.max(...prices);
+  const low         = Math.min(...prices);
+  const highDate    = data[prices.indexOf(high)].date;
+  const lowDate     = data[prices.indexOf(low)].date;
+  const totalPct    = ((endPrice - startPrice) / startPrice) * 100;
+  const direction   = totalPct >= 0 ? "gained" : "lost";
+  const moves       = findSignificantMoves(data);
+  const sectorNote  = SECTOR_NOTES[company.sector] ?? "";
+
+  const lines: string[] = [];
+
+  // About This Company
+  if (company.description) {
+    lines.push("### About This Company");
+    lines.push(company.description);
+    lines.push("");
+  }
+
+  // Summary
+  lines.push(`## ${company.name} · ${rangeLabel} Analysis`);
+  lines.push(`**${fmtDate(data[0].date)} → ${fmtDate(data[data.length - 1].date)} · ${data.length} trading days**`);
+  lines.push("");
+  lines.push("### Summary");
+  lines.push(
+    `Over the ${rangeLabel} period, **${company.name} (${company.ticker})** ${direction} **${sign(totalPct)}${totalPct.toFixed(2)}%** — moving from ${fmtKES(startPrice)} to ${fmtKES(endPrice)}. ` +
+    `The highest price in the window was ${fmtKES(high)} (${fmtDate(highDate)}) and the lowest was ${fmtKES(low)} (${fmtDate(lowDate)}), ` +
+    `giving a peak-to-trough range of ${(((high - low) / low) * 100).toFixed(1)}%.`
+  );
+
+  // Key movements
+  if (moves.length > 0) {
+    lines.push("");
+    lines.push("### Key Price Movements");
+    const usedEventDates = new Set<string>();
+    for (const m of moves) {
+      const verb = m.pct >= 0 ? "rose" : "fell";
+      const nearEvent = findNearbyEvent(events, m.startDate) ?? findNearbyEvent(events, m.endDate);
+      let moveLine = `- **${fmtDate(m.startDate)} → ${fmtDate(m.endDate)}:** Price ${verb} **${sign(m.pct)}${m.pct.toFixed(1)}%** from ${fmtKES(m.startPrice)} to ${fmtKES(m.endPrice)}.`;
+      if (nearEvent && !usedEventDates.has(nearEvent.date)) {
+        usedEventDates.add(nearEvent.date);
+        moveLine += ` This move coincides with a **${EVENT_TYPE_LABEL[nearEvent.type]}** on ${fmtDate(nearEvent.date)}: ${nearEvent.summary}`;
+      }
+      lines.push(moveLine);
+    }
+    if (events.length === 0) {
+      lines.push(
+        "- Note: No corporate event data is available for this company. Dividend payments, earnings releases, and macroeconomic announcements often explain sudden moves."
+      );
+    }
+  }
+
+  // Corporate events in range (even if no significant move matched)
+  const rangeStart = data[0].date;
+  const rangeEnd   = data[data.length - 1].date;
+  const eventsInRange = events.filter((ev) => ev.date >= rangeStart && ev.date <= rangeEnd);
+  if (eventsInRange.length > 0) {
+    lines.push("");
+    lines.push("### Corporate Events in This Period");
+    for (const ev of eventsInRange) {
+      lines.push(`- **${fmtDate(ev.date)} · ${EVENT_TYPE_LABEL[ev.type]}:** ${ev.title} — ${ev.summary}`);
+    }
+  }
+
+  // Technical snapshot
+  const rsiLine    = technicals ? describeRSI(technicals.rsi_14) : "";
+  const smaLine    = technicals ? describeSMAPosition(endPrice, technicals.sma_20, technicals.sma_50, technicals.sma_200) : "";
+  const macdLine   = technicals ? describeMACd(technicals.macd, technicals.macd_hist) : "";
+  const volLine    = technicals ? describeVolatility(technicals.volatility_30d) : "";
+
+  if (rsiLine || smaLine || macdLine || volLine) {
+    lines.push("");
+    lines.push("### Technical Snapshot");
+    if (rsiLine)  lines.push(`- ${rsiLine}`);
+    if (smaLine)  lines.push(`- ${smaLine}`);
+    if (macdLine) lines.push(`- ${macdLine}`);
+    if (volLine)  lines.push(`- ${volLine}`);
+  }
+
+  // Sector context
+  if (sectorNote) {
+    lines.push("");
+    lines.push("### Sector Context");
+    lines.push(sectorNote);
+  }
+
+  // Educational takeaways
+  lines.push("");
+  lines.push("### What This Teaches");
+  if (Math.abs(totalPct) > 20) {
+    lines.push(
+      `- A **${Math.abs(totalPct).toFixed(0)}% move** in one period is substantial. Large moves often reflect a re-rating of the company's prospects — not just day-to-day trading noise. They often coincide with earnings results, analyst upgrades, or sector news.`
+    );
+  }
+  if (technicals?.rsi_14 && technicals.rsi_14 > 65) {
+    lines.push("- A high RSI after a strong run does not guarantee a reversal — it signals caution, not certainty. Strong trends can keep RSI elevated for extended periods.");
+  }
+  if (technicals?.sma_200 && endPrice > technicals.sma_200) {
+    lines.push("- Trading above the 200-day average is widely seen as a long-term bullish sign. Many institutional investors use this as a basic filter before buying.");
+  }
+  lines.push(
+    "- **Correlation is not causation** — price charts show *what* happened, not always *why*. Always combine chart reading with fundamental research (financial results, business news) for a complete picture."
+  );
+
+  // Disclaimer
+  lines.push("");
+  lines.push("### Limitations & Disclaimer");
+  lines.push(
+    "This is an automatically generated educational explanation based on historical price and technical indicator data only. It does not constitute investment advice and should not be the sole basis for any investment decision. It does not account for qualitative factors, company fundamentals, corporate events, or macroeconomic conditions not reflected in the price series. Past price behaviour does not predict future performance."
+  );
+
+  return lines.join("\n");
+}
+
+// ── Markdown renderer ──────────────────────────────────────────────────────────
 function inlineBold(text: string): (string | JSX.Element)[] {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
-  return parts.map((p, i) =>
+  return text.split(/(\*\*[^*]+\*\*)/).map((p, i) =>
     p.startsWith("**") && p.endsWith("**")
       ? <strong key={i} className="font-semibold text-ink">{p.slice(2, -2)}</strong>
       : p
   );
 }
 
-function MarkdownLine({ line, idx }: { line: string; idx: number }) {
-  if (line.startsWith("### "))
-    return <p key={idx} className="mt-3 text-[10px] font-bold uppercase tracking-wider text-muted">{line.slice(4)}</p>;
+function MdLine({ line, idx }: { line: string; idx: number }) {
   if (line.startsWith("## "))
-    return <h3 key={idx} className="mt-4 mb-0.5 text-sm font-bold text-ink">{line.slice(3)}</h3>;
-  if (line.startsWith("# "))
-    return <h2 key={idx} className="mt-4 mb-1 text-base font-bold text-ink">{line.slice(2)}</h2>;
-  if (line.startsWith("- ") || line.startsWith("* "))
+    return <h2 className="mt-4 mb-1 text-sm font-bold text-ink">{line.slice(3)}</h2>;
+  if (line.startsWith("### "))
+    return <h3 className="mt-3 mb-0.5 text-[10px] font-bold uppercase tracking-wider text-muted">{line.slice(4)}</h3>;
+  if (line.startsWith("- "))
     return (
-      <li key={idx} className="ml-1 flex items-start gap-2 text-sm text-sub">
-        <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-accent" />
-        <span>{inlineBold(line.slice(2))}</span>
+      <li className="ml-1 flex items-start gap-2 text-sm text-sub">
+        <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-accent" />
+        <span className="leading-relaxed">{inlineBold(line.slice(2))}</span>
       </li>
     );
-  if (line.trim() === "") return <div key={idx} className="h-2" />;
-  return <p key={idx} className="text-sm leading-relaxed text-sub">{inlineBold(line)}</p>;
-}
-
-function Markdown({ text }: { text: string }) {
-  const lines = text.split("\n");
-  return (
-    <div className="space-y-0.5">
-      {lines.map((line, i) => <MarkdownLine key={i} line={line} idx={i} />)}
-    </div>
-  );
+  if (line.trim() === "") return <div className="h-1.5" />;
+  return <p className="text-sm leading-relaxed text-sub">{inlineBold(line)}</p>;
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -144,154 +283,45 @@ interface Props {
   visible: PricePoint[];
   technicals: TechnicalsDoc | null | undefined;
   rangeLabel: string;
+  events: CorporateEvent[];
 }
 
-type Status = "idle" | "loading" | "streaming" | "done" | "error";
+export const PriceExplainer: FC<Props> = ({ company, visible, technicals, rangeLabel, events }) => {
+  const [open, setOpen] = useState(false);
 
-export const PriceExplainer: FC<Props> = ({ company, visible, technicals, rangeLabel }) => {
-  const [status, setStatus]      = useState<Status>("idle");
-  const [explanation, setExpl]   = useState("");
-  const [errorMsg, setErrorMsg]  = useState("");
+  const explanation = useMemo(
+    () => generateExplanation(company, visible, technicals, rangeLabel, events),
+    [company, visible, technicals, rangeLabel, events]
+  );
 
-  const run = useCallback(async () => {
-    const apiKey = (import.meta as any).env.VITE_ANTHROPIC_API_KEY as string | undefined;
-    if (!apiKey) {
-      setErrorMsg("Add VITE_ANTHROPIC_API_KEY to frontend/.env.local to enable AI analysis.");
-      setStatus("error");
-      return;
-    }
-
-    const prompt = buildPrompt(company, visible, technicals, rangeLabel);
-    if (!prompt) return;
-
-    setStatus("loading");
-    setExpl("");
-    setErrorMsg("");
-
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 1200,
-          stream: true,
-          system: SYSTEM_PROMPT,
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error((err as any).error?.message ?? `API error ${res.status}`);
-      }
-
-      setStatus("streaming");
-      const reader  = res.body!.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split("\n")) {
-          if (!line.startsWith("data: ")) continue;
-          const raw = line.slice(6).trim();
-          if (raw === "[DONE]" || !raw) continue;
-          try {
-            const evt = JSON.parse(raw);
-            if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
-              setExpl((prev) => prev + evt.delta.text);
-            }
-          } catch { /* ignore malformed SSE chunks */ }
-        }
-      }
-
-      setStatus("done");
-    } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : "Unknown error");
-      setStatus("error");
-    }
-  }, [company, visible, technicals, rangeLabel]);
-
-  if (visible.length < 2) return null;
-
-  const isIdle     = status === "idle";
-  const isDone     = status === "done";
-  const isError    = status === "error";
-  const isBusy     = status === "loading" || status === "streaming";
-  const showButton = isIdle || isDone || isError;
+  if (!explanation) return null;
 
   return (
     <div className="rounded-xl border border-rim bg-surface p-4">
-      {/* Header */}
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-xs">✦</span>
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted">AI Price Analysis</p>
+            <span className="text-xs text-accent">✦</span>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted">Price Analysis</p>
           </div>
           <p className="mt-0.5 text-[11px] text-hint">
-            Educational breakdown · {rangeLabel} · {company.name}
+            Educational breakdown · {rangeLabel} · updates with range selection
           </p>
         </div>
-
-        {showButton && (
-          <button
-            type="button"
-            onClick={run}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90"
-          >
-            <span>✦</span>
-            {isDone ? "Regenerate" : "Explain This Period"}
-          </button>
-        )}
-
-        {status === "loading" && (
-          <div className="flex items-center gap-2 text-xs text-muted">
-            <div className="h-3 w-3 animate-spin rounded-full border border-rim border-t-accent" />
-            Analysing {company.name} · {rangeLabel}…
-          </div>
-        )}
-
-        {status === "streaming" && (
-          <div className="flex items-center gap-2 text-xs text-muted">
-            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" />
-            Writing…
-          </div>
-        )}
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="shrink-0 rounded-lg border border-rim bg-raised px-4 py-2 text-xs font-semibold text-sub transition-colors hover:border-accent hover:text-accent"
+        >
+          {open ? "Hide" : "Show Analysis"}
+        </button>
       </div>
 
-      {/* Error */}
-      {isError && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
-          <p className="text-xs text-red-500">{errorMsg}</p>
-        </div>
-      )}
-
-      {/* Idle hint */}
-      {isIdle && (
-        <div className="rounded-lg border border-seam bg-raised/60 px-4 py-3">
-          <p className="text-xs text-muted">
-            Click <strong className="text-sub">Explain This Period</strong> to get an AI-powered educational
-            breakdown of what drove {company.ticker}'s price over the selected {rangeLabel} window.
-            Uses price action and technical data — not financial advice.
-          </p>
-        </div>
-      )}
-
-      {/* Streaming / done */}
-      {(isBusy || isDone) && explanation && (
-        <div className="mt-1 rounded-lg border border-seam bg-raised/40 px-4 py-3">
-          <Markdown text={explanation} />
-          {status === "streaming" && (
-            <span className="mt-1 inline-block h-3.5 w-0.5 animate-pulse bg-accent align-middle" />
-          )}
+      {open && (
+        <div className="mt-4 rounded-lg border border-seam bg-raised/40 px-4 py-3 space-y-0.5">
+          {explanation.split("\n").map((line, i) => (
+            <MdLine key={i} line={line} idx={i} />
+          ))}
         </div>
       )}
     </div>

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchCompany, fetchLatestSnapshot, fetchLatestTechnicals } from "../lib/firestore";
-import type { CompanyDoc, SnapshotDoc, TechnicalsDoc } from "../types";
+import { fetchCompany, fetchLatestSnapshot, fetchLatestTechnicals, fetchCorporateEvents } from "../lib/firestore";
+import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, CorporateEvent } from "../types";
 
 export function useCompany(safeTicker: string) {
   return useQuery<CompanyDoc | null>({
@@ -23,5 +23,13 @@ export function useLatestTechnicals(safeTicker: string, enabled = true) {
     queryKey: ["technicals", safeTicker],
     queryFn: () => fetchLatestTechnicals(safeTicker),
     enabled: !!safeTicker && enabled,
+  });
+}
+
+export function useCorporateEvents(safeTicker: string) {
+  return useQuery<CorporateEvent[]>({
+    queryKey: ["events", safeTicker],
+    queryFn: () => fetchCorporateEvents(safeTicker),
+    enabled: !!safeTicker,
   });
 }

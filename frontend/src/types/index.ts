@@ -12,6 +12,7 @@ export interface CompanyDoc {
   color: string;
   icon: string;
   csv: string;
+  description?: string;
   current_price: number | null;
   change_pct_today: number | null;
   signal: "BUY" | "HOLD" | "SELL" | null;
@@ -68,6 +69,17 @@ export interface TechnicalsDoc {
   daily_return: number | null;
   volatility_30d: number | null;
   monthly_heatmap: Record<string, number>;
+}
+
+export interface CorporateEvent {
+  date: string;
+  type: "earnings" | "dividend" | "rights_issue" | "expansion" | "management" | "regulatory" | "restructuring" | "other";
+  title: string;
+  summary: string;
+}
+
+export interface EventsDoc {
+  items: CorporateEvent[];
 }
 
 export interface MarketOverviewDoc {
