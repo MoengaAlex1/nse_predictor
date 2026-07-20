@@ -13,12 +13,14 @@ import { useCompany, useLatestSnapshot, useLatestTechnicals } from "../hooks/use
 import type { PricePoint, SnapshotDoc, TechnicalsDoc, CompanyDoc } from "../types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type RangeKey = "1M" | "3M" | "6M" | "1Y" | "ALL" | "Custom";
+type RangeKey = "1M" | "3M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL" | "Custom";
 const PRESETS: { label: RangeKey; days: number | null }[] = [
-  { label: "1M",     days: 30  },
-  { label: "3M",     days: 90  },
-  { label: "6M",     days: 180 },
-  { label: "1Y",     days: 365 },
+  { label: "1M",     days: 30   },
+  { label: "3M",     days: 90   },
+  { label: "6M",     days: 180  },
+  { label: "YTD",    days: -1   },
+  { label: "1Y",     days: 365  },
+  { label: "5Y",     days: 1825 },
   { label: "ALL",    days: null },
   { label: "Custom", days: null },
 ];
@@ -28,6 +30,10 @@ function filterByRange(data: PricePoint[], range: RangeKey, from: string, to: st
   if (range === "Custom") {
     return data.filter((p) => (!from || p.date >= from) && (!to || p.date <= to));
   }
+  if (range === "YTD") {
+    const ytdCut = `${new Date().getFullYear()}-01-01`;
+    return data.filter((p) => p.date >= ytdCut);
+  }
   const days = PRESETS.find((r) => r.label === range)?.days ?? null;
   if (!days) return data;
   const cutoff = new Date();
@@ -36,6 +42,8 @@ function filterByRange(data: PricePoint[], range: RangeKey, from: string, to: st
 }
 
 const priceFmt = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(2)}k` : v.toFixed(2));
+const kesFmt = (v: number) =>
+  v.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // ── Metric chip ────────────────────────────────────────────────────────────────
 const MetricChip: FC<{ label: string; value: string; accent?: string }> = ({
@@ -215,6 +223,159 @@ const StatsStrip: FC<{
   );
 };
 
+// ── Range performance strip ────────────────────────────────────────────────────
+const RangePerformance: FC<{ data: PricePoint[]; range: RangeKey }> = ({ data, range }) => {
+  const stats = useMemo(() => {
+    if (data.length < 2) return null;
+    const startPrice = data[0].price;
+    const endPrice   = data[data.length - 1].price;
+    const prices     = data.map((p) => p.price);
+    const high       = Math.max(...prices);
+    const low        = Math.min(...prices);
+    const change     = endPrice - startPrice;
+    const changePct  = (change / startPrice) * 100;
+    return { startPrice, endPrice, high, low, change, changePct, startDate: data[0].date, endDate: data[data.length - 1].date };
+  }, [data]);
+
+  if (!stats) return null;
+
+  const isGain      = stats.changePct >= 0;
+  const sign        = isGain ? "+" : "";
+  const color       = isGain ? "text-emerald-500" : "text-red-500";
+  const bgColor     = isGain ? "bg-emerald-500/10 border-emerald-500/20" : "bg-red-500/10 border-red-500/20";
+  const rangeLabel  = range === "YTD" ? "Year to Date" : range === "Custom" ? "Custom Range" : `${range} Performance`;
+
+  return (
+    <div className="rounded-xl border border-rim bg-surface p-4">
+      <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted">{rangeLabel}</p>
+      <div className="flex flex-wrap gap-4">
+        {/* Big return number */}
+        <div className={`flex min-w-[160px] flex-1 flex-col justify-center rounded-lg border p-4 ${bgColor}`}>
+          <span className={`font-mono text-4xl font-black leading-none ${color}`}>
+            {sign}{stats.changePct.toFixed(2)}%
+          </span>
+          <span className={`mt-1 font-mono text-sm font-semibold ${color}`}>
+            {sign}KES {kesFmt(Math.abs(stats.change))} per share
+          </span>
+          <span className="mt-0.5 text-[10px] text-muted">
+            {isGain ? "Gain" : "Loss"} over {data.length} trading days
+          </span>
+        </div>
+        {/* Stat grid */}
+        <div className="grid flex-1 grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="rounded-lg border border-seam bg-raised/60 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-hint">Start Price</p>
+            <p className="mt-0.5 font-mono text-sm font-bold text-ink">KES {kesFmt(stats.startPrice)}</p>
+            <p className="text-[10px] font-mono text-hint">{stats.startDate}</p>
+          </div>
+          <div className="rounded-lg border border-seam bg-raised/60 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-hint">End Price</p>
+            <p className="mt-0.5 font-mono text-sm font-bold text-ink">KES {kesFmt(stats.endPrice)}</p>
+            <p className="text-[10px] font-mono text-hint">{stats.endDate}</p>
+          </div>
+          <div className="rounded-lg border border-seam bg-raised/60 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-hint">Period High</p>
+            <p className="mt-0.5 font-mono text-sm font-bold text-emerald-500">KES {kesFmt(stats.high)}</p>
+          </div>
+          <div className="rounded-lg border border-seam bg-raised/60 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-hint">Period Low</p>
+            <p className="mt-0.5 font-mono text-sm font-bold text-red-500">KES {kesFmt(stats.low)}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Investment calculator ──────────────────────────────────────────────────────
+const InvestmentCalculator: FC<{ data: PricePoint[]; range: RangeKey }> = ({ data, range }) => {
+  const [shares, setShares] = useState("100");
+
+  const calc = useMemo(() => {
+    if (data.length < 2) return null;
+    const qty        = Math.max(0, parseFloat(shares) || 0);
+    const entryPrice = data[0].price;
+    const exitPrice  = data[data.length - 1].price;
+    const invested   = qty * entryPrice;
+    const nowValue   = qty * exitPrice;
+    const pnl        = nowValue - invested;
+    const returnPct  = invested > 0 ? (pnl / invested) * 100 : 0;
+    return { qty, entryPrice, exitPrice, invested, nowValue, pnl, returnPct };
+  }, [data, shares]);
+
+  if (!calc) return null;
+
+  const isGain     = calc.pnl >= 0;
+  const color      = isGain ? "text-emerald-500" : "text-red-500";
+  const pnlBorder  = isGain ? "border-emerald-500/30 bg-emerald-500/10" : "border-red-500/30 bg-red-500/10";
+  const rangeLabel = range === "YTD" ? "YTD" : range === "Custom" ? "selected" : range;
+
+  return (
+    <div className="rounded-xl border border-rim bg-surface p-4">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted">Investment Calculator</p>
+          <p className="mt-0.5 text-[11px] text-hint">
+            If you had bought {calc.qty > 0 ? calc.qty.toLocaleString() : "X"} shares at the start of the {rangeLabel} period
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-hint" htmlFor="calc-shares">
+            Shares
+          </label>
+          <input
+            id="calc-shares"
+            type="number"
+            min="1"
+            step="1"
+            value={shares}
+            onChange={(e) => setShares(e.target.value)}
+            className="w-28 rounded-lg border border-rim bg-raised px-3 py-1.5 font-mono text-sm font-bold text-ink focus:border-accent focus:outline-none"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="rounded-lg border border-seam bg-raised/60 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-hint">Entry Price</p>
+          <p className="mt-0.5 font-mono text-sm font-bold text-ink">KES {kesFmt(calc.entryPrice)}</p>
+          <p className="text-[10px] text-hint">{data[0].date}</p>
+        </div>
+        <div className="rounded-lg border border-seam bg-raised/60 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-hint">Total Invested</p>
+          <p className="mt-0.5 font-mono text-sm font-bold text-ink">
+            {calc.invested > 0 ? `KES ${kesFmt(calc.invested)}` : "—"}
+          </p>
+        </div>
+        <div className="rounded-lg border border-seam bg-raised/60 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-hint">Value Today</p>
+          <p className="mt-0.5 font-mono text-sm font-bold text-ink">
+            {calc.nowValue > 0 ? `KES ${kesFmt(calc.nowValue)}` : "—"}
+          </p>
+          <p className="text-[10px] font-mono text-hint">@ KES {kesFmt(calc.exitPrice)}</p>
+        </div>
+        <div className={`rounded-lg border p-3 ${pnlBorder}`}>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-hint">
+            {isGain ? "Profit" : "Loss"}
+          </p>
+          {calc.invested > 0 ? (
+            <>
+              <p className={`mt-0.5 font-mono text-sm font-bold ${color}`}>
+                {isGain ? "+" : "−"}KES {kesFmt(Math.abs(calc.pnl))}
+              </p>
+              <p className={`font-mono text-xs font-bold ${color}`}>
+                {isGain ? "+" : ""}{calc.returnPct.toFixed(2)}%
+              </p>
+            </>
+          ) : (
+            <p className="mt-0.5 text-xs text-muted">Enter shares above</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── Chart section ─────────────────────────────────────────────────────────────
 const ChartSection: FC<{
   company: CompanyDoc;
@@ -232,6 +393,7 @@ const ChartSection: FC<{
   const dataMax = history[history.length - 1]?.date ?? "";
 
   return (
+    <div className="space-y-4">
     <div className="overflow-hidden rounded-xl border border-rim bg-surface">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-seam px-4 py-3">
         <div>
@@ -331,6 +493,14 @@ const ChartSection: FC<{
           </div>
         )}
       </div>
+    </div>
+
+    {visible.length >= 2 && (
+      <>
+        <RangePerformance data={visible} range={range} />
+        <InvestmentCalculator data={visible} range={range} />
+      </>
+    )}
     </div>
   );
 };
