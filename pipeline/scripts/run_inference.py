@@ -366,10 +366,10 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
 
         change_pct = float(cleaned_df["Close"].pct_change().iloc[-1] * 100)
         change_pct = max(-15.0, min(15.0, change_pct))  # cap at ±15% (NSE circuit breaker is ±9.9%)
-        hist_90 = cleaned_df["Close"].tail(90)
         price_history = [
             {"date": str(idx.date()), "price": round(float(val), 4)}
-            for idx, val in hist_90.items()
+            for idx, val in cleaned_df["Close"].items()
+            if idx.dayofweek < 5
         ]
 
         return {

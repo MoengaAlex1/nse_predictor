@@ -411,7 +411,7 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         # NSE circuit breaker is ±9.9%; cap display at ±15% to absorb rare edge cases
         change_pct = max(-15.0, min(15.0, change_pct))
 
-        # Build price_history with dates (last 90 real trading days)
+        # Build full price_history — all available trading days (Mon–Fri, no stale rows)
         today_ts = pd.Timestamp(date.today())
         hist_df = cleaned_df.copy()
         if "Is_Stale" in hist_df.columns:
@@ -420,7 +420,7 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         hist_df = hist_df[hist_df.index.dayofweek < 5]
         price_history = [
             {"date": idx.strftime("%Y-%m-%d"), "price": round(float(val), 4)}
-            for idx, val in hist_df["Close"].tail(90).items()
+            for idx, val in hist_df["Close"].items()
         ]
 
         return {
