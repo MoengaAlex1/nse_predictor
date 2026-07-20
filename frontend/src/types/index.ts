@@ -82,6 +82,62 @@ export interface EventsDoc {
   items: CorporateEvent[];
 }
 
+export interface FinancialResult {
+  period: string;
+  period_end: string;
+  period_type: "annual" | "interim";
+  announcement_date: string;
+  revenue_kes_mn: number | null;
+  net_income_kes_mn: number | null;
+  eps: number | null;
+  bvps: number | null;
+  notes?: string;
+}
+
+export interface DividendEvent {
+  announcement_date: string;
+  ex_date: string | null;
+  payment_date: string | null;
+  amount_kes: number;
+  type: "final" | "interim" | "total" | "special" | "none";
+  notes?: string;
+}
+
+export interface CorporateAction {
+  date: string;
+  type: string;
+  details: string;
+}
+
+export interface FinancialsDoc {
+  annual: FinancialResult[];
+  dividends: DividendEvent[];
+  corporate_actions: CorporateAction[];
+}
+
+export interface CBKRateDecision {
+  date: string;
+  rate: number;
+  change_bps: number;
+  decision: "hike" | "cut" | "hold";
+  notes?: string;
+}
+
+export interface MacroEvent {
+  date: string;
+  type: string;
+  title: string;
+  description: string;
+}
+
+export interface MacroDoc {
+  cbk_rates: CBKRateDecision[];
+  annual_inflation: Record<string, number>;
+  kes_usd_year_end: Record<string, number>;
+  nse20_year_end: Record<string, number>;
+  macro_events: MacroEvent[];
+}
+
 export interface MarketOverviewDoc {
   date: string;
   top_gainers: { ticker: string; change_pct: number }[];

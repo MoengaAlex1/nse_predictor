@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchCompany, fetchLatestSnapshot, fetchLatestTechnicals, fetchCorporateEvents } from "../lib/firestore";
-import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, CorporateEvent } from "../types";
+import { fetchCompany, fetchLatestSnapshot, fetchLatestTechnicals, fetchCorporateEvents, fetchFinancials, fetchMacro } from "../lib/firestore";
+import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, CorporateEvent, FinancialsDoc, MacroDoc } from "../types";
 
 export function useCompany(safeTicker: string) {
   return useQuery<CompanyDoc | null>({
@@ -31,5 +31,21 @@ export function useCorporateEvents(safeTicker: string) {
     queryKey: ["events", safeTicker],
     queryFn: () => fetchCorporateEvents(safeTicker),
     enabled: !!safeTicker,
+  });
+}
+
+export function useFinancials(safeTicker: string) {
+  return useQuery<FinancialsDoc | null>({
+    queryKey: ["financials", safeTicker],
+    queryFn: () => fetchFinancials(safeTicker),
+    enabled: !!safeTicker,
+  });
+}
+
+export function useMacro() {
+  return useQuery<MacroDoc | null>({
+    queryKey: ["macro", "kenya"],
+    queryFn: () => fetchMacro(),
+    staleTime: 1000 * 60 * 60,
   });
 }

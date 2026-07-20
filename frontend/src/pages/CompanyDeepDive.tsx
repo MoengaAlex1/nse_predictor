@@ -10,7 +10,7 @@ import { CompanyLogo } from "../components/ui/CompanyLogo";
 import { TradingChart } from "../components/charts/TradingChart";
 import { PredictionChart } from "../components/charts/PredictionChart";
 import { PriceExplainer } from "../components/company/PriceExplainer";
-import { useCompany, useLatestSnapshot, useLatestTechnicals, useCorporateEvents } from "../hooks/useCompany";
+import { useCompany, useLatestSnapshot, useLatestTechnicals, useCorporateEvents, useFinancials, useMacro } from "../hooks/useCompany";
 import type { PricePoint, SnapshotDoc, TechnicalsDoc, CompanyDoc, CorporateEvent } from "../types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -804,6 +804,8 @@ export const CompanyDeepDive: FC = () => {
   const { data: snapshot, isLoading: snapLoading } = useLatestSnapshot(ticker);
   const { data: technicals, isLoading: techLoading } = useLatestTechnicals(ticker);
   const { data: events = [] } = useCorporateEvents(ticker);
+  const { data: financials } = useFinancials(ticker);
+  const { data: macro } = useMacro();
 
   // Range state lives here so both StatsStrip and ChartSection share it
   const [range, setRange] = useState<RangeKey>("3M");
@@ -946,6 +948,8 @@ export const CompanyDeepDive: FC = () => {
             technicals={technicals}
             rangeLabel={rangeLabel}
             events={events as CorporateEvent[]}
+            financials={financials}
+            macro={macro}
           />
         )}
 
