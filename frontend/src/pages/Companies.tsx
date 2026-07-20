@@ -5,6 +5,7 @@ import { PageShell } from "../components/layout/PageShell";
 import { Card } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { SignalBadge } from "../components/ui/Badge";
+import { CompanyLogo } from "../components/ui/CompanyLogo";
 import { useCompanies } from "../hooks/useCompanies";
 import type { CompanyDoc } from "../types";
 
@@ -198,7 +199,13 @@ const CompanyCard: FC<{ company: CompanyDoc; showSignal?: boolean }> = ({
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xl">{company.icon}</span>
+              <CompanyLogo
+                id={company.id}
+                short={company.short}
+                color={company.color}
+                icon={company.icon}
+                size="sm"
+              />
               <span className="font-semibold text-slate-100">{company.short}</span>
             </div>
             <p className="mt-0.5 text-xs text-slate-500">{company.sector}</p>

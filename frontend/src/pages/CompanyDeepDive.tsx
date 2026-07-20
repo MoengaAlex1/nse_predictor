@@ -6,6 +6,7 @@ import { PageShell } from "../components/layout/PageShell";
 import { Card } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { SignalBadge } from "../components/ui/Badge";
+import { CompanyLogo } from "../components/ui/CompanyLogo";
 import { SparkLine } from "../components/charts/SparkLine";
 import { PredictionChart } from "../components/charts/PredictionChart";
 import { useCompany, useLatestSnapshot, useLatestTechnicals } from "../hooks/useCompany";
@@ -79,7 +80,13 @@ export const CompanyDeepDive: FC = () => {
         <div className="flex flex-wrap items-start gap-4">
           <div className="flex-1">
             <div className="flex flex-wrap items-center gap-3">
-              <span className="text-3xl">{company.icon}</span>
+              <CompanyLogo
+                id={ticker}
+                short={company.short}
+                color={company.color}
+                icon={company.icon}
+                size="lg"
+              />
               <h1 className="text-3xl font-bold text-slate-100">{company.name}</h1>
               {company.signal && <SignalBadge signal={company.signal} size="lg" />}
             </div>
