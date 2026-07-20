@@ -80,6 +80,8 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     # NSE 10% daily band proximity flag
     df["near_band_limit"] = (df["daily_return"].abs() >= 0.08).astype(int)
 
+    # Replace any inf/-inf produced by division-by-zero (e.g. OC_ratio when Open=0)
+    df = df.replace([np.inf, -np.inf], np.nan)
     df = df.dropna()
     return df
 
