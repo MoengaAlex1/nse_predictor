@@ -155,7 +155,7 @@ CHART_BASE = dict(template="plotly_dark", paper_bgcolor=C["card"], plot_bgcolor=
                   legend=dict(bgcolor="rgba(0,0,0,0)"))
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
-_ARCHIVE_DIR = Path(os.environ.get("NSE_ARCHIVE_DIR", r"C:\Users\moeng\Downloads\archive"))
+_ARCHIVE_DIR = Path(os.environ.get("NSE_ARCHIVE_DIR", str(Path.home() / "Downloads" / "archive")))
 
 
 def _normalise_archive_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -2202,7 +2202,6 @@ def poll_pipeline_status(n_intervals, pipeline_ticker, current_ticker):
 # TAB 5 — NSE DATA EXPLORER
 # ══════════════════════════════════════════════════════════════════════════════
 
-_ARCHIVE_DIR = Path(r"C:\Users\moeng\Downloads\archive")
 
 _NSE_COLS_ORDERED = [
     "Date", "Code", "Name",
