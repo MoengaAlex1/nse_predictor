@@ -42,6 +42,11 @@ export interface SnapshotDoc {
   forecast: number[];
   recent_mape?: number;
   recent_direction_acc?: number;
+  signal_reasons?: string[];
+  signal_implications?: string;
+  confidence_score?: number;
+  model_agreement?: number;
+  model_breakdown?: Record<string, { price: number; signal: string; pct: number }>;
 }
 
 export interface TechnicalsDoc {

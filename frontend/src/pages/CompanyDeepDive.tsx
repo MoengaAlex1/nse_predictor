@@ -302,76 +302,204 @@ const GatedContent: FC<{ ticker: string }> = ({ ticker }) => {
   );
 };
 
-const SnapshotSection: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => (
-  <Card>
-    <div className="mb-4 flex items-center justify-between">
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
-        AI Signal
-      </h2>
-      <span className="text-xs text-slate-500">
-        Analysis run: {fmtDate(snapshot.run_date)}
-      </span>
-    </div>
+const signalBulletColor: Record<string, string> = {
+  BUY: "text-emerald-400",
+  HOLD: "text-amber-400",
+  SELL: "text-red-400",
+};
 
-    {/* Next trading day target — prominent */}
-    <div className="mb-4 rounded-lg border border-sky-800/40 bg-sky-900/20 px-4 py-2">
-      <p className="text-xs text-sky-400/70 uppercase tracking-wider">Prediction target</p>
-      <p className="text-sm font-semibold text-sky-300">
-        {fmtDate(snapshot.next_trading_day)}
-      </p>
-    </div>
+const confidenceBarColor = (score: number) =>
+  score >= 70 ? "bg-emerald-500" : score >= 45 ? "bg-amber-500" : "bg-red-500";
 
-    <div className="flex flex-wrap gap-6">
-      <Metric label="Signal" value={<SignalBadge signal={snapshot.signal} size="lg" />} />
-      <Metric
-        label="Risk-Adjusted"
-        value={<SignalBadge signal={snapshot.risk_adjusted_signal} size="lg" />}
-      />
-      <Metric
-        label={`Predicted Close (${snapshot.next_trading_day})`}
-        value={
-          <span className="text-xl font-bold text-slate-100">
-            KES {snapshot.predicted_price_KES.toFixed(2)}
-          </span>
-        }
-      />
-      <Metric
-        label="Expected Move"
-        value={
-          <span
-            className={`text-xl font-bold ${
-              snapshot.predicted_change_pct >= 0 ? "text-emerald-400" : "text-red-400"
-            }`}
-          >
-            {snapshot.predicted_change_pct >= 0 ? "+" : ""}
-            {snapshot.predicted_change_pct.toFixed(2)}%
-          </span>
-        }
-      />
-    </div>
-    <p className="mt-4 text-sm text-slate-400">{snapshot.rationale}</p>
-    <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <MetricChip label="MAPE" value={`${snapshot.metrics.mape.toFixed(1)}%`} />
-      <MetricChip label="RMSE" value={snapshot.metrics.rmse.toFixed(3)} />
-      <MetricChip label="MAE" value={snapshot.metrics.mae.toFixed(3)} />
-      <MetricChip
-        label="Directional Acc."
-        value={`${snapshot.metrics.directional_accuracy.toFixed(0)}%`}
-      />
-    </div>
-    {(snapshot.recent_mape !== undefined || snapshot.recent_direction_acc !== undefined) && (
-      <div className="mt-3 flex gap-4 text-xs text-slate-500">
-        {snapshot.recent_mape !== undefined && (
-          <span>Recent MAPE: <span className="font-medium text-slate-400">{snapshot.recent_mape.toFixed(1)}%</span></span>
-        )}
-        {snapshot.recent_direction_acc !== undefined && (
-          <span>Recent Direction Acc.: <span className="font-medium text-slate-400">{snapshot.recent_direction_acc.toFixed(0)}%</span></span>
-        )}
+const SnapshotSection: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => {
+  const sig = snapshot.risk_adjusted_signal;
+  const bulletColor = signalBulletColor[sig] ?? "text-slate-400";
+
+  return (
+    <Card>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">AI Signal</h2>
+        <span className="text-xs text-slate-500">Analysis run: {fmtDate(snapshot.run_date)}</span>
       </div>
-    )}
-    <p className="mt-2 text-xs text-slate-600">VaR (95%): {snapshot.var_95_pct.toFixed(2)}%</p>
-  </Card>
-);
+
+      <div className="mb-4 rounded-lg border border-sky-800/40 bg-sky-900/20 px-4 py-2">
+        <p className="text-xs uppercase tracking-wider text-sky-400/70">Prediction target</p>
+        <p className="text-sm font-semibold text-sky-300">{fmtDate(snapshot.next_trading_day)}</p>
+      </div>
+
+      {/* Hero: signal + confidence + price */}
+      <div className="mb-6 flex flex-wrap items-start gap-6">
+        <div className="flex flex-col items-center gap-2">
+          <SignalBadge signal={sig} size="lg" />
+          <span className="text-xs text-slate-500">Risk-Adjusted</span>
+          {snapshot.signal !== sig && (
+            <>
+              <SignalBadge signal={snapshot.signal} size="sm" />
+              <span className="text-xs text-slate-600">Raw</span>
+            </>
+          )}
+        </div>
+        <div className="flex flex-1 flex-col gap-4">
+          {snapshot.confidence_score !== undefined && (
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-xs text-slate-500">Confidence</span>
+                <span className="text-xs font-semibold text-slate-300">
+                  {snapshot.confidence_score}%
+                </span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                <div
+                  className={`h-2 rounded-full transition-all ${confidenceBarColor(snapshot.confidence_score)}`}
+                  style={{ width: `${snapshot.confidence_score}%` }}
+                />
+              </div>
+            </div>
+          )}
+          <div className="flex flex-wrap gap-6">
+            <Metric
+              label={`Predicted Close (${snapshot.next_trading_day})`}
+              value={
+                <span className="text-xl font-bold text-slate-100">
+                  KES {snapshot.predicted_price_KES.toFixed(2)}
+                </span>
+              }
+            />
+            <Metric
+              label="Expected Move"
+              value={
+                <span
+                  className={`text-xl font-bold ${
+                    snapshot.predicted_change_pct >= 0 ? "text-emerald-400" : "text-red-400"
+                  }`}
+                >
+                  {snapshot.predicted_change_pct >= 0 ? "+" : ""}
+                  {snapshot.predicted_change_pct.toFixed(2)}%
+                </span>
+              }
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Why this signal */}
+      {snapshot.signal_reasons && snapshot.signal_reasons.length > 0 && (
+        <div className="mb-4 rounded-lg border border-slate-700 bg-slate-900/50 p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            Why this signal
+          </h3>
+          <ul className="space-y-2">
+            {snapshot.signal_reasons.map((reason, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-slate-300">
+                <span className={`mt-0.5 shrink-0 font-bold ${bulletColor}`}>•</span>
+                <span>{reason}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* What this means for you */}
+      {snapshot.signal_implications && (
+        <div className="mb-4 rounded-lg border border-slate-700 bg-slate-900/50 p-4">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            What this means for you
+          </h3>
+          <p className="text-sm leading-relaxed text-slate-300">{snapshot.signal_implications}</p>
+        </div>
+      )}
+
+      {/* Rationale */}
+      <p className="mt-2 text-sm text-slate-400">{snapshot.rationale}</p>
+
+      {/* Model breakdown table */}
+      {snapshot.model_breakdown && Object.keys(snapshot.model_breakdown).length > 0 && (
+        <div className="mt-5">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+            Model Breakdown
+          </h3>
+          <div className="overflow-hidden rounded-lg border border-slate-700">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-800">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">Model</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-slate-500">
+                    Predicted Price
+                  </th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-slate-500">
+                    Change
+                  </th>
+                  <th className="px-3 py-2 text-center text-xs font-medium text-slate-500">
+                    Signal
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-700/50">
+                {Object.entries(snapshot.model_breakdown).map(([model, data]) => (
+                  <tr key={model} className="bg-slate-900/30">
+                    <td className="px-3 py-2 font-medium text-slate-300">{model}</td>
+                    <td className="px-3 py-2 text-right text-slate-300">
+                      KES {data.price.toFixed(2)}
+                    </td>
+                    <td
+                      className={`px-3 py-2 text-right font-medium ${
+                        data.pct >= 0 ? "text-emerald-400" : "text-red-400"
+                      }`}
+                    >
+                      {data.pct >= 0 ? "+" : ""}
+                      {data.pct.toFixed(2)}%
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <SignalBadge signal={data.signal as "BUY" | "HOLD" | "SELL"} size="sm" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {snapshot.model_agreement !== undefined && (
+            <p className="mt-1.5 text-xs text-slate-500">
+              Model agreement:{" "}
+              <span className="font-medium text-slate-400">{snapshot.model_agreement}%</span>
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Accuracy metrics */}
+      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <MetricChip label="MAPE" value={`${snapshot.metrics.mape.toFixed(1)}%`} />
+        <MetricChip label="RMSE" value={snapshot.metrics.rmse.toFixed(3)} />
+        <MetricChip label="MAE" value={snapshot.metrics.mae.toFixed(3)} />
+        <MetricChip
+          label="Directional Acc."
+          value={`${snapshot.metrics.directional_accuracy.toFixed(0)}%`}
+        />
+      </div>
+      {(snapshot.recent_mape !== undefined || snapshot.recent_direction_acc !== undefined) && (
+        <div className="mt-3 flex gap-4 text-xs text-slate-500">
+          {snapshot.recent_mape !== undefined && (
+            <span>
+              Recent MAPE:{" "}
+              <span className="font-medium text-slate-400">
+                {snapshot.recent_mape.toFixed(1)}%
+              </span>
+            </span>
+          )}
+          {snapshot.recent_direction_acc !== undefined && (
+            <span>
+              Recent Dir. Acc.:{" "}
+              <span className="font-medium text-slate-400">
+                {snapshot.recent_direction_acc.toFixed(0)}%
+              </span>
+            </span>
+          )}
+        </div>
+      )}
+      <p className="mt-2 text-xs text-slate-600">VaR (95%): {snapshot.var_95_pct.toFixed(2)}%</p>
+    </Card>
+  );
+};
 
 const TechnicalsSection: FC<{ technicals: TechnicalsDoc }> = ({ technicals }) => {
   const fmt = (v: number | null, suffix = "") =>
