@@ -12,11 +12,12 @@ const queryClient = new QueryClient({
   },
 });
 
-function ErrorFallback({ error }: { error: Error }) {
+function ErrorFallback({ error }: { error: unknown }) {
+  const message = error instanceof Error ? error.message : String(error);
   return (
     <div style={{ padding: "2rem", color: "#f87171", fontFamily: "monospace" }}>
       <h2>Something went wrong</h2>
-      <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.85rem" }}>{error.message}</pre>
+      <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.85rem" }}>{message}</pre>
     </div>
   );
 }
