@@ -118,7 +118,7 @@ const MonthlyHeatmap: FC<{ heatmap: Record<string, number> }> = ({ heatmap }) =>
       </p>
       <div className="flex flex-wrap gap-1.5">
         {entries.map(([month, ret]) => {
-          const [, m] = month.split("-");
+          month.split("-");
           const mo = new Date(`${month}-01T00:00:00`).toLocaleDateString("en-KE", { month: "short", year: "2-digit" });
           return (
             <div key={month} className={`flex flex-col items-center rounded px-2 py-1.5 ${color(ret)}`} title={`${mo}: ${ret >= 0 ? "+" : ""}${ret.toFixed(2)}%`}>
@@ -501,8 +501,8 @@ const SnapshotCard: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => {
 };
 
 // ── Technicals card ────────────────────────────────────────────────────────────
-const TechnicalsCard: FC<{ technicals: TechnicalsDoc; companyColor: string }> = ({
-  technicals, companyColor,
+const TechnicalsCard: FC<{ technicals: TechnicalsDoc }> = ({
+  technicals,
 }) => {
   const fmt = (v: number | null, suffix = "") => (v !== null ? `${v.toFixed(2)}${suffix}` : "N/A");
 
@@ -562,7 +562,6 @@ const TechnicalsCard: FC<{ technicals: TechnicalsDoc; companyColor: string }> = 
               </thead>
               <tbody className="divide-y divide-slate-800/50">
                 {maRows.map((row) => {
-                  const diff = row.value != null && technicals ? null : null;
                   return (
                     <tr key={row.label} className="hover:bg-slate-800/30 transition-colors">
                       <td className="px-3 py-2.5 flex items-center gap-2">
@@ -599,8 +598,7 @@ const GatedContent: FC<{
   snapLoading: boolean;
   technicals: TechnicalsDoc | null | undefined;
   techLoading: boolean;
-  companyColor: string;
-}> = ({ snapshot, snapLoading, techLoading, technicals, companyColor }) => {
+}> = ({ snapshot, snapLoading, techLoading, technicals }) => {
   if (snapLoading || techLoading) {
     return (
       <div className="flex justify-center py-10">
@@ -642,7 +640,7 @@ const GatedContent: FC<{
       )}
 
       {technicals && (
-        <TechnicalsCard technicals={technicals} companyColor={companyColor} />
+        <TechnicalsCard technicals={technicals} />
       )}
     </div>
   );
@@ -764,7 +762,6 @@ export const CompanyDeepDive: FC = () => {
           snapLoading={snapLoading}
           technicals={technicals}
           techLoading={techLoading}
-          companyColor={company.color}
         />
       </div>
     </PageShell>

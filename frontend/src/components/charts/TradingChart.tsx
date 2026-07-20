@@ -168,9 +168,9 @@ export const TradingChart: FC<Props> = ({
               boxShadow: "0 8px 32px rgba(0,0,0,0.7)",
             }}
             labelStyle={{ color: "#8b949e", marginBottom: 4, fontSize: 11 }}
-            formatter={(v: number) => [`KES ${v.toFixed(2)}`, "Close"]}
-            labelFormatter={(lbl: string) => {
-              const dt = new Date(lbl + "T00:00:00");
+            formatter={(v) => [`KES ${(v as number).toFixed(2)}`, "Close"]}
+            labelFormatter={(lbl) => {
+              const dt = new Date(String(lbl) + "T00:00:00");
               return dt.toLocaleDateString("en-GB", {
                 weekday: "short", year: "numeric", month: "short", day: "numeric",
               });
