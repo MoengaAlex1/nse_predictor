@@ -2,7 +2,7 @@
 NSE Market Dashboard — plain-language stock analysis for everyday investors.
 Run:  python app.py   →   open http://127.0.0.1:8050
 """
-import sys, io, json, base64, subprocess, tempfile, os
+import sys, io, json, base64, subprocess, tempfile, os, logging
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "pipeline"))  # exposes src.*
 sys.path.insert(0, str(Path(__file__).parent))               # repo root wins (config, data paths)
@@ -19,6 +19,8 @@ import dash_bootstrap_components as dbc
 
 from config import (NSE_TICKERS, DATA_CLEANED, DATA_FEATURES, DATA_RAW,
                     DEFAULT_INVESTMENT, DEFAULT_CONFIDENCE, MONTE_CARLO_HORIZON)
+
+log = logging.getLogger(__name__)
 
 # ── Company metadata ─────────────────────────────────────────────────────────
 _PALETTE = [
@@ -195,8 +197,8 @@ def _build_archive_master() -> pd.DataFrame:
             ) if "Volume" in df.columns else np.nan
             df = df[df["Close"] > 0].dropna(subset=["Close"])
             frames.append(df[["_dt", "Code", "Close", "Volume"]])
-        except Exception:
-            pass
+        except Exception as _exc:
+            log.warning("Skipping archive chunk %s: %s", path, _exc)
 
     if _ARCHIVE_DIR.exists():
         for path in sorted(_ARCHIVE_DIR.glob("NSE_data_all_stocks_????.csv")):
@@ -236,7 +238,8 @@ def _load_company_archive(code: str):
         result = df if len(df) >= 5 else None
         _archive_df_cache[code] = result
         return result
-    except Exception:
+    except Exception as _exc:
+        log.warning("Failed to load archive data for %s: %s", code, _exc)
         _archive_df_cache[code] = None
         return None
 
@@ -1165,7 +1168,7 @@ def _build_overview_content(sector="All Companies", view="table"):
             v = float(chg_str.replace("%","").replace("+",""))
             return C["buy"] if v >= 0 else C["sell"]
         except Exception:
-            return C["muted"]
+            return C["muted"]  # non-parseable string — silently return default colour
 
     th_style = dict(
         padding="10px 14px", fontSize="0.72rem", color=C["muted"],
@@ -2191,8 +2194,8 @@ def poll_pipeline_status(n_intervals, pipeline_ticker, current_ticker):
             with open(status_path) as f:
                 st = json.load(f)
             step = st.get("step", "Training models…")
-        except Exception:
-            pass
+        except Exception as _exc:
+            log.debug("Could not read pipeline status file: %s", _exc)
 
     steps = ["Saving data…", "Training models…", "Running ARIMA…",
              "Running LSTM…", "Running XGBoost…", "Generating signal…"]
@@ -2255,7 +2258,8 @@ def _build_name_map():
         df["Code"] = df["Code"].str.strip()
         df["Name"] = df["Name"].str.strip()
         return dict(zip(df["Code"], df["Name"]))
-    except Exception:
+    except Exception as _exc:
+        log.warning("Failed to build company name map: %s", _exc)
         return {}
 
 _NAME_MAP = _build_name_map()
@@ -2298,8 +2302,8 @@ def _load_archive_range(codes, start_date, end_date):
             )
             df = df.dropna(subset=["_dt"])
             frames.append(df)
-        except Exception:
-            pass
+        except Exception as _exc:
+            log.warning("Skipping archive file %s: %s", path, _exc)
 
     for year in years:
         _load_one(_ARCHIVE_DIR / f"NSE_data_all_stocks_{year}.csv")
@@ -3340,7 +3344,8 @@ def _data_freshness():
             if p.exists():
                 try:
                     df = pd.read_csv(p, index_col="Date", parse_dates=True)
-                except Exception:
+                except Exception as _exc:
+                    log.warning("Could not read cleaned CSV for %s: %s", ticker, _exc)
                     df = None
         last_date = df.index.max() if df is not None and not df.empty else None
         if last_date is not None:

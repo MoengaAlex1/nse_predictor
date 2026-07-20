@@ -128,8 +128,8 @@ def train_company(company: dict, db: Any) -> dict | None:
                .collection("training_runs")
                .document(TODAY)
                .set({"date": TODAY, "status": "failed", "error": str(e)}))
-        except Exception:
-            pass
+        except Exception as _fe:
+            log.warning("Could not record training failure in Firestore for %s: %s", safe, _fe)
         return None
 
 
