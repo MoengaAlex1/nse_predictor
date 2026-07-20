@@ -339,7 +339,12 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         # ── 7. Signal generation ──────────────────────────────────────────────
         current_price = float(cleaned_df["Close"].iloc[-1])
         var_pct       = var_res["historical_var_pct"]
-        signal_result = generate_signal(current_price, predicted_next, var_pct)
+        technicals = build_technicals_result(cleaned_df, TODAY)
+        signal_result = generate_signal(
+            current_price, predicted_next, var_pct,
+            lstm_next=lstm_next, xgb_next=xgb_next, arima_next=arima_next,
+            technicals=technicals,
+        )
 
         # ── 8. Build Firestore payloads ───────────────────────────────────────
         target_date = _next_trading_day(date.today())
@@ -359,9 +364,8 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
             "arima_next":        round(arima_next, 4),
         }
 
-        technicals = build_technicals_result(cleaned_df, TODAY)
-
         change_pct = float(cleaned_df["Close"].pct_change().iloc[-1] * 100)
+        change_pct = max(-15.0, min(15.0, change_pct))  # cap at ±15% (NSE circuit breaker is ±9.9%)
         hist_90 = cleaned_df["Close"].tail(90)
         price_history = [
             {"date": str(idx.date()), "price": round(float(val), 4)}

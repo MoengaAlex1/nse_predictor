@@ -25,7 +25,7 @@ import json
 import logging
 import tempfile as _tempfile
 from pathlib import Path
-from datetime import date
+from datetime import date, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
@@ -119,6 +119,27 @@ def _upload_xgb_arima(safe: str) -> None:
             log.info("  Uploaded → models/%s", fname)
         else:
             log.warning("  Artifact missing, skipping upload: %s", fname)
+
+
+# ── Trading-day helpers ───────────────────────────────────────────────────────
+
+def _next_trading_day_local(from_date: date) -> date:
+    """First NSE trading day (Mon-Fri) strictly after from_date."""
+    d = from_date + timedelta(days=1)
+    while d.weekday() >= 5:
+        d += timedelta(days=1)
+    return d
+
+
+def _forecast_trading_dates_local(base: date, n: int) -> list[str]:
+    """n consecutive trading-day ISO dates starting the day after base."""
+    dates: list[str] = []
+    d = base
+    while len(dates) < n:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            dates.append(d.isoformat())
+    return dates
 
 
 # ── Per-company pipeline ──────────────────────────────────────────────────────
@@ -340,11 +361,22 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         # ── 10. Signal generation ─────────────────────────────────────────────
         current_price = float(cleaned_df["Close"].iloc[-1])
         var_pct = var_res["historical_var_pct"]
-        signal_result = generate_signal(current_price, predicted_next, var_pct)
+        technicals = _build_technicals(cleaned_df, TODAY)
+        signal_result = generate_signal(
+            current_price, predicted_next, var_pct,
+            lstm_next=lstm_next, xgb_next=xgb_next, arima_next=arima_next,
+            technicals=technicals,
+        )
 
         # ── 11. Build Firestore payloads ──────────────────────────────────────
+        target_date = _next_trading_day_local(date.today())
+        forecast_dates = _forecast_trading_dates_local(date.today(), len(forecast_30d))
+
         snapshot = {
             **signal_result,
+            "run_date":       TODAY,
+            "next_trading_day": target_date.isoformat(),
+            "forecast_dates": forecast_dates,
             "metrics":    ens_metrics,
             "actuals":    actuals_out,
             "preds":      preds_out,
@@ -354,9 +386,8 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
             "arima_next": round(arima_next, 4),
         }
 
-        technicals = _build_technicals(cleaned_df, TODAY)
-
         change_pct = float(cleaned_df["Close"].pct_change().iloc[-1] * 100)
+        change_pct = max(-15.0, min(15.0, change_pct))  # cap at ±15% (NSE circuit breaker is ±9.9%)
 
         # Build price_history with dates (last 90 real trading days)
         today_ts = pd.Timestamp(date.today())
