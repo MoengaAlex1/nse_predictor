@@ -358,6 +358,18 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
 
         change_pct = float(cleaned_df["Close"].pct_change().iloc[-1] * 100)
 
+        # Build price_history with dates (last 90 real trading days)
+        today_ts = pd.Timestamp(date.today())
+        hist_df = cleaned_df.copy()
+        if "Is_Stale" in hist_df.columns:
+            hist_df = hist_df[hist_df["Is_Stale"] != 1]
+        hist_df = hist_df[hist_df.index <= today_ts]
+        hist_df = hist_df[hist_df.index.dayofweek < 5]
+        price_history = [
+            {"date": idx.strftime("%Y-%m-%d"), "price": round(float(val), 4)}
+            for idx, val in hist_df["Close"].tail(90).items()
+        ]
+
         return {
             "ticker": safe,
             "snapshot": snapshot,
@@ -366,10 +378,8 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
                 "current_price":    round(current_price, 4),
                 "change_pct_today": round(change_pct, 4),
                 "signal":           signal_result["signal"],
-                "price_preview":    [
-                    round(float(x), 4)
-                    for x in cleaned_df["Close"].tail(30).tolist()
-                ],
+                "price_history":    price_history,
+                "price_preview":    [p["price"] for p in price_history[-30:]],
                 "last_updated": TODAY,
             },
         }
@@ -398,11 +408,30 @@ def main() -> None:
             ", ".join(allowed),
         )
 
-    # ── Step 1: Scrape today's prices ─────────────────────────────────────────
-    log.info("=== Step 1: Scraping NSE prices ===")
-    scrape_results = scrape_main()
-    scraped = sum(1 for r in scrape_results.values() if r["scraped"])
-    log.info("Scraping complete: %d/%d companies updated.", scraped, len(scrape_results))
+    # ── Step 1: Scrape today's prices (or download cached CSVs) ──────────────
+    skip_scrape = os.environ.get("SKIP_SCRAPE", "").lower() in ("1", "true", "yes")
+    if skip_scrape:
+        log.info("=== Step 1: SKIP_SCRAPE=1 — downloading cached CSVs from Storage ===")
+        # Download existing CSVs so run_company can use them; no new price fetch
+        from scripts.scrape_nse_prices import CSVS_TMP as _CSVS_TMP
+        from scripts.push_to_firestore import download_model_from_storage as _dl
+        import shutil as _shutil
+        _CSVS_TMP.mkdir(parents=True, exist_ok=True)
+        for _co in companies:
+            _safe = _co["ticker"].replace(".", "_")
+            _dst  = _CSVS_TMP / f"{_safe}_cleaned.csv"
+            if not _dst.exists():
+                ok = _dl(f"data/cleaned/{_safe}_cleaned.csv", str(_dst))
+                if not ok:
+                    _repo = PIPELINE_ROOT.parent / "data" / "cleaned" / f"{_safe}_cleaned.csv"
+                    if _repo.exists():
+                        _shutil.copy2(_repo, _dst)
+        log.info("CSV download complete.")
+    else:
+        log.info("=== Step 1: Scraping NSE prices (NSE → stooq → yfinance) ===")
+        scrape_results = scrape_main()
+        scraped = sum(1 for r in scrape_results.values() if r["scraped"])
+        log.info("Scraping complete: %d/%d companies updated.", scraped, len(scrape_results))
 
     # ── Step 2: Pre-download LSTM artifacts (sequential, avoids Storage races) ─
     log.info("=== Step 2: Pre-downloading LSTM artifacts for %d companies ===", len(companies))

@@ -1,0 +1,64 @@
+name: NSE Price Scrape (Daily After Market Close)
+
+on:
+  schedule:
+    - cron: "0 13 * * 1-5"   # 13:00 UTC = 16:00 EAT, Mon-Fri (NSE closes 15:00 EAT)
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: "Backfill date range FROM:TO (e.g. 2026-07-16:2026-07-17). Leave blank for today."
+        required: false
+        default: ""
+      tickers:
+        description: "Comma-separated tickers to update (blank = all)"
+        required: false
+        default: ""
+
+jobs:
+  scrape:
+    name: Scrape NSE closing prices
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Scrape NSE prices
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          NSE_TICKERS_FILTER: ${{ github.event.inputs.tickers }}
+        run: |
+          set -o pipefail
+          cd $GITHUB_WORKSPACE
+          if [ -n "${{ github.event.inputs.backfill }}" ]; then
+            echo "Running backfill: ${{ github.event.inputs.backfill }}"
+            python pipeline/scripts/scrape_nse_prices.py --backfill "${{ github.event.inputs.backfill }}" 2>&1 | tee /tmp/scrape.log
+          else
+            python pipeline/scripts/scrape_nse_prices.py 2>&1 | tee /tmp/scrape.log
+          fi
+
+      - name: Upload scrape log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scrape-log-${{ github.run_id }}
+          path: /tmp/scrape.log
+          retention-days: 7
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Price scrape failed — check artifact log"
+          tail -20 /tmp/scrape.log || true

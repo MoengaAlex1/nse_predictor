@@ -1,17 +1,22 @@
-name: Daily NSE Update
+name: Daily NSE Model Train + Inference (Midnight EAT)
 
 on:
   schedule:
-    - cron: "10 13 * * 1-5"   # 13:10 UTC = 16:10 EAT, Mon-Fri (after NSE close)
+    - cron: "0 21 * * 1-5"   # 21:00 UTC = midnight EAT, Mon-Fri
   workflow_dispatch:
     inputs:
       tickers:
         description: "Comma-separated tickers (blank = all)"
         required: false
         default: ""
+      skip_scrape:
+        description: "Skip price scraping (use cached CSVs from Storage)"
+        required: false
+        default: "true"
 
 jobs:
   update:
+    name: Retrain XGB/ARIMA + inference
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -29,11 +34,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r pipeline/requirements.txt
 
-      - name: Run daily update
+      - name: Run daily model update
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
           FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
           NSE_TICKERS_FILTER: ${{ github.event.inputs.tickers }}
+          # Scraping already ran at 16:00 EAT — use cached CSVs from Storage
+          SKIP_SCRAPE: ${{ github.event.inputs.skip_scrape || 'true' }}
         run: |
           set -o pipefail
           cd $GITHUB_WORKSPACE
@@ -50,5 +57,5 @@ jobs:
       - name: Notify on failure
         if: failure()
         run: |
-          echo "::error::Daily update failed — check the artifact log"
+          echo "::error::Daily model update failed — check the artifact log"
           tail -30 /tmp/daily_update.log || true
