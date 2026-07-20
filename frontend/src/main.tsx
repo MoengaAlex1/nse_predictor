@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ErrorBoundary } from "react-error-boundary";
 import "./index.css";
 import App from "./App";
 
@@ -11,12 +12,23 @@ const queryClient = new QueryClient({
   },
 });
 
+function ErrorFallback({ error }: { error: Error }) {
+  return (
+    <div style={{ padding: "2rem", color: "#f87171", fontFamily: "monospace" }}>
+      <h2>Something went wrong</h2>
+      <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.85rem" }}>{error.message}</pre>
+    </div>
+  );
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <BrowserRouter>
-      <QueryClientProvider client={queryClient}>
-        <App />
-      </QueryClientProvider>
-    </BrowserRouter>
+    <ErrorBoundary FallbackComponent={ErrorFallback}>
+      <BrowserRouter>
+        <QueryClientProvider client={queryClient}>
+          <App />
+        </QueryClientProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   </StrictMode>
 );
