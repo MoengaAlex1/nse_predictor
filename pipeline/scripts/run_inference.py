@@ -16,6 +16,7 @@ import sys
 import os
 import json
 import logging
+import tempfile as _tempfile
 from pathlib import Path
 from datetime import date, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -62,7 +63,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 TODAY = date.today().isoformat()
-MODELS_TMP = Path("/tmp/nse_models")   # ephemeral cache on GitHub Actions runners
+MODELS_TMP = Path(_tempfile.gettempdir()) / "nse_models"
 
 
 def _next_trading_day(from_date: date | None = None) -> date:
@@ -495,7 +496,7 @@ def main() -> None:
     results: list[dict] = []
 
     # Download latest cleaned CSVs from Firebase Storage
-    CSVS_TMP = Path("/tmp/nse_csvs")
+    CSVS_TMP = Path(_tempfile.gettempdir()) / "nse_csvs"
     CSVS_TMP.mkdir(parents=True, exist_ok=True)
     log.info("Downloading latest cleaned CSVs for %d companies...", len(companies))
     for company in companies:

@@ -23,6 +23,7 @@ import sys
 import os
 import json
 import logging
+import tempfile as _tempfile
 from pathlib import Path
 from datetime import date
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -81,7 +82,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 TODAY = date.today().isoformat()
-MODELS_TMP = Path("/tmp/nse_models")
+MODELS_TMP = Path(_tempfile.gettempdir()) / "nse_models"
 
 # Artifact filenames that must be present for a full model load.
 _LSTM_SUFFIXES = ["_lstm.pt", "_lstm_scaler.pkl", "_feature_cols.json"]
