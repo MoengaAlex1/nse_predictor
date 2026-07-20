@@ -142,7 +142,7 @@ def _load_or_train_models(
     if _models_cached(safe):
         log.info("  Loading saved models for %s", ticker)
         try:
-            with open(MODELS_TMP / f"{safe}_feature_cols.json") as f:
+            with open(MODELS_TMP / f"{safe}_feature_cols.json", encoding="utf-8") as f:
                 feature_cols = json.load(f)
 
             n_features = 1 + len(feature_cols)

@@ -24,7 +24,11 @@ def _get_db():
         import firebase_admin
         from firebase_admin import credentials, firestore
         if not firebase_admin._apps:
-            sa_dict = json.loads(sa_raw) if sa_raw.strip().startswith("{") else json.loads(open(sa_raw).read())
+            if sa_raw.strip().startswith("{"):
+                sa_dict = json.loads(sa_raw)
+            else:
+                with open(sa_raw, encoding="utf-8") as _fh:
+                    sa_dict = json.load(_fh)
             cred = credentials.Certificate(sa_dict)
             firebase_admin.initialize_app(cred, {"storageBucket": bucket})
         _db = firestore.client()

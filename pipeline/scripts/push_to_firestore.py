@@ -8,7 +8,11 @@ from firebase_admin import credentials, firestore, storage as fb_storage
 def get_db():
     if not firebase_admin._apps:
         sa_raw = os.environ["FIREBASE_SERVICE_ACCOUNT_JSON"]
-        sa_dict = json.loads(sa_raw) if sa_raw.strip().startswith("{") else json.loads(open(sa_raw).read())
+        if sa_raw.strip().startswith("{"):
+            sa_dict = json.loads(sa_raw)
+        else:
+            with open(sa_raw, encoding="utf-8") as _fh:
+                sa_dict = json.load(_fh)
         cred = credentials.Certificate(sa_dict)
         firebase_admin.initialize_app(cred, {
             "storageBucket": os.environ["FIREBASE_STORAGE_BUCKET"]
