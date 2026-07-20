@@ -52,6 +52,11 @@ TODAY = date.today().isoformat()
 CSVS_TMP = Path("/tmp/nse_csvs")
 _REQUIRED_COLS = {"Open", "High", "Low", "Close", "Volume"}
 
+# NSE Kenya daily circuit breaker: ±9.9%.  We flag moves beyond this.
+_NSE_CIRCUIT_BREAKER_PCT = 9.9
+# Beyond this threshold we treat the price as suspect and skip it.
+_PRICE_SUSPECT_PCT = 20.0
+
 _NSE_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -245,6 +250,52 @@ def _fetch_yfinance(safe: str, period: str = "5d") -> pd.DataFrame | None:
         return None
 
 
+# ── Price sanity check ────────────────────────────────────────────────────────
+
+def _price_change_pct(new_price: float, ref_price: float) -> float:
+    if ref_price == 0:
+        return 0.0
+    return abs(new_price - ref_price) / ref_price * 100
+
+
+def _validate_prices(
+    df: pd.DataFrame,
+    safe: str,
+    last_known_price: float | None,
+) -> pd.DataFrame:
+    """
+    Remove rows whose Close price implies a move beyond the suspect threshold
+    relative to last_known_price (or the previous row in the batch).
+    Warns on NSE circuit-breaker violations; drops rows that look like bad data.
+    """
+    if df.empty or "Close" not in df.columns:
+        return df
+
+    ref = last_known_price
+    to_drop = []
+    for idx, row in df.iterrows():
+        price = float(row["Close"])
+        if ref is not None and ref > 0:
+            pct = _price_change_pct(price, ref)
+            if pct > _PRICE_SUSPECT_PCT:
+                log.warning(
+                    "%s: suspect price on %s — %.4f vs ref %.4f (%.1f%% move) — dropping row",
+                    safe, idx.date(), price, ref, pct,
+                )
+                to_drop.append(idx)
+                continue
+            if pct > _NSE_CIRCUIT_BREAKER_PCT:
+                log.warning(
+                    "%s: price on %s exceeds NSE circuit-breaker — %.4f vs %.4f (%.1f%%) — verify data",
+                    safe, idx.date(), price, ref, pct,
+                )
+        ref = price
+
+    if to_drop:
+        df = df.drop(index=to_drop)
+    return df
+
+
 # ── Unified fetch ─────────────────────────────────────────────────────────────
 
 def _fetch_new_rows(
@@ -304,6 +355,16 @@ def _fetch_new_rows(
     # In normal mode, filter to only rows newer than what we already have
     if last_known_date is not None and not (backfill_from and backfill_to):
         df = df[df.index > last_known_date]
+
+    if df.empty:
+        return None
+
+    # Sanity-check prices against last known price (catches bad NSE website data)
+    last_price = None
+    if last_known_date is not None:
+        # Will be provided by caller; use None here — checked in scrape_company
+        last_price = None
+    df = _validate_prices(df, safe, last_price)
 
     return df if not df.empty else None
 
@@ -381,6 +442,11 @@ def scrape_company(
     last_known = existing_df.index.max() if (existing_df is not None and not existing_df.empty) else None
 
     # 3. Fetch new rows
+    last_known_price = (
+        float(existing_df["Close"].iloc[-1])
+        if (existing_df is not None and not existing_df.empty)
+        else None
+    )
     new_rows = _fetch_new_rows(safe, last_known, backfill_from, backfill_to)
 
     if new_rows is None or new_rows.empty:
@@ -388,6 +454,16 @@ def scrape_company(
             log.info("%s: already up to date (latest: %s)", safe, last_known.date())
         else:
             log.warning("%s: no data found from any source", safe)
+        return result
+
+    # Validate prices against last known to catch bad data from NSE website
+    new_rows = _validate_prices(new_rows, safe, last_known_price)
+    if new_rows is None or new_rows.empty:
+        log.warning(
+            "%s: all fetched rows failed price sanity check vs last_known=%.4f — skipping update",
+            safe,
+            last_known_price or 0,
+        )
         return result
 
     # 4. Merge existing + new
@@ -483,7 +559,15 @@ if __name__ == "__main__":
         metavar="FROM:TO",
         help="Backfill date range, e.g. 2026-07-16:2026-07-17",
     )
+    parser.add_argument(
+        "--session",
+        choices=["open", "close"],
+        default="close",
+        help="Session type: 'open' (morning, ~09:00 EAT) or 'close' (end-of-day, ~16:10 EAT)",
+    )
     args = parser.parse_args()
+
+    log.info("=== NSE Price Scraper | session=%s | date=%s ===", args.session, TODAY)
 
     bf_from = bf_to = None
     if args.backfill:

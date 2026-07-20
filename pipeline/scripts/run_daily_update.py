@@ -386,8 +386,21 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
             "arima_next": round(arima_next, 4),
         }
 
-        change_pct = float(cleaned_df["Close"].pct_change().iloc[-1] * 100)
-        change_pct = max(-15.0, min(15.0, change_pct))  # cap at ±15% (NSE circuit breaker is ±9.9%)
+        # Compare last 2 distinct close prices from the actual (non-forward-filled) data.
+        # cleaned_df forward-fills weekend/holiday gaps so pct_change() between the
+        # last two rows is always safe — but if there was a multi-day data gap the
+        # forward-filled rows will show 0% change and only the new real row will
+        # show the full period move.  We use the last two *unique* prices instead.
+        _real_closes = cleaned_df["Close"].dropna()
+        if len(_real_closes) >= 2:
+            _prev_price = float(_real_closes.iloc[-2])
+            change_pct = (_prev_price > 0) and float(
+                (current_price - _prev_price) / _prev_price * 100
+            ) or 0.0
+        else:
+            change_pct = 0.0
+        # NSE circuit breaker is ±9.9%; cap display at ±15% to absorb rare edge cases
+        change_pct = max(-15.0, min(15.0, change_pct))
 
         # Build price_history with dates (last 90 real trading days)
         today_ts = pd.Timestamp(date.today())
