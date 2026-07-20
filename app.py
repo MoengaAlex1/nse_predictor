@@ -2102,6 +2102,15 @@ def start_full_pipeline(n, name, contents, filename):
         with open(status_path, "w") as f:
             json.dump({"status": "running", "step": "Saving data..."}, f)
 
+        # Whitelist validation — ticker must be a known NSE symbol
+        _known = {c[0] for c in _RAW_COMPANIES}
+        _ticker_base = ticker.replace(".NR", "").replace(".", "").upper()
+        if _ticker_base not in _known:
+            return ("", "",
+                    html.Span(f"Unknown ticker: {ticker}",
+                              style=dict(color=C["sell"], fontSize="0.75rem")),
+                    _visible, True)
+
         # Launch subprocess
         subprocess.Popen(
             [sys.executable, str(Path(__file__).parent / "main.py"),
