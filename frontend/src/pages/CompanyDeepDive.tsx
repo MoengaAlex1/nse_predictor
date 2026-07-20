@@ -143,57 +143,58 @@ const MonthlyHeatmap: FC<{ heatmap: Record<string, number> }> = ({ heatmap }) =>
   );
 };
 
-// ── 52-week stats strip ────────────────────────────────────────────────────────
+// ── Stats strip (range-aware) ──────────────────────────────────────────────────
 const StatsStrip: FC<{
-  company: CompanyDoc;
+  data: PricePoint[];
+  range: RangeKey;
+  currentPrice: number | null;
   technicals: TechnicalsDoc | null | undefined;
-}> = ({ company, technicals }) => {
-  const stats52w = useMemo(() => {
-    if (!company.price_history?.length) return null;
-    const cutoff = new Date();
-    cutoff.setFullYear(cutoff.getFullYear() - 1);
-    const cut = cutoff.toISOString().slice(0, 10);
-    const year = company.price_history.filter((p) => p.date >= cut);
-    const prices = year.map((p) => p.price);
-    if (!prices.length) return null;
+}> = ({ data, range, currentPrice, technicals }) => {
+  const periodStats = useMemo(() => {
+    if (!data.length) return null;
+    const prices = data.map((p) => p.price);
     return { high: Math.max(...prices), low: Math.min(...prices) };
-  }, [company.price_history]);
+  }, [data]);
 
-  const current = company.current_price;
-  const range52 = stats52w && current
-    ? ((current - stats52w.low) / (stats52w.high - stats52w.low)) * 100
+  const periodPos = periodStats && currentPrice && periodStats.high !== periodStats.low
+    ? ((currentPrice - periodStats.low) / (periodStats.high - periodStats.low)) * 100
     : null;
+
+  const periodLabel =
+    range === "ALL"    ? "All-time" :
+    range === "YTD"    ? "YTD"      :
+    range === "Custom" ? "Period"   : range;
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-      {stats52w && (
+      {periodStats && (
         <>
           <div className="rounded-lg border border-seam bg-surface p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">52W High</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">{periodLabel} High</p>
             <p className="mt-0.5 font-mono text-sm font-bold text-emerald-500">
-              KES {priceFmt(stats52w.high)}
+              KES {priceFmt(periodStats.high)}
             </p>
           </div>
           <div className="rounded-lg border border-seam bg-surface p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">52W Low</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">{periodLabel} Low</p>
             <p className="mt-0.5 font-mono text-sm font-bold text-red-500">
-              KES {priceFmt(stats52w.low)}
+              KES {priceFmt(periodStats.low)}
             </p>
           </div>
-          {range52 !== null && (
+          {periodPos !== null && (
             <div className="col-span-2 rounded-lg border border-seam bg-surface p-3">
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
-                52W Range · {range52.toFixed(0)}% from low
+                {periodLabel} Range · {periodPos.toFixed(0)}% from low
               </p>
               <div className="relative h-1.5 rounded-full bg-raised">
                 <div
                   className="absolute left-0 top-0 h-full rounded-full bg-sky-500"
-                  style={{ width: `${Math.min(100, range52)}%` }}
+                  style={{ width: `${Math.min(100, periodPos)}%` }}
                 />
               </div>
               <div className="mt-1 flex justify-between text-[9px] font-mono text-hint">
-                <span>{priceFmt(stats52w.low)}</span>
-                <span>{priceFmt(stats52w.high)}</span>
+                <span>{priceFmt(periodStats.low)}</span>
+                <span>{priceFmt(periodStats.high)}</span>
               </div>
             </div>
           )}
@@ -380,15 +381,18 @@ const InvestmentCalculator: FC<{ data: PricePoint[]; range: RangeKey }> = ({ dat
 const ChartSection: FC<{
   company: CompanyDoc;
   technicals: TechnicalsDoc | null | undefined;
-}> = ({ company, technicals }) => {
-  const [range, setRange] = useState<RangeKey>("3M");
-  const [from, setFrom] = useState("");
-  const [to, setTo]     = useState("");
+  range: RangeKey;
+  setRange: (r: RangeKey) => void;
+  from: string;
+  setFrom: (s: string) => void;
+  to: string;
+  setTo: (s: string) => void;
+  visible: PricePoint[];
+}> = ({ company, technicals, range, setRange, from, setFrom, to, setTo, visible }) => {
   const [showFib, setShowFib]   = useState(true);
   const [showSMAs, setShowSMAs] = useState(true);
 
   const history = company.price_history ?? [];
-  const visible = filterByRange(history, range, from, to);
   const dataMin = history[0]?.date ?? "";
   const dataMax = history[history.length - 1]?.date ?? "";
 
@@ -799,6 +803,11 @@ export const CompanyDeepDive: FC = () => {
   const { data: snapshot, isLoading: snapLoading } = useLatestSnapshot(ticker);
   const { data: technicals, isLoading: techLoading } = useLatestTechnicals(ticker);
 
+  // Range state lives here so both StatsStrip and ChartSection share it
+  const [range, setRange] = useState<RangeKey>("3M");
+  const [from, setFrom]   = useState("");
+  const [to, setTo]       = useState("");
+
   if (isLoading) {
     return (
       <PageShell>
@@ -822,7 +831,9 @@ export const CompanyDeepDive: FC = () => {
     );
   }
 
-  const change = company.change_pct_today;
+  const change  = company.change_pct_today;
+  const history = company.price_history ?? [];
+  const visible = filterByRange(history, range, from, to);
 
   return (
     <PageShell>
@@ -892,12 +903,27 @@ export const CompanyDeepDive: FC = () => {
           </div>
         </div>
 
-        {/* ── 52W stats strip ───────────────────────────────────────────── */}
-        <StatsStrip company={company} technicals={technicals} />
+        {/* ── Stats strip — reacts to selected range ────────────────────── */}
+        <StatsStrip
+          data={visible.length > 0 ? visible : history}
+          range={range}
+          currentPrice={company.current_price}
+          technicals={technicals}
+        />
 
         {/* ── Trading chart ─────────────────────────────────────────────── */}
-        {(company.price_history?.length ?? 0) > 1 && (
-          <ChartSection company={company} technicals={technicals} />
+        {history.length > 1 && (
+          <ChartSection
+            company={company}
+            technicals={technicals}
+            range={range}
+            setRange={setRange}
+            from={from}
+            setFrom={setFrom}
+            to={to}
+            setTo={setTo}
+            visible={visible}
+          />
         )}
 
         {/* ── AI signal + technicals ────────────────────────────────────── */}
