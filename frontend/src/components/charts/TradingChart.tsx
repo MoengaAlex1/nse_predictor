@@ -12,6 +12,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { PricePoint } from "../../types";
+import { useTheme } from "../../context/ThemeContext";
 
 interface ComputedFib {
   pct: number;
@@ -43,7 +44,6 @@ const FIB_LEVELS = [
 const priceFmt = (v: number) =>
   v >= 1000 ? `${(v / 1000).toFixed(2)}k` : v.toFixed(2);
 
-// Colored pill label for each Fibonacci level — rendered right of the chart plot area
 const FibLabel: FC<{
   viewBox?: { x: number; y: number; width: number };
   fib: ComputedFib;
@@ -66,7 +66,6 @@ const FibLabel: FC<{
   );
 };
 
-// Solid price label for the current price — like TradingView's live price badge
 const CurrentPriceLabel: FC<{
   viewBox?: { x: number; y: number; width: number };
   price: number;
@@ -86,6 +85,29 @@ const CurrentPriceLabel: FC<{
   );
 };
 
+const CHART_COLORS = {
+  dark: {
+    grid:          "#1c2030",
+    tick:          "#475569",
+    axisLine:      "#1e293b",
+    tooltipBg:     "#0d1117",
+    tooltipBorder: "#21262d",
+    tooltipLabel:  "#8b949e",
+    cursor:        "#334155",
+    shadow:        "0 8px 32px rgba(0,0,0,0.7)",
+  },
+  light: {
+    grid:          "#e8eaed",
+    tick:          "#9aa0a6",
+    axisLine:      "#dadce0",
+    tooltipBg:     "#ffffff",
+    tooltipBorder: "#dadce0",
+    tooltipLabel:  "#9aa0a6",
+    cursor:        "#dadce0",
+    shadow:        "0 2px 12px rgba(0,0,0,0.12)",
+  },
+};
+
 export const TradingChart: FC<Props> = ({
   data,
   color,
@@ -95,6 +117,9 @@ export const TradingChart: FC<Props> = ({
   sma200,
   height = 380,
 }) => {
+  const { resolvedTheme } = useTheme();
+  const c = CHART_COLORS[resolvedTheme];
+
   const { lo, hi, fibs } = useMemo(() => {
     if (!data.length) return { lo: 0, hi: 1, fibs: [] as ComputedFib[] };
     const prices = data.map((p) => p.price);
@@ -119,7 +144,6 @@ export const TradingChart: FC<Props> = ({
   };
 
   return (
-    // [&_svg]:overflow-visible lets fib labels and current-price label render in right margin
     <div className="[&_svg]:overflow-visible">
       <ResponsiveContainer width="100%" height={height}>
         <ComposedChart data={data} margin={{ top: 16, right: 106, left: 2, bottom: 4 }}>
@@ -130,7 +154,6 @@ export const TradingChart: FC<Props> = ({
             </linearGradient>
           </defs>
 
-          {/* Fibonacci zone shading — golden zone (38.2–61.8) intentionally brighter */}
           {showFib && fibs.length === 7 && (
             <>
               <ReferenceArea y1={fibs[5].price} y2={fibs[6].price} fill="#a78bfa" fillOpacity={0.055} ifOverflow="hidden" />
@@ -141,18 +164,18 @@ export const TradingChart: FC<Props> = ({
             </>
           )}
 
-          <CartesianGrid strokeDasharray="3 4" stroke="#1c2030" vertical={false} />
+          <CartesianGrid strokeDasharray="3 4" stroke={c.grid} vertical={false} />
 
           <XAxis
             dataKey="date"
-            tick={{ fill: "#475569", fontSize: 11 }}
+            tick={{ fill: c.tick, fontSize: 11 }}
             tickLine={false}
-            axisLine={{ stroke: "#1e293b" }}
+            axisLine={{ stroke: c.axisLine }}
             interval={step - 1}
             tickFormatter={fmtTick}
           />
           <YAxis
-            tick={{ fill: "#475569", fontSize: 11 }}
+            tick={{ fill: c.tick, fontSize: 11 }}
             tickLine={false}
             axisLine={false}
             width={56}
@@ -161,13 +184,13 @@ export const TradingChart: FC<Props> = ({
           />
           <Tooltip
             contentStyle={{
-              background: "#0d1117",
-              border: "1px solid #21262d",
+              background: c.tooltipBg,
+              border: `1px solid ${c.tooltipBorder}`,
               borderRadius: 6,
               fontSize: 12,
-              boxShadow: "0 8px 32px rgba(0,0,0,0.7)",
+              boxShadow: c.shadow,
             }}
-            labelStyle={{ color: "#8b949e", marginBottom: 4, fontSize: 11 }}
+            labelStyle={{ color: c.tooltipLabel, marginBottom: 4, fontSize: 11 }}
             formatter={(v) => [`KES ${(v as number).toFixed(2)}`, "Close"]}
             labelFormatter={(lbl) => {
               const dt = new Date(String(lbl) + "T00:00:00");
@@ -175,10 +198,9 @@ export const TradingChart: FC<Props> = ({
                 weekday: "short", year: "numeric", month: "short", day: "numeric",
               });
             }}
-            cursor={{ stroke: "#334155", strokeDasharray: "4 2", strokeWidth: 1 }}
+            cursor={{ stroke: c.cursor, strokeDasharray: "4 2", strokeWidth: 1 }}
           />
 
-          {/* Fib level lines with right-side colored badge labels */}
           {showFib &&
             fibs.map((fib) => (
               <ReferenceLine
@@ -192,7 +214,6 @@ export const TradingChart: FC<Props> = ({
               />
             ))}
 
-          {/* Moving average reference lines */}
           {sma20 != null && (
             <ReferenceLine y={sma20} stroke="#f59e0b" strokeWidth={1.2} strokeDasharray="4 2" strokeOpacity={0.7}
               label={{ value: "SMA20", position: "insideTopLeft", fill: "#f59e0b", fontSize: 9, fontWeight: 600 }} />
@@ -206,7 +227,6 @@ export const TradingChart: FC<Props> = ({
               label={{ value: "SMA200", position: "insideTopLeft", fill: "#a78bfa", fontSize: 9, fontWeight: 600 }} />
           )}
 
-          {/* Current price dashed line + solid badge */}
           {lastPrice != null && (
             <ReferenceLine
               y={lastPrice}

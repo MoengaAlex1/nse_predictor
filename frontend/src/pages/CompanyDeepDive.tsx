@@ -55,7 +55,7 @@ const RangeBtn: FC<{ label: RangeKey; active: boolean; onClick: () => void }> = 
     type="button"
     onClick={onClick}
     className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
-      active ? "bg-sky-600 text-white" : "text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+      active ? "bg-sky-600 text-white" : "text-muted hover:bg-rim hover:text-sub"
     }`}
   >
     {label}
@@ -215,7 +215,7 @@ const StatsStrip: FC<{
   );
 };
 
-// ── Chart section — always dark (trading charts look best on dark backgrounds) ──
+// ── Chart section ─────────────────────────────────────────────────────────────
 const ChartSection: FC<{
   company: CompanyDoc;
   technicals: TechnicalsDoc | null | undefined;
@@ -232,14 +232,14 @@ const ChartSection: FC<{
   const dataMax = history[history.length - 1]?.date ?? "";
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-800 bg-[#0d1117]">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+    <div className="overflow-hidden rounded-xl border border-rim bg-surface">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-seam px-4 py-3">
         <div>
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted">
             Price History
           </span>
           {visible.length > 0 && (
-            <span className="ml-2 font-mono text-[10px] text-slate-600">
+            <span className="ml-2 font-mono text-[10px] text-hint">
               {visible[0].date} → {visible[visible.length - 1].date}
               {" · "}{visible.length} days
             </span>
@@ -251,8 +251,8 @@ const ChartSection: FC<{
             onClick={() => setShowFib((s) => !s)}
             className={`rounded border px-2 py-1 text-[10px] font-semibold transition-colors ${
               showFib
-                ? "border-amber-600 bg-amber-900/30 text-amber-400"
-                : "border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400"
+                ? "border-amber-500 bg-amber-500/10 text-amber-500"
+                : "border-rim text-muted hover:border-sub hover:text-sub"
             }`}
           >
             Fib
@@ -262,13 +262,13 @@ const ChartSection: FC<{
             onClick={() => setShowSMAs((s) => !s)}
             className={`rounded border px-2 py-1 text-[10px] font-semibold transition-colors ${
               showSMAs
-                ? "border-sky-700 bg-sky-900/30 text-sky-400"
-                : "border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400"
+                ? "border-sky-500 bg-sky-500/10 text-sky-500"
+                : "border-rim text-muted hover:border-sub hover:text-sub"
             }`}
           >
             MA
           </button>
-          <div className="flex gap-0.5 rounded-lg border border-slate-800 bg-slate-900 p-0.5">
+          <div className="flex gap-0.5 rounded-lg border border-rim bg-raised p-0.5">
             {PRESETS.map((r) => (
               <RangeBtn
                 key={r.label}
@@ -282,34 +282,34 @@ const ChartSection: FC<{
             <div className="flex items-center gap-2">
               <input type="date" value={from} min={dataMin} max={to || dataMax}
                 onChange={(e) => setFrom(e.target.value)}
-                className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 focus:border-sky-500 focus:outline-none" />
-              <span className="text-xs text-slate-600">→</span>
+                className="rounded border border-rim bg-raised px-2 py-1 text-xs text-ink focus:border-accent focus:outline-none" />
+              <span className="text-xs text-hint">→</span>
               <input type="date" value={to} min={from || dataMin} max={dataMax}
                 onChange={(e) => setTo(e.target.value)}
-                className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 focus:border-sky-500 focus:outline-none" />
+                className="rounded border border-rim bg-raised px-2 py-1 text-xs text-ink focus:border-accent focus:outline-none" />
             </div>
           )}
         </div>
       </div>
 
       {showSMAs && (technicals?.sma_20 || technicals?.sma_50 || technicals?.sma_200) && (
-        <div className="flex gap-4 border-b border-slate-800/50 px-4 py-2">
+        <div className="flex gap-4 border-b border-seam/50 px-4 py-2">
           {technicals?.sma_20 != null && (
             <span className="flex items-center gap-1.5 text-[10px] font-mono">
               <span className="inline-block h-0.5 w-5 bg-amber-400 opacity-75" />
-              <span className="text-amber-400">SMA20 {priceFmt(technicals.sma_20)}</span>
+              <span className="text-amber-500">SMA20 {priceFmt(technicals.sma_20)}</span>
             </span>
           )}
           {technicals?.sma_50 != null && (
             <span className="flex items-center gap-1.5 text-[10px] font-mono">
               <span className="inline-block h-0.5 w-5 bg-sky-400 opacity-75" />
-              <span className="text-sky-400">SMA50 {priceFmt(technicals.sma_50)}</span>
+              <span className="text-sky-500">SMA50 {priceFmt(technicals.sma_50)}</span>
             </span>
           )}
           {technicals?.sma_200 != null && (
             <span className="flex items-center gap-1.5 text-[10px] font-mono">
               <span className="inline-block h-0.5 w-5 bg-violet-400 opacity-75" />
-              <span className="text-violet-400">SMA200 {priceFmt(technicals.sma_200)}</span>
+              <span className="text-violet-500">SMA200 {priceFmt(technicals.sma_200)}</span>
             </span>
           )}
         </div>
@@ -326,7 +326,7 @@ const ChartSection: FC<{
             sma200={showSMAs ? technicals?.sma_200 : null}
           />
         ) : (
-          <div className="flex h-80 items-center justify-center text-slate-600">
+          <div className="flex h-80 items-center justify-center text-muted">
             <p>Not enough data for this range.</p>
           </div>
         )}
