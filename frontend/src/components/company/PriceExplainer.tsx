@@ -1,4 +1,4 @@
-import type { FC } from "react";
+import type { FC, JSX } from "react";
 import { useMemo, useState } from "react";
 import type {
   CompanyDoc,
