@@ -11,6 +11,7 @@ Maps to OHLCV as:
   Close <- Day Price
   Volume <- Volume
 """
+import os
 import re
 import glob
 import pandas as pd
@@ -29,7 +30,7 @@ _CODE_MAP = {
     "NMG.NR":  "NMG",
 }
 
-NSE_ARCHIVE_DIR = Path(r"C:\Users\moeng\Downloads\archive")
+NSE_ARCHIVE_DIR = Path(os.environ.get("NSE_ARCHIVE_DIR", str(Path.home() / "Downloads" / "archive")))
 
 
 def _clean_numeric(series: pd.Series) -> pd.Series:
