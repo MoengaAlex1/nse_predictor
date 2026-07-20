@@ -129,10 +129,21 @@ def main() -> None:
             log.warning("%s: too little data — skipping", safe)
             continue
 
-        current_price = float(df["Close"].iloc[-1])
-        change_pct = float(df["Close"].pct_change().iloc[-1] * 100)
+        # Strip stale forward-filled rows and any future-dated rows
+        today_ts = pd.Timestamp(date.today())
+        df_real = df.copy()
+        if "Is_Stale" in df_real.columns:
+            df_real = df_real[df_real["Is_Stale"] != 1]
+        df_real = df_real[df_real.index <= today_ts]
 
-        hist_90 = df["Close"].tail(90)
+        if len(df_real) < 5:
+            log.warning("%s: too little real (non-stale) data — skipping", safe)
+            continue
+
+        current_price = float(df_real["Close"].iloc[-1])
+        change_pct = float(df_real["Close"].pct_change().iloc[-1] * 100)
+
+        hist_90 = df_real["Close"].tail(90)
         price_history = [
             {"date": idx.strftime("%Y-%m-%d"), "price": round(float(val), 4)}
             for idx, val in hist_90.items()
@@ -148,7 +159,7 @@ def main() -> None:
         }
         update_company_public(db, safe, public_update)
 
-        technicals = _build_technicals(df)
+        technicals = _build_technicals(df_real)
         write_technicals(db, safe, TODAY, technicals)
 
         rows.append((safe, change_pct))

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { FC } from "react";
 import { useParams, Link } from "react-router-dom";
 import { PageShell } from "../components/layout/PageShell";
@@ -7,7 +8,25 @@ import { SignalBadge } from "../components/ui/Badge";
 import { SparkLine } from "../components/charts/SparkLine";
 import { PredictionChart } from "../components/charts/PredictionChart";
 import { useCompany, useLatestSnapshot, useLatestTechnicals } from "../hooks/useCompany";
-import type { SnapshotDoc, TechnicalsDoc } from "../types";
+import type { PricePoint, SnapshotDoc, TechnicalsDoc } from "../types";
+
+type RangeKey = "1M" | "3M" | "6M" | "1Y" | "ALL";
+
+const RANGES: { label: RangeKey; days: number | null }[] = [
+  { label: "1M", days: 30 },
+  { label: "3M", days: 90 },
+  { label: "6M", days: 180 },
+  { label: "1Y", days: 365 },
+  { label: "ALL", days: null },
+];
+
+function filterByRange(data: PricePoint[], days: number | null): PricePoint[] {
+  if (!days || data.length === 0) return data;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  return data.filter((p) => p.date >= cutoffStr);
+}
 
 const fmtDate = (iso: string | null) => {
   if (!iso) return "—";
@@ -22,6 +41,7 @@ const fmtDate = (iso: string | null) => {
 export const CompanyDeepDive: FC = () => {
   const { ticker = "" } = useParams<{ ticker: string }>();
   const { data: company, isLoading, isError } = useCompany(ticker);
+  const [range, setRange] = useState<RangeKey>("3M");
 
   if (isLoading) {
     return (
@@ -89,17 +109,12 @@ export const CompanyDeepDive: FC = () => {
 
         {/* Historical price chart */}
         {company.price_history?.length > 0 ? (
-          <Card>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
-                Price History ({company.price_history.length} days)
-              </h2>
-              <span className="text-xs text-slate-500">
-                {company.price_history[0]?.date} → {company.price_history[company.price_history.length - 1]?.date}
-              </span>
-            </div>
-            <SparkLine data={company.price_history} color={company.color} />
-          </Card>
+          <PriceHistoryCard
+            priceHistory={company.price_history}
+            color={company.color}
+            range={range}
+            onRangeChange={setRange}
+          />
         ) : company.price_preview.length > 0 ? (
           <Card>
             <div className="mb-3 flex items-center justify-between">
@@ -107,7 +122,7 @@ export const CompanyDeepDive: FC = () => {
                 30-Day Price Trend
               </h2>
               <span className="text-xs text-slate-500">
-                Approximate dates — re-seed for exact trading dates
+                Re-seed pipeline for exact trading-day dates
               </span>
             </div>
             <SparkLine
@@ -115,9 +130,6 @@ export const CompanyDeepDive: FC = () => {
                 const ref = company.last_updated
                   ? new Date(company.last_updated + "T00:00:00")
                   : new Date();
-                // last_updated is the seed date (often Mon/today), but the
-                // last price in price_preview is from the last trading day
-                // (often Friday). Roll back past weekends to anchor correctly.
                 while (ref.getDay() === 0 || ref.getDay() === 6) {
                   ref.setDate(ref.getDate() - 1);
                 }
@@ -144,6 +156,62 @@ export const CompanyDeepDive: FC = () => {
         <GatedContent ticker={ticker} />
       </div>
     </PageShell>
+  );
+};
+
+const RangeButton: FC<{ label: RangeKey; active: boolean; onClick: () => void }> = ({
+  label,
+  active,
+  onClick,
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
+      active
+        ? "bg-sky-600 text-white"
+        : "text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+    }`}
+  >
+    {label}
+  </button>
+);
+
+const PriceHistoryCard: FC<{
+  priceHistory: PricePoint[];
+  color: string;
+  range: RangeKey;
+  onRangeChange: (r: RangeKey) => void;
+}> = ({ priceHistory, color, range, onRangeChange }) => {
+  const selectedDays = RANGES.find((r) => r.label === range)?.days ?? null;
+  const visible = filterByRange(priceHistory, selectedDays);
+  const first = visible[0]?.date ?? "—";
+  const last = visible[visible.length - 1]?.date ?? "—";
+
+  return (
+    <Card>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
+            Price History
+          </h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {first} → {last} · {visible.length} trading days
+          </p>
+        </div>
+        <div className="flex gap-1 rounded-lg bg-slate-800 p-1">
+          {RANGES.map((r) => (
+            <RangeButton
+              key={r.label}
+              label={r.label}
+              active={range === r.label}
+              onClick={() => onRangeChange(r.label)}
+            />
+          ))}
+        </div>
+      </div>
+      <SparkLine data={visible} color={color} />
+    </Card>
   );
 };
 
