@@ -44,6 +44,7 @@ from config import (
     DEFAULT_CONFIDENCE,
     ENSEMBLE_WEIGHTS,
     SEQUENCE_LENGTH,
+    ARTIFACT_SUFFIXES,
 )
 from src.data.fetcher import fetch_nse_data
 from src.data.cleaner import clean_ohlcv
@@ -86,7 +87,7 @@ MODELS_TMP = Path(_tempfile.gettempdir()) / "nse_models"
 
 # Artifact filenames that must be present for a full model load.
 _LSTM_SUFFIXES = ["_lstm.pt", "_lstm_scaler.pkl", "_feature_cols.json"]
-_ALL_SUFFIXES = _LSTM_SUFFIXES + ["_xgboost.pkl", "_arima.pkl"]
+_ALL_SUFFIXES = ARTIFACT_SUFFIXES
 
 
 # ── Storage helpers ───────────────────────────────────────────────────────────

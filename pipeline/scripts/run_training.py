@@ -18,7 +18,7 @@ PIPELINE_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PIPELINE_ROOT.parent))
 sys.path.insert(0, str(PIPELINE_ROOT))
 
-from config import load_companies, MODELS_DIR
+from config import load_companies, MODELS_DIR, ARTIFACT_SUFFIXES
 from src.data.fetcher import fetch_nse_data
 from src.data.cleaner import clean_ohlcv
 from src.analysis.returns import daily_return_analysis
@@ -36,14 +36,7 @@ log = logging.getLogger(__name__)
 
 TODAY = date.today().isoformat()
 
-# Artifacts saved per ticker (must all be uploaded)
-_ARTIFACT_SUFFIXES = [
-    "_lstm.pt",
-    "_lstm_scaler.pkl",
-    "_xgboost.pkl",
-    "_arima.pkl",
-    "_feature_cols.json",
-]
+_ARTIFACT_SUFFIXES = ARTIFACT_SUFFIXES
 
 
 def _upload_artifacts(safe: str) -> None:

@@ -31,6 +31,15 @@ CLOSE_COMPLETENESS  = 0.95
 
 ENSEMBLE_WEIGHTS = (0.25, 0.60, 0.15)
 
+# Artifact filenames saved per ticker by run_training.py
+ARTIFACT_SUFFIXES = [
+    "_lstm.pt",
+    "_lstm_scaler.pkl",
+    "_xgboost.pkl",
+    "_arima.pkl",
+    "_feature_cols.json",
+]
+
 
 def load_companies() -> list[dict]:
     path = BASE_DIR / "config" / "companies.json"

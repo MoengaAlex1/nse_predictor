@@ -34,6 +34,7 @@ from config import (
     load_companies, MODELS_DIR,
     DEFAULT_INVESTMENT, DEFAULT_CONFIDENCE,
     ENSEMBLE_WEIGHTS, SEQUENCE_LENGTH,
+    ARTIFACT_SUFFIXES,
 )
 from src.data.fetcher import fetch_nse_data
 from src.data.cleaner import clean_ohlcv
@@ -84,20 +85,8 @@ def _forecast_trading_dates(base: date, n: int) -> list[str]:
             dates.append(d.isoformat())
     return dates
 
-# Artifact filenames (must match run_training.py)
-_ARTIFACT_SUFFIXES = [
-    "_lstm.pt",
-    "_lstm_scaler.pkl",
-    "_xgboost.pkl",
-    "_arima.pkl",
-    "_feature_cols.json",
-]
-_CORE_SUFFIXES = [
-    "_lstm.pt",
-    "_lstm_scaler.pkl",
-    "_xgboost.pkl",
-    "_arima.pkl",
-]
+_ARTIFACT_SUFFIXES = ARTIFACT_SUFFIXES
+_CORE_SUFFIXES = [s for s in ARTIFACT_SUFFIXES if s != "_feature_cols.json"]
 
 
 # ── Model helpers ─────────────────────────────────────────────────────────────
