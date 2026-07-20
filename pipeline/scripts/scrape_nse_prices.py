@@ -554,14 +554,23 @@ def scrape_company(
         if existing_df is not None:
             existing_df = _clean_df(existing_df)
 
-    last_known = existing_df.index.max() if (existing_df is not None and not existing_df.empty) else None
+    # Determine the reference date and price.
+    # Repo-seeded CSVs contain synthetic forward-filled rows (Volume=0) up to today.
+    # Those rows have wrong prices and make the scraper think it's already up-to-date
+    # while also poisoning the sanity-check reference.  Use only rows with Volume>0
+    # (real trades) as the reference when we know the data came from the repo.
+    last_known: pd.Timestamp | None = None
+    last_known_price: float | None = None
+    if existing_df is not None and not existing_df.empty:
+        if not in_storage and "Volume" in existing_df.columns:
+            traded = existing_df[existing_df["Volume"] > 0]
+            ref_df = traded if not traded.empty else existing_df
+        else:
+            ref_df = existing_df
+        last_known = ref_df.index.max()
+        last_known_price = float(ref_df["Close"].iloc[-1])
 
     # 3. Fetch new rows
-    last_known_price = (
-        float(existing_df["Close"].iloc[-1])
-        if (existing_df is not None and not existing_df.empty)
-        else None
-    )
     new_rows = _fetch_new_rows(safe, last_known, backfill_from, backfill_to)
 
     if new_rows is None or new_rows.empty:
@@ -577,15 +586,18 @@ def scrape_company(
             log.warning("%s: no data found from any source", safe)
         return result
 
-    # Validate prices against last known to catch bad data from NSE website
-    new_rows = _validate_prices(new_rows, safe, last_known_price)
-    if new_rows is None or new_rows.empty:
-        log.warning(
-            "%s: all fetched rows failed price sanity check vs last_known=%.4f — skipping update",
-            safe,
-            last_known_price or 0,
-        )
-        return result
+    # Validate prices against last known to catch bad data from NSE website.
+    # Only validate when the CSV came from Storage (real collected prices).
+    # Skip for repo-seeded CSVs: their synthetic prices would wrongly reject valid NSE data.
+    if in_storage and last_known_price is not None:
+        new_rows = _validate_prices(new_rows, safe, last_known_price)
+        if new_rows is None or new_rows.empty:
+            log.warning(
+                "%s: all fetched rows failed price sanity check vs last_known=%.4f — skipping update",
+                safe,
+                last_known_price,
+            )
+            return result
 
     # 4. Merge existing + new
     if existing_df is not None and not existing_df.empty:
