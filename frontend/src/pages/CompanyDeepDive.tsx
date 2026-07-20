@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { FC } from "react";
 import { useParams, Link } from "react-router-dom";
+import { fmtDate } from "../lib/dateUtils";
 import { PageShell } from "../components/layout/PageShell";
 import { Card } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
@@ -28,15 +29,6 @@ function filterByRange(data: PricePoint[], days: number | null): PricePoint[] {
   return data.filter((p) => p.date >= cutoffStr);
 }
 
-const fmtDate = (iso: string | null) => {
-  if (!iso) return "—";
-  return new Date(iso + "T00:00:00").toLocaleDateString("en-KE", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-};
 
 export const CompanyDeepDive: FC = () => {
   const { ticker = "" } = useParams<{ ticker: string }>();

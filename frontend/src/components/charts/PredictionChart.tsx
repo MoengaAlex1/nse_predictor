@@ -1,4 +1,5 @@
 import type { FC } from "react";
+import { fmtShort, fmtMedium, tradingDaysFrom } from "../../lib/dateUtils";
 import {
   ComposedChart,
   Line,
@@ -20,29 +21,7 @@ interface Props {
   forecastDates?: string[];
 }
 
-function tradingDaysFrom(base: Date, offset: number): string {
-  const d = new Date(base);
-  let remaining = Math.abs(offset);
-  const direction = offset >= 0 ? 1 : -1;
-  while (remaining > 0) {
-    d.setDate(d.getDate() + direction);
-    const day = d.getDay();
-    if (day !== 0 && day !== 6) remaining--;
-  }
-  return d.toISOString().slice(0, 10);
-}
-
-const fmtShort = (dateStr: string) => {
-  const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString("en-KE", { month: "short", day: "numeric" });
-};
-
-const fmtFull = (dateStr: string) =>
-  new Date(dateStr + "T00:00:00").toLocaleDateString("en-KE", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+const fmtFull = fmtMedium;
 
 export const PredictionChart: FC<Props> = ({ actuals, preds, forecast, runDate, forecastDates }) => {
   const n = Math.min(actuals.length, preds.length);

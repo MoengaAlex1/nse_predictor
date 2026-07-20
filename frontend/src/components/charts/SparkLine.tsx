@@ -9,28 +9,12 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { PricePoint } from "../../types";
+import { fmtShort as fmtLabel, fmtLabel as fmtFull } from "../../lib/dateUtils";
 
 interface Props {
   data: PricePoint[];
   color: string;
 }
-
-const fmtLabel = (dateStr: string) => {
-  const d = new Date(dateStr + "T00:00:00");
-  if (isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString("en-KE", { month: "short", day: "numeric" });
-};
-
-const fmtFull = (dateStr: string) => {
-  const d = new Date(dateStr + "T00:00:00");
-  if (isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString("en-KE", {
-    weekday: "short",
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-};
 
 export const SparkLine: FC<Props> = ({ data, color }) => {
   if (!data.length) return null;
