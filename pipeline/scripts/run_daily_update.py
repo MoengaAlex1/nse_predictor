@@ -68,6 +68,7 @@ from src.models.ensemble import ensemble_predict, generate_signal, compute_ensem
 from src.models.arima_model import arima_predict_test
 from src.models.lstm_model import lstm_predict, SequenceDataset
 from src.analysis.technicals import build_technicals_result as _build_technicals
+from src.analysis.market import aggregate_market_overview
 from scripts.push_to_firestore import (
     get_db,
     write_snapshot,
@@ -378,35 +379,6 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         return None
 
 
-# ── Market overview ───────────────────────────────────────────────────────────
-
-def _aggregate_market_overview(results: list[dict]) -> dict:
-    rows: list[tuple[str, float]] = []
-    signals: dict[str, int] = {"BUY": 0, "HOLD": 0, "SELL": 0}
-
-    for r in results:
-        if r is None:
-            continue
-        pub = r["public_update"]
-        rows.append((r["ticker"], pub["change_pct_today"]))
-        sig = pub["signal"]
-        signals[sig] = signals.get(sig, 0) + 1
-
-    rows.sort(key=lambda x: x[1], reverse=True)
-    top_gainers = [{"ticker": t, "change_pct": round(c, 2)} for t, c in rows[:5]]
-    top_losers  = [{"ticker": t, "change_pct": round(c, 2)} for t, c in rows[-5:]]
-
-    return {
-        "date":                TODAY,
-        "top_gainers":         top_gainers,
-        "top_losers":          top_losers,
-        "signal_distribution": signals,
-        "sector_performance":  {},
-        "nse20_value":         None,
-        "nse20_change_pct":    None,
-    }
-
-
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -494,7 +466,7 @@ def main() -> None:
 
     # ── Step 4: Market overview ────────────────────────────────────────────────
     log.info("=== Step 4: Writing market overview ===")
-    overview = _aggregate_market_overview(results)
+    overview = aggregate_market_overview(results, TODAY)
     write_market_overview(db, TODAY, overview)
 
     log.info(
