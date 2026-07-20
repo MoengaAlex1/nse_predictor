@@ -1,5 +1,6 @@
 import sys
 import io
+import logging
 import numpy as np
 import pandas as pd
 import xgboost as xgb
@@ -7,6 +8,8 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 import joblib
 from pathlib import Path
 from config import TRAIN_SPLIT, MODELS_DIR
+
+log = logging.getLogger(__name__)
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -60,7 +63,7 @@ def _print_metrics(y_true: np.ndarray, y_pred: np.ndarray, label: str = "Model")
     mae     = float(mean_absolute_error(y_true, y_pred))
     mape    = float(np.mean(np.abs((y_true - y_pred) / np.where(y_true == 0, 1, y_true))) * 100)
     dir_acc = float(np.mean(np.sign(np.diff(y_true)) == np.sign(np.diff(y_pred))) * 100)
-    print(f"\n[{label}] RMSE: {rmse:.4f} | MAE: {mae:.4f} | MAPE: {mape:.2f}% | Dir Acc: {dir_acc:.1f}%")
+    log.info("[%s] RMSE: %.4f | MAE: %.4f | MAPE: %.2f%% | Dir Acc: %.1f%%", label, rmse, mae, mape, dir_acc)
     return {"rmse": rmse, "mae": mae, "mape": mape, "directional_accuracy": dir_acc}
 
 
@@ -72,7 +75,7 @@ def save_xgboost(model, ticker: str, model_dir: Path = MODELS_DIR) -> Path:
     model_dir.mkdir(parents=True, exist_ok=True)
     path = model_dir / f"{ticker.replace('.', '_')}_xgboost.pkl"
     joblib.dump(model, path)
-    print(f"  XGBoost saved → {path.name}")
+    log.info("XGBoost saved -> %s", path.name)
     return path
 
 

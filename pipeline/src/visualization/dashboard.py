@@ -6,6 +6,7 @@ Charts: price+MAs, daily returns histogram, candlestick+Bollinger,
 """
 import sys
 import io
+import logging
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -13,6 +14,8 @@ import plotly.figure_factory as ff
 from plotly.subplots import make_subplots
 from pathlib import Path
 from config import REPORTS_DIR, MONTE_CARLO_SIMS, MONTE_CARLO_HORIZON, DEFAULT_INVESTMENT
+
+log = logging.getLogger(__name__)
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -216,5 +219,5 @@ def build_dashboard(
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(html_parts))
 
-    print(f"  Dashboard saved -> {out_path}")
+    log.info("Dashboard saved -> %s", out_path)
     return str(out_path)

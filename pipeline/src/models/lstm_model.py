@@ -1,6 +1,7 @@
 """
 PyTorch LSTM — 3-layer stacked architecture (128→64→32).
 """
+import logging
 import numpy as np
 import pandas as pd
 import torch
@@ -10,6 +11,8 @@ from sklearn.preprocessing import MinMaxScaler
 import joblib
 from pathlib import Path
 from config import SEQUENCE_LENGTH, TRAIN_SPLIT, MODELS_DIR
+
+log = logging.getLogger(__name__)
 
 
 # ── Dataset ───────────────────────────────────────────────────────────────────
@@ -86,7 +89,7 @@ def train_lstm(
     np.random.seed(42)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[LSTM] Training on {device}")
+    log.info("[LSTM] Training on %s", device)
 
     cols = [target_col] + feature_cols
     data = df[cols].values.astype(float)
@@ -159,10 +162,10 @@ def train_lstm(
             no_improve += 1
 
         if epoch % 10 == 0 or epoch == 1:
-            print(f"  Epoch {epoch:3d}/{epochs} — train: {train_loss:.6f}  val: {val_loss:.6f}")
+            log.info("Epoch %3d/%d — train: %.6f  val: %.6f", epoch, epochs, train_loss, val_loss)
 
         if no_improve >= patience:
-            print(f"  Early stopping at epoch {epoch}")
+            log.info("Early stopping at epoch %d", epoch)
             break
 
     if best_state:
@@ -275,7 +278,7 @@ def save_lstm(model: NSELSTMModel, scaler, ticker: str, model_dir: Path = MODELS
     safe = ticker.replace(".", "_")
     torch.save(model.state_dict(), model_dir / f"{safe}_lstm.pt")
     joblib.dump(scaler, model_dir / f"{safe}_lstm_scaler.pkl")
-    print(f"  LSTM saved → {safe}_lstm.pt")
+    log.info("LSTM saved -> %s_lstm.pt", safe)
     return model_dir
 
 

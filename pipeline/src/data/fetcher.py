@@ -11,10 +11,13 @@ CSV format expected (nse.co.ke export):
 """
 import sys
 import io
+import logging
 import yfinance as yf
 import pandas as pd
 from pathlib import Path
 from config import NSE_TICKERS, START_DATE, DATA_RAW, DATA_CLEANED
+
+log = logging.getLogger(__name__)
 
 # Force UTF-8 output on Windows to avoid cp1252 encode errors
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -95,7 +98,7 @@ def fetch_nse_data(
     safe_name = ticker.replace(".", "_")
     auto_csv = DATA_RAW / f"{safe_name}_raw.csv"
     if auto_csv.exists():
-        print(f"  Loading from cached CSV: {auto_csv.name}")
+        log.info("Loading from cached CSV: %s", auto_csv.name)
         df = load_from_csv(auto_csv, ticker=ticker)
         if start:
             df = df[df.index >= pd.to_datetime(start)]
@@ -109,12 +112,12 @@ def fetch_nse_data(
                 df = load_nse_ticker(ticker, start=start, end=end)
                 return df
         except Exception as e:
-            print(f"  [WARN] NSE archive loader failed ({e}); trying CSV fallback...")
+            log.warning("NSE archive loader failed (%s); trying CSV fallback...", e)
 
         # Try pre-cleaned CSVs committed to the repo (53 companies included)
         cleaned_csv = DATA_CLEANED / f"{safe_name}_cleaned.csv"
         if cleaned_csv.exists():
-            print(f"  Loading from cleaned CSV: {cleaned_csv.name}")
+            log.info("Loading from cleaned CSV: %s", cleaned_csv.name)
             df = load_from_csv(cleaned_csv, ticker=ticker)
             if start:
                 df = df[df.index >= pd.to_datetime(start)]
@@ -138,9 +141,9 @@ def fetch_all_tickers(tickers: list = None, start: str = START_DATE) -> dict:
         try:
             df = fetch_nse_data(ticker, start=start)
             data[ticker] = df
-            print(f"  [OK] {ticker}: {len(df)} rows")
+            log.info("[OK] %s: %d rows", ticker, len(df))
         except Exception as e:
-            print(f"  [FAIL] {ticker}: {e}")
+            log.error("[FAIL] %s: %s", ticker, e)
     return data
 
 
@@ -149,4 +152,4 @@ def save_raw(data: dict) -> None:
     for ticker, df in data.items():
         path = DATA_RAW / f"{ticker.replace('.', '_')}_raw.csv"
         df.to_csv(path)
-        print(f"  Saved raw -> {path.name}")
+        log.info("Saved raw -> %s", path.name)

@@ -1,10 +1,13 @@
 import sys
 import io
+import logging
 import pandas as pd
 import numpy as np
 from pathlib import Path
 from config import (DATA_CLEANED, MIN_TRADING_DAYS, MIN_VOLUME_PCT,
                     MAX_STALE_RUN, CLOSE_COMPLETENESS)
+
+log = logging.getLogger(__name__)
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -47,7 +50,7 @@ def clean_ohlcv(df: pd.DataFrame, ticker: str = "") -> tuple[pd.DataFrame, dict]
                  .transform("sum"))
     max_stale_run = int(stale_run.max()) if not stale_run.empty else 0
     if max_stale_run > MAX_STALE_RUN:
-        print(f"  [WARN] [{ticker}] Max consecutive stale days: {max_stale_run} > {MAX_STALE_RUN} (liquidity warning)")
+        log.warning("[%s] Max consecutive stale days: %d > %d (liquidity warning)", ticker, max_stale_run, MAX_STALE_RUN)
 
     # ── Step 7: Outlier detection (3×IQR on Close) ──────────────────────────
     Q1 = df["Close"].quantile(0.25)
@@ -65,7 +68,7 @@ def clean_ohlcv(df: pd.DataFrame, ticker: str = "") -> tuple[pd.DataFrame, dict]
     )
     if data_errors.any():
         n_err = int(data_errors.sum())
-        print(f"  [FIX] [{ticker}] Correcting {n_err} OHLC-inconsistent close(s) via forward-fill")
+        log.info("[%s] Correcting %d OHLC-inconsistent close(s) via forward-fill", ticker, n_err)
         df.loc[data_errors, "Close"] = np.nan
         df["Close"] = df["Close"].ffill()
         # Re-tag outliers on the corrected series
@@ -84,9 +87,9 @@ def clean_ohlcv(df: pd.DataFrame, ticker: str = "") -> tuple[pd.DataFrame, dict]
         report["cleaned_rows"] / max(report["original_rows"], 1) * 100, 2
     )
 
-    print(f"\n[{ticker}] Data Quality Report:")
+    log.info("[%s] Data Quality Report:", ticker)
     for k, v in report.items():
-        print(f"  {k}: {v}")
+        log.info("  %s: %s", k, v)
 
     return df, report
 
@@ -110,9 +113,12 @@ def validate_ticker(df: pd.DataFrame, report: dict) -> bool:
 
     passed = all(c[1] for c in checks)
     status = "PASS" if passed else "FAIL"
-    print(f"\n[{ticker}] Validation: {status}")
+    log.info("[%s] Validation: %s", ticker, status)
     for name, ok, detail in checks:
-        print(f"  {'[PASS]' if ok else '[FAIL]'} {name}: {detail}")
+        if ok:
+            log.info("  [PASS] %s: %s", name, detail)
+        else:
+            log.error("  [FAIL] %s: %s", name, detail)
     return passed
 
 

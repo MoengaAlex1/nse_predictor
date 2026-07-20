@@ -1,15 +1,18 @@
 import json
+import logging
 import pandas as pd
 import numpy as np
 from pathlib import Path
 from config import DATA_FEATURES, TOP_FEATURES, MODELS_DIR
+
+log = logging.getLogger(__name__)
 
 try:
     import ta
     _TA_AVAILABLE = True
 except ImportError:
     _TA_AVAILABLE = False
-    print("Warning: 'ta' library not installed. Run: pip install ta")
+    log.warning("'ta' library not installed. Run: pip install ta")
 
 
 def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
@@ -101,9 +104,9 @@ def select_top_features(
     rfe.fit(X, y)
 
     selected = [feature_cols[i] for i, s in enumerate(rfe.support_) if s]
-    print(f"Selected {len(selected)} features via RFE:")
+    log.info("Selected %d features via RFE:", len(selected))
     for f in selected:
-        print(f"  • {f}")
+        log.info("  • %s", f)
     return selected
 
 
@@ -120,7 +123,7 @@ def save_feature_cols(feature_cols: list, ticker: str, model_dir: Path = MODELS_
     path = model_dir / f"{ticker.replace('.', '_')}_feature_cols.json"
     with open(path, "w", encoding="utf-8") as f:
         json.dump(feature_cols, f)
-    print(f"  Feature cols saved → {path.name}  ({len(feature_cols)} features)")
+    log.info("Feature cols saved -> %s  (%d features)", path.name, len(feature_cols))
     return path
 
 

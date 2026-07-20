@@ -1,5 +1,8 @@
+import logging
 import numpy as np
 from config import ENSEMBLE_WEIGHTS, NSE_DAILY_BAND_PCT
+
+log = logging.getLogger(__name__)
 
 
 def ensemble_predict(
@@ -56,5 +59,5 @@ def compute_ensemble_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     mae  = float(mean_absolute_error(y_true, y_pred))
     mape = float(np.mean(np.abs((y_true - y_pred) / np.where(y_true == 0, 1, y_true))) * 100)
     dir_acc = float(np.mean(np.sign(np.diff(y_true)) == np.sign(np.diff(y_pred))) * 100)
-    print(f"\n[Ensemble] RMSE: {rmse:.4f} | MAE: {mae:.4f} | MAPE: {mape:.2f}% | Dir Acc: {dir_acc:.1f}%")
+    log.info("[Ensemble] RMSE: %.4f | MAE: %.4f | MAPE: %.2f%% | Dir Acc: %.1f%%", rmse, mae, mape, dir_acc)
     return {"rmse": rmse, "mae": mae, "mape": mape, "directional_accuracy": dir_acc}

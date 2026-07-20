@@ -1,5 +1,6 @@
 import sys
 import io
+import logging
 import warnings
 import pandas as pd
 import numpy as np
@@ -8,6 +9,8 @@ from statsmodels.tsa.stattools import adfuller
 import joblib
 from pathlib import Path
 from config import MODELS_DIR
+
+log = logging.getLogger(__name__)
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -26,9 +29,9 @@ def _select_order(series: pd.Series, default: tuple = (2, 1, 2)) -> tuple:
 def check_stationarity(series: pd.Series) -> tuple[float, float]:
     result = adfuller(series.dropna())
     adf_stat, p_value = result[0], result[1]
-    print(f"  ADF Statistic: {adf_stat:.4f} | p-value: {p_value:.4f}")
+    log.info("ADF Statistic: %.4f | p-value: %.4f", adf_stat, p_value)
     if p_value > 0.05:
-        print("  Series is non-stationary -> d=1 differencing will be applied")
+        log.info("Series is non-stationary -> d=1 differencing will be applied")
     return adf_stat, p_value
 
 
@@ -39,11 +42,11 @@ def train_arima(series: pd.Series, order: tuple | None = None) -> object:
     """
     if order is None:
         order = _select_order(series)
-    print(f"[ARIMA] Fitting ARIMA{order} on {len(series)} observations...")
+    log.info("[ARIMA] Fitting ARIMA%s on %d observations...", order, len(series))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         fitted = ARIMA(series, order=order).fit()
-    print(f"  AIC={fitted.aic:.2f}  BIC={fitted.bic:.2f}")
+    log.info("AIC=%.2f  BIC=%.2f", fitted.aic, fitted.bic)
     return fitted
 
 
@@ -92,7 +95,7 @@ def save_arima(fitted_model, ticker: str, model_dir: Path = MODELS_DIR) -> Path:
     model_dir.mkdir(parents=True, exist_ok=True)
     path = model_dir / f"{ticker.replace('.', '_')}_arima.pkl"
     joblib.dump(fitted_model, path)
-    print(f"  ARIMA saved → {path.name}")
+    log.info("ARIMA saved -> %s", path.name)
     return path
 
 

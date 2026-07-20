@@ -14,10 +14,13 @@ Maps to OHLCV as:
 import os
 import re
 import glob
+import logging
 import pandas as pd
 import numpy as np
 from pathlib import Path
 from config import DATA_RAW, NSE_TICKERS, START_DATE
+
+log = logging.getLogger(__name__)
 
 # Internal codes (no .NR suffix)
 _CODE_MAP = {
@@ -80,7 +83,7 @@ def load_nse_ticker(
                 continue
             frames.append(stock)
         except Exception as e:
-            print(f"  [WARN] Could not read {Path(path).name}: {e}")
+            log.warning("Could not read %s: %s", Path(path).name, e)
 
     if not frames:
         raise ValueError(
@@ -115,7 +118,7 @@ def load_nse_ticker(
     if out.empty:
         raise ValueError(f"No data for {code} after filtering to {start}–{end}")
 
-    print(f"  Loaded {code}: {len(out)} trading days ({out.index[0].date()} to {out.index[-1].date()})")
+    log.info("Loaded %s: %d trading days (%s to %s)", code, len(out), out.index[0].date(), out.index[-1].date())
     return out
 
 
@@ -142,5 +145,5 @@ def load_all_nse_tickers(
             df = load_nse_ticker(ticker, archive_dir=archive_dir, start=start)
             data[ticker] = df
         except Exception as e:
-            print(f"  [FAIL] {ticker}: {e}")
+            log.error("[FAIL] %s: %s", ticker, e)
     return data
