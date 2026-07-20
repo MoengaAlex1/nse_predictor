@@ -143,10 +143,10 @@ def main() -> None:
         current_price = float(df_real["Close"].iloc[-1])
         change_pct = float(df_real["Close"].pct_change().iloc[-1] * 100)
 
-        hist_90 = df_real["Close"].tail(90)
         price_history = [
             {"date": idx.strftime("%Y-%m-%d"), "price": round(float(val), 4)}
-            for idx, val in hist_90.items()
+            for idx, val in df_real["Close"].items()
+            if idx.dayofweek < 5
         ]
 
         public_update = {

@@ -12,7 +12,7 @@ REPORTS_DIR   = BASE_DIR / "reports" / "outputs"
 
 NSE_TICKERS = []  # loaded dynamically from companies.json
 
-START_DATE = "2015-01-01"
+START_DATE = "2000-01-01"
 
 SEQUENCE_LENGTH   = 60
 TOP_FEATURES      = 25
