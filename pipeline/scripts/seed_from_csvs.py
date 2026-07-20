@@ -7,7 +7,7 @@ Read every *_cleaned.csv from data/cleaned/ and push real data to Firestore:
   - market_overview/{date}: top gainers/losers, signal distribution
 
 Run locally with:
-  $env:FIREBASE_SERVICE_ACCOUNT_JSON = Get-Content path\to\key.json -Raw
+  $env:FIREBASE_SERVICE_ACCOUNT_JSON = Get-Content path/to/key.json -Raw
   $env:FIREBASE_STORAGE_BUCKET = "nse-market-dashboard.firebasestorage.app"
   python pipeline/scripts/seed_from_csvs.py
 """

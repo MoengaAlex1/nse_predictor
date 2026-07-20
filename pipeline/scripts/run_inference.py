@@ -67,6 +67,7 @@ log = logging.getLogger(__name__)
 
 TODAY = date.today().isoformat()
 MODELS_TMP = Path(_tempfile.gettempdir()) / "nse_models"
+CSVS_TMP   = Path(_tempfile.gettempdir()) / "nse_csvs"
 
 
 def _next_trading_day(from_date: date | None = None) -> date:
@@ -299,7 +300,6 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         # ── 6. Ensemble metrics on historical test set (diagnostic) ──────────
         try:
             from src.models.lstm_model import lstm_predict, SequenceDataset
-            from src.data.cleaner import clean_ohlcv
             from sklearn.preprocessing import MinMaxScaler
             import math
 

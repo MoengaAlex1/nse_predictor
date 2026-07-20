@@ -165,19 +165,19 @@ def _maker_checker_fix(grp: pd.DataFrame) -> pd.DataFrame:
         m = med.iloc[i] if not np.isnan(med.iloc[i]) and med.iloc[i] > 0 else None
 
         if ratio > 30:
-            # Definite 100x error
+            # Definite 100× error
             prices.iloc[i] = round(p / 100.0, 4)
         elif ratio < 0.033:
-            # Definite 100x shortfall
+            # Definite 100× shortfall
             prices.iloc[i] = round(p * 100.0, 4)
         elif ratio > 8 and m is not None:
-            # Possible 10x error: confirm with rolling median
+            # Possible 10× error: confirm with rolling median
             if (p / m) > 5.0:
-                prices.iloc[i] = round(p / 100.0, 4)
+                prices.iloc[i] = round(p / 10.0, 4)
         elif ratio < 0.125 and m is not None:
-            # Possible 10x shortfall: confirm with rolling median
+            # Possible 10× shortfall: confirm with rolling median
             if (p / m) < 0.2:
-                prices.iloc[i] = round(p * 100.0, 4)
+                prices.iloc[i] = round(p * 10.0, 4)
 
     grp["Day Price"] = prices
     return grp
@@ -242,17 +242,25 @@ def _fix_high_low(grp: pd.DataFrame) -> pd.DataFrame:
 def _rolling_median_second_pass(s: pd.Series) -> pd.Series:
     """
     Step 3: Rolling-median second pass.
-    Correct any price where price / rolling_7d_median > 15 or < 0.067.
+    Distinguishes 100× errors (ratio > 30 or < 0.033) from 10× errors (ratio 8-30 or 0.033-0.125).
+    Applied in two rounds so the first fix doesn't bias the second.
     """
     s = s.copy().astype(float)
     med = _rolling_median(s)
 
     ratio = s / med
-    too_high = ratio > 15.0
-    too_low = ratio < 0.067
 
-    s[too_high] = (s[too_high] / 100.0).round(4)
-    s[too_low] = (s[too_low] * 100.0).round(4)
+    # Round 1: definite 100× errors
+    s[ratio > 30.0] = (s[ratio > 30.0] / 100.0).round(4)
+    s[ratio < 0.033] = (s[ratio < 0.033] * 100.0).round(4)
+
+    # Recompute ratio after round-1 fixes
+    med = _rolling_median(s)
+    ratio = s / med
+
+    # Round 2: likely 10× errors (8-30 band)
+    s[(ratio > 8.0) & (ratio <= 30.0)] = (s[(ratio > 8.0) & (ratio <= 30.0)] / 10.0).round(4)
+    s[(ratio >= 0.033) & (ratio < 0.125)] = (s[(ratio >= 0.033) & (ratio < 0.125)] * 10.0).round(4)
 
     return s
 
