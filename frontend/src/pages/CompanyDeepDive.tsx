@@ -9,6 +9,7 @@ import { SignalBadge } from "../components/ui/Badge";
 import { CompanyLogo } from "../components/ui/CompanyLogo";
 import { TradingChart } from "../components/charts/TradingChart";
 import { PredictionChart } from "../components/charts/PredictionChart";
+import { PriceExplainer } from "../components/company/PriceExplainer";
 import { useCompany, useLatestSnapshot, useLatestTechnicals } from "../hooks/useCompany";
 import type { PricePoint, SnapshotDoc, TechnicalsDoc, CompanyDoc } from "../types";
 
@@ -835,6 +836,16 @@ export const CompanyDeepDive: FC = () => {
   const history = company.price_history ?? [];
   const visible = filterByRange(history, range, from, to);
 
+  const rangeLabel =
+    range === "1M"     ? "1 Month"      :
+    range === "3M"     ? "3 Months"     :
+    range === "6M"     ? "6 Months"     :
+    range === "YTD"    ? "Year to Date" :
+    range === "1Y"     ? "1 Year"       :
+    range === "5Y"     ? "5 Years"      :
+    range === "ALL"    ? "All Time"     :
+    "Custom Period";
+
   return (
     <PageShell>
       <div className="space-y-4">
@@ -923,6 +934,16 @@ export const CompanyDeepDive: FC = () => {
             to={to}
             setTo={setTo}
             visible={visible}
+          />
+        )}
+
+        {/* ── AI price explainer ────────────────────────────────────────── */}
+        {visible.length >= 2 && (
+          <PriceExplainer
+            company={company}
+            visible={visible}
+            technicals={technicals}
+            rangeLabel={rangeLabel}
           />
         )}
 
