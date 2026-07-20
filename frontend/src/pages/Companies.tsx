@@ -257,6 +257,7 @@ export const Companies: FC = () => {
   const filtered = useMemo(() => {
     if (!companies) return [];
     return companies.filter((c) => {
+      if (!c.name || !c.short || !c.ticker) return false;
       const q = search.toLowerCase();
       const matchSearch =
         c.name.toLowerCase().includes(q) ||
