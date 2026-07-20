@@ -174,6 +174,15 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
             csv_path_str = None
 
         raw_df = fetch_nse_data(ticker, csv_path=csv_path_str)
+        # Strip future-dated rows — repo CSVs can contain forward-filled rows
+        # past today that would make current_price read from the wrong date.
+        _today_ts = pd.Timestamp(date.today())
+        raw_df = raw_df[raw_df.index <= _today_ts]
+        # Also drop is_stale==1 rows if present (forward-fills from original cleaner)
+        if "Is_Stale" in raw_df.columns:
+            raw_df = raw_df[raw_df["Is_Stale"] != 1]
+        elif "is_stale" in raw_df.columns:
+            raw_df = raw_df[raw_df["is_stale"] != 1]
         cleaned_df, _ = clean_ohlcv(raw_df, ticker=ticker)
         ret_df, _ = daily_return_analysis(cleaned_df)
         ma_df = compute_moving_averages(ret_df)

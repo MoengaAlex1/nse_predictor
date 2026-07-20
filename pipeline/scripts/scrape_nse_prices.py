@@ -88,97 +88,212 @@ def _yf_symbol(safe: str) -> str:
     return f"{_ticker_base(safe)}.KE"
 
 
-# ── Source 1: NSE website ─────────────────────────────────────────────────────
+# ── Source 1: NSE website (AJAX endpoint) ────────────────────────────────────
 
-_nse_cache: dict[str, dict] | None = None  # keyed by uppercase symbol → {Close, Volume}
+_NSE_AJAX_URL  = "https://www.nse.co.ke/dataservices/wp-admin/admin-ajax.php"
+_NSE_STATS_URL = "https://www.nse.co.ke/dataservices/market-statistics/"
+_NSE_SECTORS   = ["agric", "auto", "bank", "comm", "const", "energy",
+                   "insr", "invest", "investse", "manu", "tele", "real", "exchange"]
+
+# Keyword → ticker-base mapping (longest/most-specific match wins).
+# Keys are lowercase substrings of the NSE display name.
+_NSE_NAME_TO_BASE: list[tuple[str, str]] = [
+    ("absa bank", "ABSA"),
+    ("diamond trust bank", "DTK"),
+    ("equity group holdings", "EQTY"),
+    ("equity bank", "EQTY"),
+    ("hf group", "HFCK"),
+    ("kenya commercial bank", "KCB"),
+    ("ncba", "NCBA"),
+    ("standard chartered bank kenya", "SCBK"),
+    ("standard chartered bank", "SCBK"),
+    ("co-operative bank of kenya", "COOP"),
+    ("cooperative bank of kenya", "COOP"),
+    ("imh holdings", "IMH"),
+    ("i&m holdings", "IMH"),
+    ("bank of kigali", "BKG"),
+    ("family bank", "FMLY"),
+    ("stanbic holdings", "SKL"),
+    ("sbm bank kenya", "SBIC"),
+    ("nairobi business ventures", "NBV"),
+    ("national bank of kenya", "NBV"),
+    # Agricultural
+    ("kakuzi", "KUKZ"),
+    ("limuru tea", "LIMT"),
+    ("sasini", "SASN"),
+    ("africa mega", "AMAC"),
+    # Automobiles
+    ("sameer africa", "SMER"),
+    # Construction & allied
+    ("carbacid", "CARB"),
+    ("crown paints", "CRWN"),
+    ("east african portland cement", "PORT"),
+    # Commercial
+    ("longhorn publishers", "LKL"),
+    ("olympia capital", "OCH"),
+    ("scangroup", "SCAN"),
+    ("eveready east africa", "EVRD"),
+    ("home afrika", "HAFR"),
+    ("gold coin", "GLD"),
+    ("standard group", "SGL"),
+    ("nation media group", "NMG"),
+    ("nation media", "NMG"),
+    ("cavendish", "CTUM"),
+    ("kurwitu", "KURV"),
+    ("kapc medical", "KAPC"),
+    # Energy
+    ("kenya power and lighting", "KPC"),
+    ("kenya power & lighting", "KPC"),
+    ("kenya power pref", "KPLC"),
+    ("kenya power preference", "KPLC"),
+    ("kengen", "KEGN"),
+    ("kenya electricity generating", "KEGN"),
+    ("boc kenya", "BOC"),
+    ("totalenergies", "TOTL"),
+    ("total energies", "TOTL"),
+    ("total kenya", "TOTL"),
+    # Insurance
+    ("britam", "BRIT"),
+    ("cic insurance", "CIC"),
+    ("jubilee holdings", "JUB"),
+    ("kenya reinsurance", "KNRE"),
+    ("liberty kenya", "LBTY"),
+    ("sanlam kenya", "SLAM"),
+    # Investment
+    ("nairobi securities exchange", "NSE"),
+    ("centum generation", "CGEN"),
+    ("centum investment", "CGEN"),
+    ("centum", "CGEN"),
+    ("umme", "UMME"),
+    # Manufacturing
+    ("bat kenya", "BAT"),
+    ("british american tobacco", "BAT"),
+    ("east african breweries", "EABL"),
+    ("unga group chemicals", "UCHM"),
+    ("unga group", "UNGA"),
+    # Telecom
+    ("safaricom", "SCOM"),
+    # Real estate / REIT
+    ("ilam fahari", "FTGH"),
+    ("fahari", "FTGH"),
+    ("alp industrial", "ALP"),
+    ("stanlib fahari", "SMWF"),
+    # Transport
+    ("kenya airways", "KQ"),
+    ("transcentury", "TPSE"),
+    ("transafrica", "TRFC"),
+]
+
+_nse_cache: dict[str, dict] | None = None  # keyed by ticker_base (e.g. "ABSA") → OHLCV
+
+
+def _name_to_base(display_name: str) -> str | None:
+    """Map an NSE display name to our ticker base using keyword matching."""
+    name_lc = display_name.lower()
+    for keyword, base in _NSE_NAME_TO_BASE:
+        if keyword in name_lc:
+            return base
+    return None
+
+
+def _get_nse_nonce() -> str | None:
+    """Fetch a fresh WordPress nonce from the NSE market statistics page."""
+    try:
+        resp = requests.get(_NSE_STATS_URL, headers=_NSE_HEADERS, timeout=20)
+        resp.raise_for_status()
+        import re
+        m = re.search(r'"ajaxnonce"\s*:\s*"([^"]+)"', resp.text)
+        return m.group(1) if m else None
+    except Exception as exc:
+        log.debug("NSE nonce fetch failed: %s", exc)
+        return None
+
 
 def _fetch_nse_website_all() -> dict[str, dict]:
     """
-    Scrape the NSE equity securities page once per run.
-    Returns {TICKER: {Close, Open, High, Low, Volume}} or {}.
+    Fetch live NSE equity prices via the market-statistics AJAX endpoint.
+
+    Queries every sector and maps company display names → ticker bases.
+    Returns {TICKER_BASE: {Close, Open, High, Low, Volume}} or {}.
     """
     global _nse_cache
     if _nse_cache is not None:
         return _nse_cache
 
-    urls = [
-        "https://www.nse.co.ke/live-market-data/equity-securities.html",
-        "https://www.nse.co.ke/market-statistics/",
-    ]
+    nonce = _get_nse_nonce()
+    if not nonce:
+        log.warning("NSE: could not obtain nonce — skipping AJAX scrape")
+        _nse_cache = {}
+        return {}
+
     results: dict[str, dict] = {}
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        log.debug("BeautifulSoup not available; skipping NSE scrape")
+        _nse_cache = {}
+        return {}
 
-    for url in urls:
+    for sector in _NSE_SECTORS:
         try:
-            resp = requests.get(url, headers=_NSE_HEADERS, timeout=30)
-            resp.raise_for_status()
+            resp = requests.post(
+                _NSE_AJAX_URL,
+                data={"action": "display_prices", "security": nonce, "sector": sector},
+                headers={**_NSE_HEADERS, "Content-Type": "application/x-www-form-urlencoded",
+                         "Origin": "https://www.nse.co.ke",
+                         "Referer": _NSE_STATS_URL},
+                timeout=20,
+            )
+            if resp.status_code != 200 or not resp.text.strip():
+                continue
 
-            try:
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(resp.text, "html.parser")
-                table = (
-                    soup.find("table", {"id": "live-market"})
-                    or soup.find("table", {"class": lambda c: c and "equity" in c.lower()})
-                    or soup.find("table")
-                )
-                if not table:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            table = soup.find("table")
+            if not table:
+                continue
+
+            rows = table.find_all("tr")
+            if len(rows) < 2:
+                continue
+
+            # Header: Company | ISIN Code | Volume | Last Traded Price | Change (%)
+            header = [th.get_text(strip=True).lower() for th in rows[0].find_all("th")]
+            idx_name  = next((i for i, h in enumerate(header) if "company" in h or "security" in h), 0)
+            idx_price = next((i for i, h in enumerate(header) if "price" in h or "last" in h), 3)
+            idx_vol   = next((i for i, h in enumerate(header) if "volume" in h), 2)
+
+            for row in rows[1:]:
+                cells = row.find_all("td")
+                if len(cells) <= max(idx_name, idx_price):
                     continue
-
-                rows = table.find_all("tr")
-                header = [th.get_text(strip=True).lower() for th in rows[0].find_all(["th", "td"])]
-
-                # Locate column indices flexibly
-                def _col(keywords: list[str]) -> int:
-                    for kw in keywords:
-                        for i, h in enumerate(header):
-                            if kw in h:
-                                return i
-                    return -1
-
-                idx_sym   = _col(["symbol", "share", "code", "ticker"])
-                idx_close = _col(["last traded", "close", "price"])
-                idx_vol   = _col(["volume", "vol"])
-                idx_open  = _col(["open"])
-                idx_high  = _col(["high"])
-                idx_low   = _col(["low"])
-
-                if idx_sym < 0 or idx_close < 0:
+                display_name = cells[idx_name].get_text(strip=True)
+                try:
+                    close = float(cells[idx_price].get_text(strip=True).replace(",", ""))
+                except (ValueError, IndexError):
                     continue
+                if close <= 0:
+                    continue
+                try:
+                    volume = int(float(cells[idx_vol].get_text(strip=True).replace(",", "")))
+                except (ValueError, IndexError):
+                    volume = 0
 
-                def _num(cells: list, idx: int) -> float | None:
-                    if idx < 0 or idx >= len(cells):
-                        return None
-                    txt = cells[idx].get_text(strip=True).replace(",", "")
-                    try:
-                        return float(txt)
-                    except ValueError:
-                        return None
-
-                for row in rows[1:]:
-                    cells = row.find_all(["td", "th"])
-                    if len(cells) <= max(idx_sym, idx_close):
-                        continue
-                    symbol = cells[idx_sym].get_text(strip=True).upper()
-                    close  = _num(cells, idx_close)
-                    if not symbol or close is None or close <= 0:
-                        continue
-                    results[symbol] = {
+                base = _name_to_base(display_name)
+                if base:
+                    results[base] = {
                         "Close":  close,
-                        "Open":   _num(cells, idx_open)  or close,
-                        "High":   _num(cells, idx_high)  or close,
-                        "Low":    _num(cells, idx_low)   or close,
-                        "Volume": int(_num(cells, idx_vol) or 0),
+                        "Open":   close,
+                        "High":   close,
+                        "Low":    close,
+                        "Volume": volume,
                     }
-
-            except ImportError:
-                log.debug("BeautifulSoup not available; skipping NSE HTML parse")
-
-            if results:
-                log.info("NSE website: fetched %d equity prices", len(results))
-                break
+                else:
+                    log.debug("NSE: no ticker mapping for %r", display_name)
 
         except Exception as exc:
-            log.debug("NSE website fetch failed (%s) — trying next URL", exc)
+            log.debug("NSE AJAX sector=%s failed: %s", sector, exc)
 
+    log.info("NSE AJAX: fetched %d equity prices across all sectors", len(results))
     _nse_cache = results
     return results
 
@@ -452,6 +567,12 @@ def scrape_company(
     if new_rows is None or new_rows.empty:
         if last_known is not None:
             log.info("%s: already up to date (latest: %s)", safe, last_known.date())
+            # Even with no new rows, re-upload a clean version of the CSV so
+            # the training job never reads future-dated or stale-flagged rows.
+            if existing_df is not None and not existing_df.empty:
+                CSVS_TMP.mkdir(parents=True, exist_ok=True)
+                existing_df.to_csv(local_path)
+                upload_model_to_storage(str(local_path), storage_path)
         else:
             log.warning("%s: no data found from any source", safe)
         return result
