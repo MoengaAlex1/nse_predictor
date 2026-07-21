@@ -199,7 +199,7 @@ function buildTimeline(
           category: "corporate_action",
           driverTag: "(event)",
           label: ca.type,
-          detail: ca.title ?? ca.details,
+          detail: ca.title ?? ca.details ?? "",
         });
       }
     }

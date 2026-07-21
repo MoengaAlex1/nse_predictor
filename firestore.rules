@@ -26,6 +26,24 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Corporate events — public read
+    match /events/{ticker} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Financial results, dividends, corporate actions — must be logged in
+    match /financials/{ticker} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // Macro data (CBK rates, inflation) — must be logged in
+    match /macro/{doc} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
     // User watchlists — owner only
     match /users/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;

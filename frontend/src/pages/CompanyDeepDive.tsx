@@ -1107,7 +1107,7 @@ export const CompanyDeepDive: FC = () => {
         )}
 
         {/* ── NSE filings timeline ──────────────────────────────────────── */}
-        <FilingsTimeline financials={financials} />
+        <FilingsTimeline financials={financials ?? undefined} />
 
         {/* ── AI signal + technicals ────────────────────────────────────── */}
         <GatedContent
