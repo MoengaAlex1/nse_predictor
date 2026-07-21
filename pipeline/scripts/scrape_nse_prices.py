@@ -467,9 +467,10 @@ def _fetch_new_rows(
     # Remove future rows
     df = df[df.index <= pd.Timestamp(today_str)]
 
-    # In normal mode, filter to only rows newer than what we already have
+    # In normal mode, keep rows >= last_known_date so intraday re-runs can
+    # overwrite today's price (dedup in scrape_company keeps the last value).
     if last_known_date is not None and not (backfill_from and backfill_to):
-        df = df[df.index > last_known_date]
+        df = df[df.index >= last_known_date]
 
     if df.empty:
         return None
@@ -493,7 +494,7 @@ def _load_local_csv(path: Path) -> pd.DataFrame | None:
         date_col = next((c for c in df.columns if "date" in c.lower()), None)
         if date_col is None:
             return None
-        df[date_col] = pd.to_datetime(df[date_col], dayfirst=True, format="mixed")
+        df[date_col] = pd.to_datetime(df[date_col], dayfirst=False, format="mixed")
         df = df.set_index(date_col).sort_index()
         df.index.name = "Date"
         return df

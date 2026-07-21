@@ -1,9 +1,23 @@
-name: NSE Price Scrape (Opening 9AM + Closing 4PM EAT)
+name: NSE Daily Price Capture (3× per day)
+
+# Runs three times every NSE trading day (Mon–Fri, EAT = UTC+3):
+#   09:00 EAT — opening price snapshot
+#   14:00 EAT — midday overwrite
+#   15:30 EAT — final closing price (NSE closes at 15:00 EAT)
+#
+# Each run:
+#   Step 1 – scrape_nse_prices.py  → fetch latest prices, update Firebase Storage CSVs
+#   Step 2 – push_intraday_prices.py → read updated CSVs, push price_history +
+#             current_price + change_pct_today to Firestore (live website update)
+#
+# The nightly daily_update.yml (midnight EAT) handles full model retraining
+# and buy/sell/hold signal generation — that job is not replaced by this one.
 
 on:
   schedule:
-    - cron: "0 6 * * 1-5"    # 06:00 UTC = 09:00 EAT — opening prices (market opens 09:00)
-    - cron: "10 13 * * 1-5"  # 13:10 UTC = 16:10 EAT — closing prices (NSE closes 15:00 EAT)
+    - cron: "0 6 * * 1-5"     # 06:00 UTC = 09:00 EAT — market open
+    - cron: "0 11 * * 1-5"    # 11:00 UTC = 14:00 EAT — midday
+    - cron: "30 12 * * 1-5"   # 12:30 UTC = 15:30 EAT — market close
   workflow_dispatch:
     inputs:
       backfill:
@@ -14,14 +28,14 @@ on:
         description: "Comma-separated tickers to update (blank = all)"
         required: false
         default: ""
-      session:
-        description: "Session label for logs: 'open' or 'close' (default: close)"
+      skip_firestore_push:
+        description: "Set to 'true' to scrape only (skip Firestore push)"
         required: false
-        default: "close"
+        default: "false"
 
 jobs:
-  scrape:
-    name: Scrape NSE prices
+  capture:
+    name: Scrape + push prices to Firestore
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -39,6 +53,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r pipeline/requirements.txt
 
+      # ── Step 1: Scrape NSE prices → update Firebase Storage CSVs ─────────────
       - name: Scrape NSE prices
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
@@ -48,31 +63,47 @@ jobs:
           set -o pipefail
           cd $GITHUB_WORKSPACE
 
-          # Determine session label: manual dispatch uses input; scheduled runs detect by UTC hour
-          SESSION="${{ github.event.inputs.session }}"
-          if [ -z "$SESSION" ]; then
-            HOUR=$(date -u +%H)
-            if [ "$HOUR" -lt 10 ]; then SESSION="open"; else SESSION="close"; fi
-          fi
-          echo "Price scrape session: $SESSION (UTC hour: $(date -u +%H))"
-
           if [ -n "${{ github.event.inputs.backfill }}" ]; then
-            echo "Running backfill: ${{ github.event.inputs.backfill }}"
-            python pipeline/scripts/scrape_nse_prices.py --backfill "${{ github.event.inputs.backfill }}" --session "$SESSION" 2>&1 | tee /tmp/scrape.log
+            echo "Backfill mode: ${{ github.event.inputs.backfill }}"
+            python pipeline/scripts/scrape_nse_prices.py \
+              --backfill "${{ github.event.inputs.backfill }}" 2>&1 | tee /tmp/scrape.log
           else
-            python pipeline/scripts/scrape_nse_prices.py --session "$SESSION" 2>&1 | tee /tmp/scrape.log
+            HOUR=$(date -u +%H)
+            if   [ "$HOUR" -lt 8  ]; then SESSION="open";
+            elif [ "$HOUR" -lt 12 ]; then SESSION="midday";
+            else                          SESSION="close";
+            fi
+            echo "Session: $SESSION (UTC hour: $HOUR)"
+            python pipeline/scripts/scrape_nse_prices.py \
+              --session "$SESSION" 2>&1 | tee /tmp/scrape.log
           fi
 
-      - name: Upload scrape log
+      # ── Step 2: Push prices to Firestore (live website update) ───────────────
+      - name: Push prices to Firestore
+        if: ${{ github.event.inputs.skip_firestore_push != 'true' && github.event.inputs.backfill == '' }}
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          NSE_TICKERS_FILTER: ${{ github.event.inputs.tickers }}
+        run: |
+          set -o pipefail
+          cd $GITHUB_WORKSPACE
+          python pipeline/scripts/push_intraday_prices.py 2>&1 | tee /tmp/push.log
+
+      # ── Artifacts ─────────────────────────────────────────────────────────────
+      - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: scrape-log-${{ github.run_id }}
-          path: /tmp/scrape.log
+          name: price-capture-log-${{ github.run_id }}
+          path: |
+            /tmp/scrape.log
+            /tmp/push.log
           retention-days: 7
 
       - name: Notify on failure
         if: failure()
         run: |
-          echo "::error::Price scrape failed — check artifact log"
-          tail -20 /tmp/scrape.log || true
+          echo "::error::Price capture failed — check artifact logs"
+          echo "=== scrape.log ===" && tail -20 /tmp/scrape.log || true
+          echo "=== push.log ===" && tail -20 /tmp/push.log || true
