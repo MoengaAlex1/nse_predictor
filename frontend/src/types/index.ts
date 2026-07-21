@@ -18,6 +18,7 @@ export interface CompanyDoc {
   signal: "BUY" | "HOLD" | "SELL" | null;
   price_history: PricePoint[];
   price_preview: number[];
+  price_date: string | null;
   last_updated: string | null;
 }
 

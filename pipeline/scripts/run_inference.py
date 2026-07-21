@@ -382,6 +382,7 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
                 "signal":           signal_result["signal"],
                 "price_history":    price_history,
                 "price_preview":    [p["price"] for p in price_history[-30:]],
+                "price_date":       str(cleaned_df.index[-1].date()),
                 "last_updated":     TODAY,
             },
         }

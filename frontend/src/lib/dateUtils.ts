@@ -39,6 +39,13 @@ export const fmtDate = (iso: string | null): string => {
   });
 };
 
+/** "Mon, Jul 20" — weekday + short date without year, for compact price labels */
+export const fmtDay = (dateStr: string): string => {
+  const d = new Date(dateStr + "T00:00:00");
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString(LOCALE, { weekday: "short", month: "short", day: "numeric" });
+};
+
 /** Advance/retreat `offset` trading days from a base Date; returns ISO date string. */
 export const tradingDaysFrom = (base: Date, offset: number): string => {
   const d = new Date(base);

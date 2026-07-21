@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import type { FC } from "react";
 import { useParams, Link } from "react-router-dom";
-import { fmtDate, fmtMedium } from "../lib/dateUtils";
+import { fmtDate, fmtMedium, fmtDay, fmtLabel } from "../lib/dateUtils";
 import { PageShell } from "../components/layout/PageShell";
 import { Card } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
@@ -1028,9 +1028,9 @@ export const CompanyDeepDive: FC = () => {
                   </span>
                   <span className="text-xs text-muted">{company.sector}</span>
                 </div>
-                {company.last_updated && (
+                {company.price_date && (
                   <p className="mt-1.5 text-[10px] text-hint">
-                    Data as of {fmtMedium(company.last_updated)}
+                    Price as of <span className="font-semibold text-muted">{fmtLabel(company.price_date)}</span>
                   </p>
                 )}
               </div>
@@ -1052,8 +1052,13 @@ export const CompanyDeepDive: FC = () => {
                         }`}
                       >
                         {change >= 0 ? "▲" : "▼"}{" "}
-                        {change >= 0 ? "+" : ""}{change.toFixed(2)}% today
+                        {change >= 0 ? "+" : ""}{change.toFixed(2)}% on {company.price_date ? fmtDay(company.price_date) : "prev close"}
                       </div>
+                    )}
+                    {company.price_date && (
+                      <p className="mt-1 text-right text-[10px] text-hint">
+                        Closing price · {fmtLabel(company.price_date)}
+                      </p>
                     )}
                   </>
                 ) : (

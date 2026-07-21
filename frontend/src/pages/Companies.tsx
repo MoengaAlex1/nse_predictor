@@ -7,6 +7,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { SignalBadge } from "../components/ui/Badge";
 import { CompanyLogo } from "../components/ui/CompanyLogo";
 import { useCompanies } from "../hooks/useCompanies";
+import { fmtDay } from "../lib/dateUtils";
 import type { CompanyDoc } from "../types";
 
 const SECTOR_ORDER = [
@@ -206,6 +207,11 @@ const CompanyCard: FC<{ company: CompanyDoc; showSignal?: boolean }> = ({
             {company.current_price !== null && (
               <p className="text-lg font-bold text-ink">
                 KES {company.current_price.toFixed(2)}
+              </p>
+            )}
+            {company.price_date && (
+              <p className="text-[10px] text-hint">
+                {fmtDay(company.price_date)}
               </p>
             )}
           </div>
