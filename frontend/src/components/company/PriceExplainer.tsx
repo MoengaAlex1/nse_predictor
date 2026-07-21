@@ -199,7 +199,37 @@ function buildTimeline(
           category: "corporate_action",
           driverTag: "(event)",
           label: ca.type,
-          detail: ca.details,
+          detail: ca.title ?? ca.details,
+        });
+      }
+    }
+  }
+
+  if (financials?.announcements) {
+    for (const ann of financials.announcements) {
+      if (ann.date >= rangeStart && ann.date <= rangeEnd) {
+        const category: TimelineItem["category"] =
+          ann.type === "financial_result" ? "earnings"
+          : ann.type === "dividend" ? "dividend"
+          : "corporate_action";
+        const driverTag: TimelineItem["driverTag"] =
+          ann.type === "financial_result" ? "(earnings)" : "(event)";
+        const label =
+          ann.type === "financial_result" ? "Results Filing (NSE)"
+          : ann.type === "dividend" ? "Dividend Notice (NSE)"
+          : ann.type === "agm" ? "AGM Notice (NSE)"
+          : "Corporate Action Filing (NSE)";
+        items.push({
+          date: ann.date,
+          category,
+          driverTag,
+          label,
+          detail: ann.title
+            .replace(/&#8211;/g, "–")
+            .replace(/&#8212;/g, "—")
+            .replace(/&amp;/g, "&")
+            .replace(/&#8217;/g, "'")
+            .replace(/&#8216;/g, "'"),
         });
       }
     }

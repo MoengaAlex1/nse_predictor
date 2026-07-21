@@ -9,8 +9,7 @@ import { CompanyLogo } from "../components/ui/CompanyLogo";
 import { useCompanies } from "../hooks/useCompanies";
 import type { CompanyDoc } from "../types";
 
-const SECTORS = [
-  "All",
+const SECTOR_ORDER = [
   "Agricultural",
   "Automobiles and Accessories",
   "Banking",
@@ -239,6 +238,74 @@ const BoardIcon = () => (
   </svg>
 );
 
+// ── Sector pill ────────────────────────────────────────────────────────────────
+const SectorPill: FC<{ label: string; count: number; active: boolean; onClick: () => void }> = ({
+  label,
+  count,
+  active,
+  onClick,
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+      active
+        ? "border-accent bg-accent/10 text-accent"
+        : "border-rim bg-raised text-sub hover:border-sub/40 hover:text-ink"
+    }`}
+  >
+    {label}
+    <span
+      className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none ${
+        active ? "bg-accent/20 text-accent" : "bg-surface text-muted"
+      }`}
+    >
+      {count}
+    </span>
+  </button>
+);
+
+// ── Grouped grid (All sectors) ─────────────────────────────────────────────────
+const GroupedGrid: FC<{ companies: CompanyDoc[] }> = ({ companies }) => {
+  const groups = useMemo(() => {
+    const map = new Map<string, CompanyDoc[]>();
+    companies.forEach((c) => {
+      const s = c.sector || "Other";
+      if (!map.has(s)) map.set(s, []);
+      map.get(s)!.push(c);
+    });
+    return SECTOR_ORDER
+      .filter((s) => map.has(s))
+      .map((s) => ({ sector: s, items: map.get(s)! }))
+      .concat(
+        map.has("Other") ? [{ sector: "Other", items: map.get("Other")! }] : []
+      );
+  }, [companies]);
+
+  if (groups.length === 0) {
+    return <p className="py-8 text-center text-muted">No companies match your filters.</p>;
+  }
+
+  return (
+    <div className="space-y-8">
+      {groups.map(({ sector, items }) => (
+        <div key={sector}>
+          <div className="mb-3 flex items-center gap-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">{sector}</h2>
+            <span className="text-xs text-hint">{items.length}</span>
+            <div className="h-px flex-1 bg-rim" />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {items.map((company) => (
+              <CompanyCard key={company.id} company={company} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export const Companies: FC = () => {
   const { data: companies, isLoading, isError } = useCompanies();
@@ -246,12 +313,27 @@ export const Companies: FC = () => {
   const [sector, setSector] = useState("All");
   const [view, setView] = useState<ViewMode>("grid");
 
+  // Build sector pill list with counts from actual data
+  const sectorPills = useMemo(() => {
+    if (!companies) return [{ label: "All", count: 0 }];
+    const counts = new Map<string, number>();
+    companies.forEach((c) => {
+      if (c.sector) counts.set(c.sector, (counts.get(c.sector) ?? 0) + 1);
+    });
+    const pills = [{ label: "All", count: companies.length }];
+    SECTOR_ORDER.forEach((s) => {
+      if (counts.has(s)) pills.push({ label: s, count: counts.get(s)! });
+    });
+    return pills;
+  }, [companies]);
+
   const filtered = useMemo(() => {
     if (!companies) return [];
     return companies.filter((c) => {
       if (!c.name || !c.short || !c.ticker) return false;
       const q = search.toLowerCase();
       const matchSearch =
+        !q ||
         c.name.toLowerCase().includes(q) ||
         c.short.toLowerCase().includes(q) ||
         c.ticker.toLowerCase().includes(q);
@@ -314,37 +396,46 @@ export const Companies: FC = () => {
         )}
 
         {!isLoading && companies && (
-          <div className="flex flex-wrap gap-3">
+          <div className="space-y-3">
+            {/* Search */}
             <input
               type="text"
               placeholder="Search companies..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="rounded-lg border border-rim bg-raised px-4 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none"
+              className="w-full rounded-lg border border-rim bg-raised px-4 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none sm:w-72"
             />
-            <select
-              value={sector}
-              onChange={(e) => setSector(e.target.value)}
-              className="rounded-lg border border-rim bg-raised px-4 py-2 text-sm text-ink focus:border-accent focus:outline-none"
-            >
-              {SECTORS.map((s) => (
-                <option key={s} value={s}>{s}</option>
+
+            {/* Sector pills */}
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+              {sectorPills.map(({ label, count }) => (
+                <SectorPill
+                  key={label}
+                  label={label}
+                  count={count}
+                  active={sector === label}
+                  onClick={() => setSector(label)}
+                />
               ))}
-            </select>
+            </div>
           </div>
         )}
 
         {!isLoading && view === "grid" && (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((company) => (
-              <CompanyCard key={company.id} company={company} />
-            ))}
-            {filtered.length === 0 && (
-              <p className="col-span-3 py-8 text-center text-muted">
-                No companies match your filters.
-              </p>
-            )}
-          </div>
+          sector === "All" && !search
+            ? <GroupedGrid companies={filtered} />
+            : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {filtered.map((company) => (
+                  <CompanyCard key={company.id} company={company} />
+                ))}
+                {filtered.length === 0 && (
+                  <p className="col-span-3 py-8 text-center text-muted">
+                    No companies match your filters.
+                  </p>
+                )}
+              </div>
+            )
         )}
 
         {!isLoading && view === "board" && (

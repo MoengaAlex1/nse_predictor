@@ -106,13 +106,23 @@ export interface DividendEvent {
 export interface CorporateAction {
   date: string;
   type: string;
-  details: string;
+  details?: string;  // legacy format
+  title?: string;    // new format (scraped from NSE)
+  url?: string;      // new format (PDF link)
+}
+
+export interface NSEAnnouncement {
+  date: string;
+  type: "financial_result" | "corporate_action" | "dividend" | "agm";
+  title: string;
+  url: string;
 }
 
 export interface FinancialsDoc {
   annual: FinancialResult[];
   dividends: DividendEvent[];
   corporate_actions: CorporateAction[];
+  announcements?: NSEAnnouncement[];
 }
 
 export interface CBKRateDecision {

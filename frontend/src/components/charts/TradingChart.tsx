@@ -11,7 +11,7 @@ import {
   ReferenceArea,
   ResponsiveContainer,
 } from "recharts";
-import type { PricePoint } from "../../types";
+import type { PricePoint, NSEAnnouncement } from "../../types";
 import { useTheme } from "../../context/ThemeContext";
 
 interface ComputedFib {
@@ -21,6 +21,38 @@ interface ComputedFib {
   price: number;
 }
 
+const EVENT_COLORS: Record<string, string> = {
+  financial_result: "#38bdf8",
+  dividend:         "#22c55e",
+  agm:              "#f59e0b",
+  corporate_action: "#a78bfa",
+};
+
+const EVENT_SHORT: Record<string, string> = {
+  financial_result: "R",
+  dividend:         "D",
+  agm:              "A",
+  corporate_action: "C",
+};
+
+const EventDot: FC<{
+  viewBox?: { x: number; y: number; width: number; height: number };
+  color: string;
+  letter: string;
+}> = ({ viewBox, color, letter }) => {
+  if (!viewBox) return null;
+  const { x, y } = viewBox;
+  return (
+    <g style={{ pointerEvents: "none" }}>
+      <circle cx={x} cy={y + 10} r={6} fill={color} opacity={0.88} />
+      <text x={x} y={y + 14} fontSize={6.5} fill="#fff" fontWeight="800"
+        textAnchor="middle" fontFamily="ui-monospace,monospace">
+        {letter}
+      </text>
+    </g>
+  );
+};
+
 interface Props {
   data: PricePoint[];
   color: string;
@@ -28,6 +60,7 @@ interface Props {
   sma20?: number | null;
   sma50?: number | null;
   sma200?: number | null;
+  events?: NSEAnnouncement[];
   height?: number;
 }
 
@@ -115,10 +148,38 @@ export const TradingChart: FC<Props> = ({
   sma20,
   sma50,
   sma200,
+  events,
   height = 380,
 }) => {
   const { resolvedTheme } = useTheme();
   const c = CHART_COLORS[resolvedTheme];
+
+  const eventMarkers = useMemo(() => {
+    if (!events?.length || !data.length) return [];
+    const dataArr = data.map((p) => p.date);
+    const rangeStart = dataArr[0];
+    const rangeEnd = dataArr[dataArr.length - 1];
+    const dataSet = new Set(dataArr);
+
+    const snapTo = (target: string) => {
+      if (dataSet.has(target)) return target;
+      return dataArr.reduce((best, d) =>
+        Math.abs(new Date(d).getTime() - new Date(target).getTime()) <
+        Math.abs(new Date(best).getTime() - new Date(target).getTime())
+          ? d : best
+      );
+    };
+
+    const seen = new Set<string>();
+    return events
+      .filter((e) => e.date >= rangeStart && e.date <= rangeEnd)
+      .map((e) => ({ ...e, snapDate: snapTo(e.date) }))
+      .filter((e) => {
+        if (seen.has(e.snapDate)) return false;
+        seen.add(e.snapDate);
+        return true;
+      });
+  }, [events, data]);
 
   const { lo, hi, fibs } = useMemo(() => {
     if (!data.length) return { lo: 0, hi: 1, fibs: [] as ComputedFib[] };
@@ -237,6 +298,22 @@ export const TradingChart: FC<Props> = ({
               label={(props: any) => <CurrentPriceLabel {...props} price={lastPrice} bgColor={color} />}
             />
           )}
+
+          {eventMarkers.map((e, i) => {
+            const ec = EVENT_COLORS[e.type] ?? "#94a3b8";
+            const letter = EVENT_SHORT[e.type] ?? "E";
+            return (
+              <ReferenceLine
+                key={i}
+                x={e.snapDate}
+                stroke={ec}
+                strokeWidth={1.5}
+                strokeOpacity={0.7}
+                strokeDasharray="3 3"
+                label={(props: any) => <EventDot {...props} color={ec} letter={letter} />}
+              />
+            );
+          })}
 
           <Area
             type="monotone"

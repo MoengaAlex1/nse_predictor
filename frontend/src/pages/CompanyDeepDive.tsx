@@ -11,7 +11,7 @@ import { TradingChart } from "../components/charts/TradingChart";
 import { PredictionChart } from "../components/charts/PredictionChart";
 import { PriceExplainer } from "../components/company/PriceExplainer";
 import { useCompany, useLatestSnapshot, useLatestTechnicals, useCorporateEvents, useFinancials, useMacro } from "../hooks/useCompany";
-import type { PricePoint, SnapshotDoc, TechnicalsDoc, CompanyDoc, CorporateEvent } from "../types";
+import type { PricePoint, SnapshotDoc, TechnicalsDoc, CompanyDoc, CorporateEvent, FinancialsDoc, NSEAnnouncement } from "../types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type RangeKey = "1M" | "3M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL" | "Custom";
@@ -25,6 +25,17 @@ const PRESETS: { label: RangeKey; days: number | null }[] = [
   { label: "ALL",    days: null },
   { label: "Custom", days: null },
 ];
+
+function cleanPriceHistory(points: PricePoint[]): PricePoint[] {
+  if (points.length < 5) return points;
+  const sorted = points.map((p) => p.price).slice().sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  if (!median || median <= 0) return points;
+  return points.filter((p) => {
+    const ratio = p.price / median;
+    return ratio >= 0.1 && ratio <= 8.0;
+  });
+}
 
 function filterByRange(data: PricePoint[], range: RangeKey, from: string, to: string): PricePoint[] {
   if (!data.length) return data;
@@ -378,6 +389,110 @@ const InvestmentCalculator: FC<{ data: PricePoint[]; range: RangeKey }> = ({ dat
   );
 };
 
+// ── Filings timeline ───────────────────────────────────────────────────────────
+const FILING_TYPE: Record<string, { label: string; pill: string }> = {
+  financial_result: { label: "Results",     pill: "bg-sky-900/50 text-sky-300 border-sky-800/50" },
+  dividend:         { label: "Dividend",    pill: "bg-emerald-900/50 text-emerald-300 border-emerald-800/50" },
+  agm:              { label: "AGM",         pill: "bg-amber-900/50 text-amber-300 border-amber-800/50" },
+  corporate_action: { label: "Corp Action", pill: "bg-violet-900/50 text-violet-300 border-violet-800/50" },
+};
+
+const FilingsTimeline: FC<{ financials: FinancialsDoc | undefined }> = ({ financials }) => {
+  const [activeTab, setActiveTab] = useState("all");
+
+  const entries = useMemo<NSEAnnouncement[]>(() => {
+    const list: NSEAnnouncement[] = [];
+    (financials?.announcements ?? []).forEach((a) => list.push(a));
+    (financials?.corporate_actions ?? []).forEach((a) => {
+      if (a.url && a.title) {
+        list.push({
+          date: a.date,
+          type: (a.type as NSEAnnouncement["type"]) || "corporate_action",
+          title: a.title,
+          url: a.url,
+        });
+      }
+    });
+    (financials?.dividends ?? []).forEach((d) => {
+      const dd = d as unknown as { date?: string; url?: string; title?: string; type?: string };
+      if (dd.url && dd.title && dd.date) {
+        list.push({ date: dd.date, type: "dividend", title: dd.title, url: dd.url });
+      }
+    });
+    return list.sort((a, b) => b.date.localeCompare(a.date));
+  }, [financials]);
+
+  const tabs = useMemo(() => {
+    const counts: Record<string, number> = { all: entries.length };
+    entries.forEach((e) => { counts[e.type] = (counts[e.type] ?? 0) + 1; });
+    return counts;
+  }, [entries]);
+
+  const filtered = activeTab === "all" ? entries : entries.filter((e) => e.type === activeTab);
+
+  if (!entries.length) return null;
+
+  const tabKeys = ["all", "financial_result", "corporate_action", "agm", "dividend"];
+
+  return (
+    <Card className="border-rim bg-surface">
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-seam">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-sub">
+          NSE Filings &amp; Announcements
+        </h2>
+        <div className="flex flex-wrap gap-1">
+          {tabKeys.filter((k) => (tabs[k] ?? 0) > 0).map((k) => {
+            const cfg = FILING_TYPE[k];
+            const isActive = activeTab === k;
+            return (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setActiveTab(k)}
+                className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold transition-colors ${
+                  isActive
+                    ? (cfg?.pill ?? "bg-slate-700/60 text-slate-200 border-slate-600")
+                    : "border-rim text-muted hover:border-sub hover:text-sub"
+                }`}
+              >
+                {k === "all" ? "All" : cfg?.label ?? k} · {tabs[k]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-1.5 max-h-[480px] overflow-y-auto pr-1">
+        {filtered.map((entry, i) => {
+          const cfg = FILING_TYPE[entry.type];
+          return (
+            <a
+              key={i}
+              href={entry.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-raised/60"
+            >
+              <span className="shrink-0 font-mono text-[10px] text-hint pt-0.5 w-20">
+                {entry.date}
+              </span>
+              <span
+                className={`shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${cfg?.pill ?? "bg-slate-700/60 text-slate-300 border-slate-600"}`}
+              >
+                {cfg?.label ?? entry.type}
+              </span>
+              <span className="flex-1 text-xs text-sub group-hover:text-ink leading-snug"
+                dangerouslySetInnerHTML={{ __html: entry.title.replace(/&#8211;/g, "–").replace(/&amp;/g, "&").replace(/&#8212;/g, "—") }}
+              />
+              <span className="shrink-0 text-[10px] text-hint group-hover:text-accent">↗</span>
+            </a>
+          );
+        })}
+      </div>
+    </Card>
+  );
+};
+
 // ── Chart section ─────────────────────────────────────────────────────────────
 const ChartSection: FC<{
   company: CompanyDoc;
@@ -389,11 +504,13 @@ const ChartSection: FC<{
   to: string;
   setTo: (s: string) => void;
   visible: PricePoint[];
-}> = ({ company, technicals, range, setRange, from, setFrom, to, setTo, visible }) => {
-  const [showFib, setShowFib]   = useState(true);
-  const [showSMAs, setShowSMAs] = useState(true);
+  announcements: NSEAnnouncement[];
+}> = ({ company, technicals, range, setRange, from, setFrom, to, setTo, visible, announcements }) => {
+  const [showFib, setShowFib]    = useState(true);
+  const [showSMAs, setShowSMAs]  = useState(true);
+  const [showEvents, setShowEvents] = useState(true);
 
-  const history = company.price_history ?? [];
+  const history = cleanPriceHistory(company.price_history ?? []);
   const dataMin = history[0]?.date ?? "";
   const dataMax = history[history.length - 1]?.date ?? "";
 
@@ -435,6 +552,20 @@ const ChartSection: FC<{
           >
             MA
           </button>
+          {announcements.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowEvents((s) => !s)}
+              className={`rounded border px-2 py-1 text-[10px] font-semibold transition-colors ${
+                showEvents
+                  ? "border-violet-500 bg-violet-500/10 text-violet-400"
+                  : "border-rim text-muted hover:border-sub hover:text-sub"
+              }`}
+              title="Toggle NSE filing markers"
+            >
+              Events
+            </button>
+          )}
           <div className="flex gap-0.5 rounded-lg border border-rim bg-raised p-0.5">
             {PRESETS.map((r) => (
               <RangeBtn
@@ -458,6 +589,26 @@ const ChartSection: FC<{
           )}
         </div>
       </div>
+
+      {showEvents && announcements.length > 0 && (
+        <div className="flex flex-wrap gap-3 border-b border-seam/50 px-4 py-2">
+          {[
+            { type: "financial_result", color: "#38bdf8", label: "R · Results" },
+            { type: "dividend",         color: "#22c55e", label: "D · Dividend" },
+            { type: "agm",              color: "#f59e0b", label: "A · AGM" },
+            { type: "corporate_action", color: "#a78bfa", label: "C · Corp Action" },
+          ]
+            .filter(({ type }) => announcements.some((a) => a.type === type))
+            .map(({ color, label }) => (
+              <span key={label} className="flex items-center gap-1.5 text-[10px] font-mono">
+                <svg width="12" height="12" viewBox="0 0 12 12">
+                  <circle cx="6" cy="6" r="5" fill={color} opacity="0.88" />
+                </svg>
+                <span style={{ color }}>{label}</span>
+              </span>
+            ))}
+        </div>
+      )}
 
       {showSMAs && (technicals?.sma_20 || technicals?.sma_50 || technicals?.sma_200) && (
         <div className="flex gap-4 border-b border-seam/50 px-4 py-2">
@@ -491,6 +642,7 @@ const ChartSection: FC<{
             sma20={showSMAs ? technicals?.sma_20 : null}
             sma50={showSMAs ? technicals?.sma_50 : null}
             sma200={showSMAs ? technicals?.sma_200 : null}
+            events={showEvents ? announcements : undefined}
           />
         ) : (
           <div className="flex h-80 items-center justify-center text-muted">
@@ -836,7 +988,7 @@ export const CompanyDeepDive: FC = () => {
   }
 
   const change  = company.change_pct_today;
-  const history = company.price_history ?? [];
+  const history = cleanPriceHistory(company.price_history ?? []);
   const visible = filterByRange(history, range, from, to);
 
   const rangeLabel =
@@ -937,6 +1089,7 @@ export const CompanyDeepDive: FC = () => {
             to={to}
             setTo={setTo}
             visible={visible}
+            announcements={financials?.announcements ?? []}
           />
         )}
 
@@ -952,6 +1105,9 @@ export const CompanyDeepDive: FC = () => {
             macro={macro}
           />
         )}
+
+        {/* ── NSE filings timeline ──────────────────────────────────────── */}
+        <FilingsTimeline financials={financials} />
 
         {/* ── AI signal + technicals ────────────────────────────────────── */}
         <GatedContent
