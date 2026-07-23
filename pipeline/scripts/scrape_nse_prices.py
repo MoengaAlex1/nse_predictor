@@ -592,6 +592,11 @@ def _fetch_new_rows(
         if df is None or df.empty:
             log.info("%s: all backfill sources failed — trying afx.kwayisi.org (last traded)", safe)
             df = _fetch_nse_equity_page_today(ticker_base)
+        # Final fallback: NSE AJAX (reachable from GitHub Actions when afx is not).
+        # Returns only today's last-traded price — better than nothing for thinly-traded stocks.
+        if df is None or df.empty:
+            log.info("%s: afx unavailable — trying NSE AJAX for today's price", safe)
+            df = _fetch_nse_today(ticker_base)
     else:
         # ── Normal daily: try today via NSE website first
         df = _fetch_nse_today(ticker_base)
