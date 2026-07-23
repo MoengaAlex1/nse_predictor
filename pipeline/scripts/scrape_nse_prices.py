@@ -93,7 +93,7 @@ def _yf_symbol(safe: str) -> str:
 _NSE_AJAX_URL  = "https://www.nse.co.ke/dataservices/wp-admin/admin-ajax.php"
 _NSE_STATS_URL = "https://www.nse.co.ke/dataservices/market-statistics/"
 _NSE_SECTORS   = ["agric", "auto", "bank", "comm", "const", "energy",
-                   "insr", "invest", "investse", "manu", "tele", "real", "exchange"]
+                   "insr", "invest", "investse", "manu", "tele", "real", "exchange", "trans"]
 
 # Keyword → ticker-base mapping (longest/most-specific match wins).
 # Keys are lowercase substrings of the NSE display name.
@@ -113,16 +113,16 @@ _NSE_NAME_TO_BASE: list[tuple[str, str]] = [
     ("i&m holdings", "IMH"),
     ("bank of kigali", "BKG"),
     ("family bank", "FMLY"),
-    ("stanbic holdings", "SKL"),
-    ("sbm bank kenya", "SBIC"),
+    ("stanbic holdings", "SBIC"),
     ("nairobi business ventures", "NBV"),
-    ("national bank of kenya", "NBV"),
     # Agricultural
     ("kakuzi", "KUKZ"),
+    ("eaagads", "EGAD"),
     ("limuru tea", "LIMT"),
     ("sasini", "SASN"),
     ("africa mega", "AMAC"),
     # Automobiles
+    ("car and general", "CGEN"),
     ("sameer africa", "SMER"),
     # Construction & allied
     ("carbacid", "CARB"),
@@ -134,18 +134,21 @@ _NSE_NAME_TO_BASE: list[tuple[str, str]] = [
     ("scangroup", "SCAN"),
     ("eveready east africa", "EVRD"),
     ("home afrika", "HAFR"),
-    ("gold coin", "GLD"),
+    ("new gold", "GLD"),
+    ("newgold", "GLD"),
     ("standard group", "SGL"),
     ("nation media group", "NMG"),
     ("nation media", "NMG"),
-    ("cavendish", "CTUM"),
+    ("uchumi", "UCHM"),
     ("kurwitu", "KURV"),
-    ("kapc medical", "KAPC"),
+    ("kapchorua", "KAPC"),
     # Energy
-    ("kenya power and lighting", "KPC"),
-    ("kenya power & lighting", "KPC"),
+    ("kenya power and lighting", "KPLC"),
+    ("kenya power & lighting", "KPLC"),
     ("kenya power pref", "KPLC"),
     ("kenya power preference", "KPLC"),
+    ("kenya power", "KPLC"),
+    ("kenya pipeline", "KPC"),
     ("kengen", "KEGN"),
     ("kenya electricity generating", "KEGN"),
     ("boc kenya", "BOC"),
@@ -158,30 +161,33 @@ _NSE_NAME_TO_BASE: list[tuple[str, str]] = [
     ("jubilee holdings", "JUB"),
     ("kenya reinsurance", "KNRE"),
     ("liberty kenya", "LBTY"),
+    ("sanlam allianz", "SLAM"),
     ("sanlam kenya", "SLAM"),
     # Investment
     ("nairobi securities exchange", "NSE"),
-    ("centum generation", "CGEN"),
-    ("centum investment", "CGEN"),
-    ("centum", "CGEN"),
+    ("centum generation", "CTUM"),
+    ("centum investment", "CTUM"),
+    ("centum", "CTUM"),
     ("umme", "UMME"),
     # Manufacturing
     ("bat kenya", "BAT"),
     ("british american tobacco", "BAT"),
     ("east african breweries", "EABL"),
-    ("unga group chemicals", "UCHM"),
     ("unga group", "UNGA"),
     # Telecom
     ("safaricom", "SCOM"),
     # Real estate / REIT
-    ("ilam fahari", "FTGH"),
-    ("fahari", "FTGH"),
     ("alp industrial", "ALP"),
-    ("stanlib fahari", "SMWF"),
+    ("satrix msci", "SMWF"),
+    ("satrix", "SMWF"),
+    ("trific", "TRFC"),
+    # Commercial / Services
+    ("express kenya", "XPRS"),
+    ("williamson tea", "WTK"),
     # Transport
     ("kenya airways", "KQ"),
-    ("transcentury", "TPSE"),
-    ("transafrica", "TRFC"),
+    ("tps eastern africa", "TPSE"),
+    ("serena", "TPSE"),
 ]
 
 _nse_cache: dict[str, dict] | None = None  # keyed by ticker_base (e.g. "ABSA") → OHLCV
