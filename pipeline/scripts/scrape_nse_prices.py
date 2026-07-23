@@ -90,8 +90,9 @@ def _yf_symbol(safe: str) -> str:
 
 # ── Source 1: NSE website (AJAX endpoint) ────────────────────────────────────
 
-_NSE_AJAX_URL  = "https://www.nse.co.ke/dataservices/wp-admin/admin-ajax.php"
-_NSE_STATS_URL = "https://www.nse.co.ke/dataservices/market-statistics/"
+_NSE_AJAX_URL    = "https://www.nse.co.ke/dataservices/wp-admin/admin-ajax.php"
+_NSE_STATS_URL   = "https://www.nse.co.ke/dataservices/market-statistics/"
+_NSE_EQUITY_URL  = "https://www.nse.co.ke/live-market-data/equity-securities.html"
 _NSE_SECTORS   = ["agric", "auto", "bank", "comm", "const", "energy",
                    "insr", "invest", "investse", "manu", "tele", "real", "exchange", "trans"]
 
@@ -316,6 +317,112 @@ def _fetch_nse_today(ticker_base: str) -> pd.DataFrame | None:
     return df
 
 
+# ── Source 4: NSE equity securities static page (all stocks, last traded) ────
+
+_nse_equity_cache: dict[str, dict] | None = None
+
+
+def _fetch_nse_equity_page_all() -> dict[str, dict]:
+    """
+    Scrape https://www.nse.co.ke/live-market-data/equity-securities.html.
+
+    Unlike the AJAX endpoint, this page lists ALL registered equities with their
+    last-traded price — including stocks that had zero trades today.  Used as a
+    4th-tier fallback so thinly-traded stocks still get a price row on days they
+    don't appear in the live AJAX feed.
+
+    Returns {TICKER_BASE: {Close, Open, High, Low, Volume}} or {}.
+    Volume is 0 for stocks that did not trade today.
+    """
+    global _nse_equity_cache
+    if _nse_equity_cache is not None:
+        return _nse_equity_cache
+
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        log.debug("BeautifulSoup not available; skipping NSE equity page")
+        _nse_equity_cache = {}
+        return {}
+
+    try:
+        resp = requests.get(_NSE_EQUITY_URL, headers=_NSE_HEADERS, timeout=30)
+        resp.raise_for_status()
+    except Exception as exc:
+        log.debug("NSE equity page fetch failed: %s", exc)
+        _nse_equity_cache = {}
+        return {}
+
+    try:
+        soup = BeautifulSoup(resp.text, "html.parser")
+        table = soup.find("table")
+        if not table:
+            log.debug("NSE equity page: no <table> found in response")
+            _nse_equity_cache = {}
+            return {}
+
+        rows = table.find_all("tr")
+        if len(rows) < 2:
+            _nse_equity_cache = {}
+            return {}
+
+        header = [th.get_text(strip=True).lower() for th in rows[0].find_all(["th", "td"])]
+        idx_name  = next((i for i, h in enumerate(header) if "security" in h or "company" in h or "stock" in h), 0)
+        idx_price = next((i for i, h in enumerate(header) if "last" in h or "price" in h or "close" in h), 1)
+        idx_vol   = next((i for i, h in enumerate(header) if "volume" in h or "vol" in h), None)
+
+        results: dict[str, dict] = {}
+        for row in rows[1:]:
+            cells = row.find_all("td")
+            if len(cells) <= max(idx_name, idx_price):
+                continue
+            display_name = cells[idx_name].get_text(strip=True)
+            try:
+                close = float(cells[idx_price].get_text(strip=True).replace(",", ""))
+            except (ValueError, IndexError):
+                continue
+            if close <= 0:
+                continue
+
+            volume = 0
+            if idx_vol is not None and len(cells) > idx_vol:
+                try:
+                    volume = int(float(cells[idx_vol].get_text(strip=True).replace(",", "")))
+                except (ValueError, IndexError):
+                    volume = 0
+
+            base = _name_to_base(display_name)
+            if base:
+                results[base] = {
+                    "Close":  close,
+                    "Open":   close,
+                    "High":   close,
+                    "Low":    close,
+                    "Volume": volume,
+                }
+            else:
+                log.debug("NSE equity page: no ticker mapping for %r", display_name)
+
+        log.info("NSE equity page: scraped %d stocks", len(results))
+        _nse_equity_cache = results
+        return results
+
+    except Exception as exc:
+        log.debug("NSE equity page parse failed: %s", exc)
+        _nse_equity_cache = {}
+        return {}
+
+
+def _fetch_nse_equity_page_today(ticker_base: str) -> pd.DataFrame | None:
+    """Return a one-row DataFrame with the last-traded price from the NSE equity page, or None."""
+    all_prices = _fetch_nse_equity_page_all()
+    row = all_prices.get(ticker_base.upper())
+    if not row:
+        return None
+    today_ts = pd.Timestamp(TODAY)
+    return pd.DataFrame([row], index=pd.DatetimeIndex([today_ts], name="Date"))
+
+
 # ── Source 2: stooq.com ───────────────────────────────────────────────────────
 
 def _fetch_stooq(safe: str, from_date: str, to_date: str) -> pd.DataFrame | None:
@@ -453,10 +560,17 @@ def _fetch_new_rows(
             week_ago = (date.today() - timedelta(days=7)).isoformat()
             df = _fetch_stooq(safe, week_ago, today_str)
 
-        # Last resort: yfinance 5-day window
+        # Third: yfinance 5-day window
         if df is None or df.empty:
             log.info("%s: stooq/NSE failed — falling back to yfinance", safe)
             df = _fetch_yfinance(safe, period="5d")
+
+        # Fourth: NSE equity securities static page — shows last-traded price for
+        # ALL stocks, including those with no activity today.  Used for thinly-traded
+        # stocks that are absent from the AJAX live feed.
+        if df is None or df.empty:
+            log.info("%s: all live sources failed — trying NSE equity page (last traded)", safe)
+            df = _fetch_nse_equity_page_today(ticker_base)
 
     if df is None or df.empty:
         return None
@@ -631,7 +745,7 @@ def scrape_company(
         len(new_rows),
         latest_date.date(),
         latest_close,
-        "NSE/stooq/yf",
+        "NSE/stooq/yf/equity-page",
     )
 
     result["scraped"] = True
