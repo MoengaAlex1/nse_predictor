@@ -373,7 +373,7 @@ def _fetch_afx_all() -> dict[str, dict]:
         resp = requests.get(_AFX_NSE_URL, headers=_NSE_HEADERS, timeout=30)
         resp.raise_for_status()
     except Exception as exc:
-        log.debug("afx.kwayisi.org fetch failed: %s", exc)
+        log.warning("afx.kwayisi.org fetch failed: %s", exc)
         _afx_cache = {}
         return {}
 
@@ -443,7 +443,8 @@ def _fetch_afx_all() -> dict[str, dict]:
         return results
 
     except Exception as exc:
-        log.debug("afx parse failed: %s", exc)
+        import traceback
+        log.warning("afx parse failed: %s\n%s", exc, traceback.format_exc())
         _afx_cache = {}
         return {}
 
