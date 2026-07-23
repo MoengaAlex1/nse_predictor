@@ -378,47 +378,57 @@ def _fetch_afx_all() -> dict[str, dict]:
         return {}
 
     try:
+        from bs4 import NavigableString
         soup = BeautifulSoup(resp.text, "html.parser")
-        # The 4th table (index 3) contains all equities: Ticker|Name|Volume|Price|Change
+        # afx.kwayisi.org uses unclosed <td> tags, producing a deeply nested tree where
+        # each <tr> has ONE direct <td> child that contains the ticker <a>, then a nested
+        # chain: outer_td → name_td → vol_td → price_td → change_td → next <tr>.
+        # Standard find_all("td") recurses into the nested structure and mixes columns.
+        # We navigate the direct-child chain instead.
         tables = soup.find_all("table")
-        table = next((t for t in tables if t.find("th") and
-                      "ticker" in t.find("th").get_text(strip=True).lower()), None)
-        if table is None and len(tables) >= 4:
-            table = tables[3]
+        table = tables[3] if len(tables) >= 4 else None
         if table is None:
             log.debug("afx: could not locate equities table")
             _afx_cache = {}
             return {}
 
-        rows = table.find_all("tr")
-        if len(rows) < 2:
-            _afx_cache = {}
-            return {}
-
-        header = [th.get_text(strip=True).lower() for th in rows[0].find_all(["th", "td"])]
-        idx_ticker = next((i for i, h in enumerate(header) if "ticker" in h), 0)
-        idx_price  = next((i for i, h in enumerate(header) if "price" in h), 3)
-        idx_vol    = next((i for i, h in enumerate(header) if "volume" in h), 2)
+        def _direct_text(tag: Any) -> str:
+            return "".join(str(s) for s in tag.children if isinstance(s, NavigableString)).strip()
 
         results: dict[str, dict] = {}
-        for row in rows[1:]:
-            cells = row.find_all("td")
-            if len(cells) <= idx_price:
+        for row in table.find_all("tr")[1:]:
+            outer_td = row.find("td", recursive=False)
+            if not outer_td:
                 continue
-            ticker = cells[idx_ticker].get_text(strip=True).upper()
+            anchor = outer_td.find("a", recursive=False)
+            if not anchor:
+                continue
+            ticker = anchor.get_text(strip=True).upper()
             if not ticker:
                 continue
+            # Navigate the nested td chain: outer → name → volume → price
+            name_td = outer_td.find("td", recursive=False)
+            if not name_td:
+                continue
+            vol_td = name_td.find("td", recursive=False)
+            if not vol_td:
+                continue
+            price_td = vol_td.find("td", recursive=False)
+            if not price_td:
+                continue
+            price_text = _direct_text(price_td)
             try:
-                close = float(cells[idx_price].get_text(strip=True).replace(",", ""))
-            except (ValueError, IndexError):
+                close = float(price_text.replace(",", ""))
+            except ValueError:
                 continue
             if close <= 0:
                 continue
+            vol_text = _direct_text(vol_td)
             volume = 0
-            if len(cells) > idx_vol:
+            if vol_text:
                 try:
-                    volume = int(float(cells[idx_vol].get_text(strip=True).replace(",", "") or "0"))
-                except (ValueError, IndexError):
+                    volume = int(float(vol_text.replace(",", "")))
+                except ValueError:
                     volume = 0
             results[ticker] = {
                 "Close":  close,
