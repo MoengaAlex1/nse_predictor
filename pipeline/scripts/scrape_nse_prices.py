@@ -128,10 +128,18 @@ _NSE_NAME_TO_BASE: list[tuple[str, str]] = [
     ("sameer africa", "SMER"),
     # Construction & allied
     ("carbacid", "CARB"),
+    # AJAX uses old legal name "Crown Berger Ltd"; companies.json name is "Crown Paints Kenya".
+    ("crown berger", "CRWN"),
     ("crown paints", "CRWN"),
+    # AJAX uses "E.A.Portland Cement"; full name "East African Portland Cement".
+    ("e.a.portland", "PORT"),
+    ("portland cement", "PORT"),
     ("east african portland cement", "PORT"),
     # Commercial
+    # AJAX uses "Longhorn Kenya Ltd"; companies.json name is "Longhorn Publishers".
+    ("longhorn kenya", "LKL"),
     ("longhorn publishers", "LKL"),
+    ("longhorn", "LKL"),
     ("olympia capital", "OCH"),
     ("scangroup", "SCAN"),
     ("eveready east africa", "EVRD"),
@@ -153,6 +161,8 @@ _NSE_NAME_TO_BASE: list[tuple[str, str]] = [
     ("kenya pipeline", "KPC"),
     ("kengen", "KEGN"),
     ("kenya electricity generating", "KEGN"),
+    # AJAX uses "B.O.C Kenya Ltd" (with dots); "boc kenya" doesn't match because of dots.
+    ("b.o.c", "BOC"),
     ("boc kenya", "BOC"),
     ("totalenergies", "TOTL"),
     ("total energies", "TOTL"),
@@ -180,7 +190,9 @@ _NSE_NAME_TO_BASE: list[tuple[str, str]] = [
     ("centum generation", "CTUM"),
     ("centum investment", "CTUM"),
     ("centum", "CTUM"),
-    ("umme", "UMME"),
+    # AJAX invest sector: "Trans-Century Ltd Ord 0.50"; REIT sector: "Trific Green USD IREIT".
+    ("trans-century", "TRFC"),
+    ("umeme", "UMME"),
     # Manufacturing
     ("bat kenya", "BAT"),
     ("british american tobacco", "BAT"),
@@ -194,6 +206,8 @@ _NSE_NAME_TO_BASE: list[tuple[str, str]] = [
     ("satrix", "SMWF"),
     ("trific", "TRFC"),
     # Commercial / Services
+    # AJAX uses "Express Ltd"; companies.json name is "Express Kenya".
+    ("express ltd", "XPRS"),
     ("express kenya", "XPRS"),
     ("williamson tea", "WTK"),
     # Transport
