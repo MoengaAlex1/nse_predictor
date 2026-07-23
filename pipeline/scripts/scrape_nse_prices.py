@@ -543,7 +543,7 @@ def _fetch_new_rows(
     today_str = TODAY
 
     if backfill_from and backfill_to:
-        # ── Backfill: stooq → yfinance (NSE website won't have historical)
+        # ── Backfill: stooq → yfinance → afx (last-traded for thinly-traded stocks)
         df = _fetch_stooq(safe, backfill_from, backfill_to)
         if df is None or df.empty:
             log.info("%s: stooq empty for backfill — trying yfinance", safe)
@@ -552,6 +552,11 @@ def _fetch_new_rows(
                 start = pd.Timestamp(backfill_from)
                 end   = pd.Timestamp(backfill_to)
                 df = df[(df.index >= start) & (df.index <= end)]
+        # afx gives only the current last-traded price; adds today's row for
+        # thinly-traded stocks that stooq/yfinance have no knowledge of.
+        if df is None or df.empty:
+            log.info("%s: all backfill sources failed — trying afx.kwayisi.org (last traded)", safe)
+            df = _fetch_nse_equity_page_today(ticker_base)
     else:
         # ── Normal daily: try today via NSE website first
         df = _fetch_nse_today(ticker_base)
