@@ -158,13 +158,23 @@ _NSE_NAME_TO_BASE: list[tuple[str, str]] = [
     ("total energies", "TOTL"),
     ("total kenya", "TOTL"),
     # Insurance
+    # NSE AJAX uses "British-American Investments" (old legal name, with hyphen);
+    # "british-american" matches that but NOT "British American Tobacco" (no hyphen → BAT).
+    ("british-american invest", "BRIT"),
+    ("british-american", "BRIT"),
     ("britam", "BRIT"),
     ("cic insurance", "CIC"),
     ("jubilee holdings", "JUB"),
+    # AJAX: "Kenya Re-Insurance Corporation" — hyphen breaks "kenya reinsurance" match.
+    ("kenya re-insurance", "KNRE"),
     ("kenya reinsurance", "KNRE"),
+    ("kenya re", "KNRE"),
+    # AJAX: "Liberty Insurance" — no "Kenya" in the AJAX name.
+    ("liberty insurance", "LBTY"),
     ("liberty kenya", "LBTY"),
-    ("sanlam allianz", "SLAM"),
-    ("sanlam kenya", "SLAM"),
+    ("liberty", "LBTY"),
+    # AJAX: "Sanlam  Insurance Holdings" — neither "sanlam allianz" nor "sanlam kenya" matches.
+    ("sanlam", "SLAM"),
     # Investment
     ("nairobi securities exchange", "NSE"),
     ("centum generation", "CTUM"),
