@@ -1,10 +1,11 @@
 """
 scrape_nse_prices.py
 
-Daily NSE price scraper with three-tier data source fallback:
-  1. NSE website  — https://www.nse.co.ke/live-market-data/equity-securities.html
+Daily NSE price scraper with four-tier data source fallback:
+  1. NSE AJAX     — https://www.nse.co.ke/dataservices/wp-admin/admin-ajax.php (live feed, traded stocks only)
   2. stooq.com    — https://stooq.com/q/d/l/?s={ticker}.ke (reliable CSV API)
-  3. Yahoo Finance — yfinance (.KE suffix) as last resort
+  3. Yahoo Finance — yfinance (.KE suffix)
+  4. afx.kwayisi.org — https://afx.kwayisi.org/nse/ (all listed stocks, last-traded price, static HTML)
 
 For each company:
   1. Download the existing cleaned CSV from Firebase Storage.
@@ -92,7 +93,7 @@ def _yf_symbol(safe: str) -> str:
 
 _NSE_AJAX_URL    = "https://www.nse.co.ke/dataservices/wp-admin/admin-ajax.php"
 _NSE_STATS_URL   = "https://www.nse.co.ke/dataservices/market-statistics/"
-_NSE_EQUITY_URL  = "https://www.nse.co.ke/live-market-data/equity-securities.html"
+_AFX_NSE_URL     = "https://afx.kwayisi.org/nse/"
 _NSE_SECTORS   = ["agric", "auto", "bank", "comm", "const", "energy",
                    "insr", "invest", "investse", "manu", "tele", "real", "exchange", "trans"]
 
@@ -317,105 +318,105 @@ def _fetch_nse_today(ticker_base: str) -> pd.DataFrame | None:
     return df
 
 
-# ── Source 4: NSE equity securities static page (all stocks, last traded) ────
+# ── Source 4: afx.kwayisi.org/nse/ (all listed stocks, last traded price) ─────
+# Static server-rendered HTML table — no JavaScript rendering needed.
+# Columns: Ticker | Name | Volume | Price | Change
+# Tickers match NSE ticker bases directly (e.g. "BRIT", "BOC").
 
-_nse_equity_cache: dict[str, dict] | None = None
+_afx_cache: dict[str, dict] | None = None
 
 
-def _fetch_nse_equity_page_all() -> dict[str, dict]:
+def _fetch_afx_all() -> dict[str, dict]:
     """
-    Scrape https://www.nse.co.ke/live-market-data/equity-securities.html.
-
-    Unlike the AJAX endpoint, this page lists ALL registered equities with their
-    last-traded price — including stocks that had zero trades today.  Used as a
-    4th-tier fallback so thinly-traded stocks still get a price row on days they
-    don't appear in the live AJAX feed.
+    Scrape https://afx.kwayisi.org/nse/ for all NSE-listed equity prices.
 
     Returns {TICKER_BASE: {Close, Open, High, Low, Volume}} or {}.
-    Volume is 0 for stocks that did not trade today.
+    Stocks with no recent trades still appear with their last-traded price
+    and Volume=0.
     """
-    global _nse_equity_cache
-    if _nse_equity_cache is not None:
-        return _nse_equity_cache
+    global _afx_cache
+    if _afx_cache is not None:
+        return _afx_cache
 
     try:
         from bs4 import BeautifulSoup
     except ImportError:
-        log.debug("BeautifulSoup not available; skipping NSE equity page")
-        _nse_equity_cache = {}
+        log.debug("BeautifulSoup not available; skipping afx fallback")
+        _afx_cache = {}
         return {}
 
     try:
-        resp = requests.get(_NSE_EQUITY_URL, headers=_NSE_HEADERS, timeout=30)
+        resp = requests.get(_AFX_NSE_URL, headers=_NSE_HEADERS, timeout=30)
         resp.raise_for_status()
     except Exception as exc:
-        log.debug("NSE equity page fetch failed: %s", exc)
-        _nse_equity_cache = {}
+        log.debug("afx.kwayisi.org fetch failed: %s", exc)
+        _afx_cache = {}
         return {}
 
     try:
         soup = BeautifulSoup(resp.text, "html.parser")
-        table = soup.find("table")
-        if not table:
-            log.debug("NSE equity page: no <table> found in response")
-            _nse_equity_cache = {}
+        # The 4th table (index 3) contains all equities: Ticker|Name|Volume|Price|Change
+        tables = soup.find_all("table")
+        table = next((t for t in tables if t.find("th") and
+                      "ticker" in t.find("th").get_text(strip=True).lower()), None)
+        if table is None and len(tables) >= 4:
+            table = tables[3]
+        if table is None:
+            log.debug("afx: could not locate equities table")
+            _afx_cache = {}
             return {}
 
         rows = table.find_all("tr")
         if len(rows) < 2:
-            _nse_equity_cache = {}
+            _afx_cache = {}
             return {}
 
         header = [th.get_text(strip=True).lower() for th in rows[0].find_all(["th", "td"])]
-        idx_name  = next((i for i, h in enumerate(header) if "security" in h or "company" in h or "stock" in h), 0)
-        idx_price = next((i for i, h in enumerate(header) if "last" in h or "price" in h or "close" in h), 1)
-        idx_vol   = next((i for i, h in enumerate(header) if "volume" in h or "vol" in h), None)
+        idx_ticker = next((i for i, h in enumerate(header) if "ticker" in h), 0)
+        idx_price  = next((i for i, h in enumerate(header) if "price" in h), 3)
+        idx_vol    = next((i for i, h in enumerate(header) if "volume" in h), 2)
 
         results: dict[str, dict] = {}
         for row in rows[1:]:
             cells = row.find_all("td")
-            if len(cells) <= max(idx_name, idx_price):
+            if len(cells) <= idx_price:
                 continue
-            display_name = cells[idx_name].get_text(strip=True)
+            ticker = cells[idx_ticker].get_text(strip=True).upper()
+            if not ticker:
+                continue
             try:
                 close = float(cells[idx_price].get_text(strip=True).replace(",", ""))
             except (ValueError, IndexError):
                 continue
             if close <= 0:
                 continue
-
             volume = 0
-            if idx_vol is not None and len(cells) > idx_vol:
+            if len(cells) > idx_vol:
                 try:
-                    volume = int(float(cells[idx_vol].get_text(strip=True).replace(",", "")))
+                    volume = int(float(cells[idx_vol].get_text(strip=True).replace(",", "") or "0"))
                 except (ValueError, IndexError):
                     volume = 0
+            results[ticker] = {
+                "Close":  close,
+                "Open":   close,
+                "High":   close,
+                "Low":    close,
+                "Volume": volume,
+            }
 
-            base = _name_to_base(display_name)
-            if base:
-                results[base] = {
-                    "Close":  close,
-                    "Open":   close,
-                    "High":   close,
-                    "Low":    close,
-                    "Volume": volume,
-                }
-            else:
-                log.debug("NSE equity page: no ticker mapping for %r", display_name)
-
-        log.info("NSE equity page: scraped %d stocks", len(results))
-        _nse_equity_cache = results
+        log.info("afx: scraped %d stocks", len(results))
+        _afx_cache = results
         return results
 
     except Exception as exc:
-        log.debug("NSE equity page parse failed: %s", exc)
-        _nse_equity_cache = {}
+        log.debug("afx parse failed: %s", exc)
+        _afx_cache = {}
         return {}
 
 
 def _fetch_nse_equity_page_today(ticker_base: str) -> pd.DataFrame | None:
-    """Return a one-row DataFrame with the last-traded price from the NSE equity page, or None."""
-    all_prices = _fetch_nse_equity_page_all()
+    """Return a one-row DataFrame with the last-traded price from afx.kwayisi.org, or None."""
+    all_prices = _fetch_afx_all()
     row = all_prices.get(ticker_base.upper())
     if not row:
         return None
@@ -569,7 +570,7 @@ def _fetch_new_rows(
         # ALL stocks, including those with no activity today.  Used for thinly-traded
         # stocks that are absent from the AJAX live feed.
         if df is None or df.empty:
-            log.info("%s: all live sources failed — trying NSE equity page (last traded)", safe)
+            log.info("%s: all live sources failed — trying afx.kwayisi.org (last traded)", safe)
             df = _fetch_nse_equity_page_today(ticker_base)
 
     if df is None or df.empty:
