@@ -1,0 +1,86 @@
+name: NSE PDF Price Backfill
+
+# Fills data gaps using the NSE daily market bulletin PDFs.
+# Run manually via workflow_dispatch whenever prices are missing for past trading days.
+#
+# For image-based PDFs (most NSE bulletins are scanned images), the job installs
+# Tesseract OCR automatically on the GHA runner.  Pure-text PDFs are handled by
+# pdfplumber without Tesseract.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dates:
+        description: "Space-separated trading dates to fill (YYYY-MM-DD), e.g. 2026-07-18 2026-07-21 2026-07-22"
+        required: true
+      dry_run:
+        description: "Set to 'true' to preview without writing to Firebase"
+        required: false
+        default: "false"
+      save_pdf:
+        description: "Set to 'true' to save downloaded PDFs as artifacts"
+        required: false
+        default: "false"
+
+jobs:
+  pdf-backfill:
+    name: Backfill prices from NSE PDFs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install Tesseract OCR (for image-based PDFs)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y tesseract-ocr poppler-utils
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r pipeline/requirements.txt
+          pip install pdf2image pytesseract
+
+      - name: Run PDF price backfill
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          set -o pipefail
+          cd $GITHUB_WORKSPACE
+
+          ARGS="--dates ${{ github.event.inputs.dates }}"
+          [ "${{ github.event.inputs.dry_run }}"  = "true" ] && ARGS="$ARGS --dry-run"
+          [ "${{ github.event.inputs.save_pdf }}" = "true" ] && ARGS="$ARGS --save-pdf"
+
+          python pipeline/scripts/fill_nse_pdf_prices.py $ARGS 2>&1 | tee /tmp/pdf_backfill.log
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf-backfill-log-${{ github.run_id }}
+          path: /tmp/pdf_backfill.log
+          retention-days: 7
+
+      - name: Upload saved PDFs
+        if: ${{ github.event.inputs.save_pdf == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nse-daily-pdfs-${{ github.run_id }}
+          path: pipeline/data/daily_pdfs/
+          retention-days: 14
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::PDF backfill failed — check artifact log"
+          tail -30 /tmp/pdf_backfill.log || true

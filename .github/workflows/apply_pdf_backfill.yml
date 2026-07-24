@@ -1,0 +1,51 @@
+name: Apply NSE PDF Backfill (Jul 21-22, 2026)
+
+# One-time workflow: applies the manually extracted prices from
+# 21-JUL-26.pdf and 22-JUL-26.pdf to Firebase Storage CSVs.
+# Run manually once to fill the July 21-22 data gap.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  apply-backfill:
+    name: Apply Jul 21-22 PDF prices to Firebase
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Apply PDF backfill
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          set -o pipefail
+          cd $GITHUB_WORKSPACE
+          python apply_pdf_backfill.py 2>&1 | tee /tmp/pdf_apply.log
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf-apply-log-${{ github.run_id }}
+          path: /tmp/pdf_apply.log
+          retention-days: 7
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::PDF backfill apply failed"
+          tail -30 /tmp/pdf_apply.log || true
