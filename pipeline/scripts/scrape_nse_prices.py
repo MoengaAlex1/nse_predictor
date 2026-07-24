@@ -879,9 +879,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--session",
-        choices=["open", "close"],
+        choices=["open", "midday", "close"],
         default="close",
-        help="Session type: 'open' (morning, ~09:00 EAT) or 'close' (end-of-day, ~16:10 EAT)",
+        help="Session type: 'open' (09:00 EAT), 'midday' (12:00–14:00 EAT), or 'close' (15:30–16:00 EAT)",
     )
     args = parser.parse_args()
 
