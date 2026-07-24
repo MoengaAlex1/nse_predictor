@@ -19,6 +19,7 @@ import { ValuationPanel } from "../components/investor/ValuationPanel";
 import { NewsPanel } from "../components/investor/NewsPanel";
 import { FinancialsPanel } from "../components/FinancialsPanel";
 import { FinancialNarrativeCard } from "../components/FinancialNarrativeCard";
+import { DeepAnalysisPanel } from "../components/DeepAnalysisPanel";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type RangeKey = "1D" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL" | "Custom";
@@ -1293,6 +1294,7 @@ export const CompanyDeepDive: FC = () => {
         {/* ── Financial statements ──────────────────────────────────────── */}
         <FinancialsPanel ticker={ticker} />
         <FinancialNarrativeCard ticker={ticker} />
+        <DeepAnalysisPanel ticker={ticker} />
 
         {/* ── NSE filings timeline ──────────────────────────────────────── */}
         <FilingsTimeline financials={financials ?? undefined} />
