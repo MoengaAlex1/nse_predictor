@@ -199,9 +199,12 @@ export const TradingChart: FC<Props> = ({
   const step = Math.max(1, Math.floor(data.length / 8));
   const gradId = `tvg${color.replace(/[^a-z0-9]/gi, "")}`;
 
+  const isTimestamp = (d: string) => /^\d{2}:\d{2}/.test(d);
+
   const fmtTick = (d: string) => {
-    const dt = new Date(d + "T00:00:00");
-    return dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+    if (isTimestamp(d)) return d.slice(0, 5);
+    const dt = new Date(d.includes("T") ? d : d + "T00:00:00");
+    return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
   };
 
   return (
@@ -254,8 +257,10 @@ export const TradingChart: FC<Props> = ({
             labelStyle={{ color: c.tooltipLabel, marginBottom: 4, fontSize: 11 }}
             formatter={(v) => [`KES ${(v as number).toFixed(2)}`, "Close"]}
             labelFormatter={(lbl) => {
-              const dt = new Date(String(lbl) + "T00:00:00");
-              return dt.toLocaleDateString("en-GB", {
+              const s = String(lbl);
+              if (isTimestamp(s)) return s.slice(0, 5);
+              const dt = new Date(s.includes("T") ? s : s + "T00:00:00");
+              return isNaN(dt.getTime()) ? s : dt.toLocaleDateString("en-GB", {
                 weekday: "short", year: "numeric", month: "short", day: "numeric",
               });
             }}
