@@ -8,7 +8,7 @@ import {
   limit,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, MarketOverviewDoc, EventsDoc, CorporateEvent, FinancialsDoc, MacroDoc, IntradayPoint } from "../types";
+import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, MarketOverviewDoc, EventsDoc, CorporateEvent, FinancialsDoc, MacroDoc, IntradayPoint, FundamentalsDoc, NewsItem } from "../types";
 
 export async function fetchAllCompanies(): Promise<CompanyDoc[]> {
   const snap = await getDocs(collection(db, "companies"));
@@ -75,4 +75,18 @@ export async function fetchIntradayDay(ticker: string, date: string): Promise<In
   if (!snap.exists()) return null;
   const data = snap.data() as { points?: IntradayPoint[] };
   return data.points ?? null;
+}
+
+export async function fetchFundamentals(safeTicker: string): Promise<FundamentalsDoc | null> {
+  const ref = doc(db, "fundamentals", safeTicker);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return null;
+  return snap.data() as FundamentalsDoc;
+}
+
+export async function fetchNews(safeTicker: string): Promise<NewsItem[]> {
+  const ref = collection(db, "news", safeTicker, "items");
+  const q = query(ref, orderBy("date", "desc"), limit(50));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<NewsItem, "id">) }));
 }

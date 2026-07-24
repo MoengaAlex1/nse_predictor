@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchCompany, fetchLatestSnapshot, fetchLatestTechnicals, fetchCorporateEvents, fetchFinancials, fetchMacro, fetchIntradayDay } from "../lib/firestore";
-import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, CorporateEvent, FinancialsDoc, MacroDoc, IntradayPoint } from "../types";
+import { fetchCompany, fetchLatestSnapshot, fetchLatestTechnicals, fetchCorporateEvents, fetchFinancials, fetchMacro, fetchIntradayDay, fetchFundamentals, fetchNews } from "../lib/firestore";
+import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, CorporateEvent, FinancialsDoc, MacroDoc, IntradayPoint, FundamentalsDoc, NewsItem } from "../types";
 
 export function useCompany(safeTicker: string) {
   return useQuery<CompanyDoc | null>({
@@ -56,5 +56,23 @@ export function useIntradayDay(safeTicker: string, date: string, enabled: boolea
     queryFn: () => fetchIntradayDay(safeTicker, date),
     enabled: !!safeTicker && !!date && enabled,
     staleTime: 1000 * 60 * 60,
+  });
+}
+
+export function useFundamentals(safeTicker: string) {
+  return useQuery<FundamentalsDoc | null>({
+    queryKey: ["fundamentals", safeTicker],
+    queryFn: () => fetchFundamentals(safeTicker),
+    enabled: !!safeTicker,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useNews(safeTicker: string) {
+  return useQuery<NewsItem[]>({
+    queryKey: ["news", safeTicker],
+    queryFn: () => fetchNews(safeTicker),
+    enabled: !!safeTicker,
+    staleTime: 5 * 60 * 1000,
   });
 }
