@@ -496,19 +496,41 @@ def _fetch_stooq(safe: str, from_date: str, to_date: str) -> pd.DataFrame | None
 
 # ── Source 3: yfinance ────────────────────────────────────────────────────────
 
-def _fetch_yfinance(safe: str, period: str = "5d") -> pd.DataFrame | None:
-    """Fetch recent OHLCV from Yahoo Finance. Returns DataFrame or None."""
+def _fetch_yfinance(
+    safe: str,
+    period: str = "5d",
+    start: str | None = None,
+    end: str | None = None,
+) -> pd.DataFrame | None:
+    """Fetch OHLCV from Yahoo Finance. Returns DataFrame or None.
+
+    Tries the .KE suffix first (e.g. SCOM.KE), then falls back to the
+    .NR suffix (e.g. SCOM.NR) for tickers originally listed as *.NR on NSE,
+    since some stocks are only recognised by Yahoo Finance under .NR.
+    """
     try:
         import yfinance as yf
-        symbol = _yf_symbol(safe)
-        raw = yf.download(symbol, period=period, auto_adjust=True, progress=False)
-        if raw.empty:
-            return None
-        if isinstance(raw.columns, pd.MultiIndex):
-            raw.columns = raw.columns.get_level_values(0)
-        raw.index = pd.to_datetime(raw.index)
-        raw.index.name = "Date"
-        return raw if not raw.empty else None
+        symbols = [_yf_symbol(safe)]                           # e.g. SCOM.KE
+        if safe.endswith("_NR"):
+            symbols.append(f"{_ticker_base(safe)}.NR")        # e.g. SCOM.NR
+
+        for symbol in symbols:
+            kwargs: dict = {"auto_adjust": True, "progress": False}
+            if start and end:
+                kwargs["start"] = start
+                kwargs["end"] = end
+            else:
+                kwargs["period"] = period
+            raw = yf.download(symbol, **kwargs)
+            if raw.empty:
+                continue
+            if isinstance(raw.columns, pd.MultiIndex):
+                raw.columns = raw.columns.get_level_values(0)
+            raw.index = pd.to_datetime(raw.index)
+            raw.index.name = "Date"
+            log.debug("yfinance: %d rows for %s", len(raw), symbol)
+            return raw
+        return None
     except Exception as exc:
         log.debug("yfinance fetch failed for %s: %s", safe, exc)
         return None
@@ -582,11 +604,7 @@ def _fetch_new_rows(
         df = _fetch_stooq(safe, backfill_from, backfill_to)
         if df is None or df.empty:
             log.info("%s: stooq empty for backfill — trying yfinance", safe)
-            df = _fetch_yfinance(safe, period="1mo")
-            if df is not None and not df.empty:
-                start = pd.Timestamp(backfill_from)
-                end   = pd.Timestamp(backfill_to)
-                df = df[(df.index >= start) & (df.index <= end)]
+            df = _fetch_yfinance(safe, start=backfill_from, end=backfill_to)
         # afx gives only the current last-traded price; adds today's row for
         # thinly-traded stocks that stooq/yfinance have no knowledge of.
         if df is None or df.empty:
