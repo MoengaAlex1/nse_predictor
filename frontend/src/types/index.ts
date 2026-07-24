@@ -3,6 +3,11 @@ export interface PricePoint {
   price: number;
 }
 
+export interface IntradayPoint {
+  time: string;
+  price: number;
+}
+
 export interface CompanyDoc {
   id: string;
   ticker: string;
@@ -20,6 +25,8 @@ export interface CompanyDoc {
   price_preview: number[];
   price_date: string | null;
   last_updated: string | null;
+  intraday_today?: IntradayPoint[];
+  intraday_date?: string;
 }
 
 export interface SnapshotDoc {

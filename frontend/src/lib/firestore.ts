@@ -8,7 +8,7 @@ import {
   limit,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, MarketOverviewDoc, EventsDoc, CorporateEvent, FinancialsDoc, MacroDoc } from "../types";
+import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, MarketOverviewDoc, EventsDoc, CorporateEvent, FinancialsDoc, MacroDoc, IntradayPoint } from "../types";
 
 export async function fetchAllCompanies(): Promise<CompanyDoc[]> {
   const snap = await getDocs(collection(db, "companies"));
@@ -67,4 +67,12 @@ export async function fetchMacro(): Promise<MacroDoc | null> {
   const snap = await getDoc(ref);
   if (!snap.exists()) return null;
   return snap.data() as MacroDoc;
+}
+
+export async function fetchIntradayDay(ticker: string, date: string): Promise<IntradayPoint[] | null> {
+  const ref = doc(db, "companies", ticker, "intraday", date);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return null;
+  const data = snap.data() as { points?: IntradayPoint[] };
+  return data.points ?? null;
 }

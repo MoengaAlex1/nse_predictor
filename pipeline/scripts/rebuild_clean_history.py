@@ -104,8 +104,8 @@ def _load_archive_year(path: Path) -> Optional[pd.DataFrame]:
         if df["Day Price"].notna().sum() == 0:
             return None
 
-        # Parse dates — multiple formats present across years
-        df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, format="mixed")
+        # Parse dates — archive uses M/D/YYYY (US format); dayfirst=False is correct
+        df["Date"] = pd.to_datetime(df["Date"], dayfirst=False, format="mixed")
         return df
     except Exception as exc:
         log.warning("Cannot parse %s: %s", path.name, exc)

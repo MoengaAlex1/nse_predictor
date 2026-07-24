@@ -1,14 +1,19 @@
-name: NSE Daily Price Capture (3× per day)
+name: NSE Daily Price Capture (5× per day)
 
-# Runs three times every NSE trading day (Mon–Fri, EAT = UTC+3):
-#   09:00 EAT — opening price snapshot
-#   14:00 EAT — midday overwrite
-#   15:30 EAT — final closing price (NSE closes at 15:00 EAT)
+# Runs five times every NSE trading day (Mon–Fri, EAT = UTC+3):
+#   09:00 EAT (06:00 UTC) — opening price snapshot
+#   11:00 EAT (08:00 UTC) — ~2 h interval
+#   13:00 EAT (10:00 UTC) — ~2 h interval
+#   14:00 EAT (11:00 UTC) — midday overwrite
+#   15:30 EAT (12:30 UTC) — final closing price (NSE closes at 15:00 EAT)
 #
 # Each run:
 #   Step 1 – scrape_nse_prices.py  → fetch latest prices, update Firebase Storage CSVs
 #   Step 2 – push_intraday_prices.py → read updated CSVs, push price_history +
-#             current_price + change_pct_today to Firestore (live website update)
+#             current_price + change_pct_today + intraday_today to Firestore
+#
+# intraday_today accumulates {time, price} snapshots across all 5 daily runs so users
+# can view intra-day price movement on the "1D" chart range.
 #
 # The nightly daily_update.yml (midnight EAT) handles full model retraining
 # and buy/sell/hold signal generation — that job is not replaced by this one.
@@ -16,6 +21,8 @@ name: NSE Daily Price Capture (3× per day)
 on:
   schedule:
     - cron: "0 6 * * 1-5"     # 06:00 UTC = 09:00 EAT — market open
+    - cron: "0 8 * * 1-5"     # 08:00 UTC = 11:00 EAT — ~2 h interval
+    - cron: "0 10 * * 1-5"    # 10:00 UTC = 13:00 EAT — ~2 h interval
     - cron: "0 11 * * 1-5"    # 11:00 UTC = 14:00 EAT — midday
     - cron: "30 12 * * 1-5"   # 12:30 UTC = 15:30 EAT — market close
   workflow_dispatch:

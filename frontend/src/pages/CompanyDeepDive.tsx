@@ -11,11 +11,12 @@ import { TradingChart } from "../components/charts/TradingChart";
 import { PredictionChart } from "../components/charts/PredictionChart";
 import { PriceExplainer } from "../components/company/PriceExplainer";
 import { useCompany, useLatestSnapshot, useLatestTechnicals, useCorporateEvents, useFinancials, useMacro } from "../hooks/useCompany";
-import type { PricePoint, SnapshotDoc, TechnicalsDoc, CompanyDoc, CorporateEvent, FinancialsDoc, NSEAnnouncement } from "../types";
+import type { PricePoint, IntradayPoint, SnapshotDoc, TechnicalsDoc, CompanyDoc, CorporateEvent, FinancialsDoc, NSEAnnouncement } from "../types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type RangeKey = "1M" | "3M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL" | "Custom";
+type RangeKey = "1D" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL" | "Custom";
 const PRESETS: { label: RangeKey; days: number | null }[] = [
+  { label: "1D",     days: 1    },
   { label: "1M",     days: 30   },
   { label: "3M",     days: 90   },
   { label: "6M",     days: 180  },
@@ -173,6 +174,7 @@ const StatsStrip: FC<{
     : null;
 
   const periodLabel =
+    range === "1D"     ? "Today"    :
     range === "ALL"    ? "All-time" :
     range === "YTD"    ? "YTD"      :
     range === "Custom" ? "Period"   : range;
@@ -505,11 +507,13 @@ const ChartSection: FC<{
   setTo: (s: string) => void;
   visible: PricePoint[];
   announcements: NSEAnnouncement[];
-}> = ({ company, technicals, range, setRange, from, setFrom, to, setTo, visible, announcements }) => {
+  intradayDate?: string;
+}> = ({ company, technicals, range, setRange, from, setFrom, to, setTo, visible, announcements, intradayDate }) => {
   const [showFib, setShowFib]    = useState(true);
   const [showSMAs, setShowSMAs]  = useState(true);
   const [showEvents, setShowEvents] = useState(true);
 
+  const isIntraday = range === "1D";
   const history = cleanPriceHistory(company.price_history ?? []);
   const dataMin = history[0]?.date ?? "";
   const dataMax = history[history.length - 1]?.date ?? "";
@@ -520,12 +524,13 @@ const ChartSection: FC<{
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-seam px-4 py-3">
         <div>
           <span className="text-xs font-semibold uppercase tracking-wider text-muted">
-            Price History
+            {isIntraday ? "Intraday" : "Price History"}
           </span>
           {visible.length > 0 && (
             <span className="ml-2 font-mono text-[10px] text-hint">
-              {visible[0].date} → {visible[visible.length - 1].date}
-              {" · "}{visible.length} days
+              {isIntraday
+                ? `${intradayDate ?? "today"} · ${visible.length} snapshot${visible.length !== 1 ? "s" : ""}`
+                : `${visible[0].date} → ${visible[visible.length - 1].date} · ${visible.length} days`}
             </span>
           )}
         </div>
@@ -590,7 +595,7 @@ const ChartSection: FC<{
         </div>
       </div>
 
-      {showEvents && announcements.length > 0 && (
+      {!isIntraday && showEvents && announcements.length > 0 && (
         <div className="flex flex-wrap gap-3 border-b border-seam/50 px-4 py-2">
           {[
             { type: "financial_result", color: "#38bdf8", label: "R · Results" },
@@ -610,7 +615,7 @@ const ChartSection: FC<{
         </div>
       )}
 
-      {showSMAs && (technicals?.sma_20 || technicals?.sma_50 || technicals?.sma_200) && (
+      {!isIntraday && showSMAs && (technicals?.sma_20 || technicals?.sma_50 || technicals?.sma_200) && (
         <div className="flex gap-4 border-b border-seam/50 px-4 py-2">
           {technicals?.sma_20 != null && (
             <span className="flex items-center gap-1.5 text-[10px] font-mono">
@@ -638,21 +643,25 @@ const ChartSection: FC<{
           <TradingChart
             data={visible}
             color={company.color}
-            showFib={showFib}
-            sma20={showSMAs ? technicals?.sma_20 : null}
-            sma50={showSMAs ? technicals?.sma_50 : null}
-            sma200={showSMAs ? technicals?.sma_200 : null}
-            events={showEvents ? announcements : undefined}
+            showFib={!isIntraday && showFib}
+            sma20={!isIntraday && showSMAs ? technicals?.sma_20 : null}
+            sma50={!isIntraday && showSMAs ? technicals?.sma_50 : null}
+            sma200={!isIntraday && showSMAs ? technicals?.sma_200 : null}
+            events={!isIntraday && showEvents ? announcements : undefined}
           />
         ) : (
           <div className="flex h-80 items-center justify-center text-muted">
-            <p>Not enough data for this range.</p>
+            <p>
+              {isIntraday
+                ? "No intraday snapshots yet for today. Data accumulates on each of the 5 daily runs."
+                : "Not enough data for this range."}
+            </p>
           </div>
         )}
       </div>
     </div>
 
-    {visible.length >= 2 && (
+    {!isIntraday && visible.length >= 2 && (
       <>
         <RangePerformance data={visible} range={range} />
         <InvestmentCalculator data={visible} range={range} />
@@ -989,9 +998,16 @@ export const CompanyDeepDive: FC = () => {
 
   const change  = company.change_pct_today;
   const history = cleanPriceHistory(company.price_history ?? []);
-  const visible = filterByRange(history, range, from, to);
+
+  const intradayPoints: PricePoint[] | undefined =
+    range === "1D" && (company.intraday_today?.length ?? 0) > 0
+      ? (company.intraday_today as IntradayPoint[]).map((p) => ({ date: p.time, price: p.price }))
+      : undefined;
+
+  const visible = intradayPoints ?? filterByRange(history, range, from, to);
 
   const rangeLabel =
+    range === "1D"     ? "Intraday"     :
     range === "1M"     ? "1 Month"      :
     range === "3M"     ? "3 Months"     :
     range === "6M"     ? "6 Months"     :
@@ -1083,7 +1099,7 @@ export const CompanyDeepDive: FC = () => {
         />
 
         {/* ── Trading chart ─────────────────────────────────────────────── */}
-        {history.length > 1 && (
+        {(history.length > 1 || range === "1D") && (
           <ChartSection
             company={company}
             technicals={technicals}
@@ -1095,11 +1111,12 @@ export const CompanyDeepDive: FC = () => {
             setTo={setTo}
             visible={visible}
             announcements={financials?.announcements ?? []}
+            intradayDate={company.intraday_date}
           />
         )}
 
         {/* ── AI price explainer ────────────────────────────────────────── */}
-        {visible.length >= 2 && (
+        {range !== "1D" && visible.length >= 2 && (
           <PriceExplainer
             company={company}
             visible={visible}

@@ -43,7 +43,7 @@ def load_from_csv(path: str | Path, ticker: str = "") -> pd.DataFrame:
     if date_col is None:
         raise ValueError("No date column found in CSV")
 
-    df[date_col] = pd.to_datetime(df[date_col], dayfirst=True, format="mixed")
+    df[date_col] = pd.to_datetime(df[date_col], dayfirst=False, format="mixed")
     df = df.set_index(date_col)
     df.index.name = "Date"
     df = df.sort_index()

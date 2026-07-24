@@ -46,7 +46,7 @@ def _load_csv(path: Path) -> pd.DataFrame | None:
         date_col = next((c for c in df.columns if "date" in c.lower()), None)
         if date_col is None:
             return None
-        df[date_col] = pd.to_datetime(df[date_col], dayfirst=True, format="mixed")
+        df[date_col] = pd.to_datetime(df[date_col], dayfirst=False, format="mixed")
         df = df.set_index(date_col).sort_index()
         df.index.name = "Date"
         if "Close" not in df.columns:

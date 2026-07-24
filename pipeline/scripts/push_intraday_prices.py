@@ -26,7 +26,7 @@ import sys
 import os
 import logging
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
@@ -45,6 +45,11 @@ from config import load_companies
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
+
+_EAT = timezone(timedelta(hours=3))
+_NOW_EAT = datetime.now(_EAT)
+TODAY_EAT = _NOW_EAT.strftime("%Y-%m-%d")
+TIME_EAT = _NOW_EAT.strftime("%H:%M")
 
 TODAY = date.today().isoformat()
 _TODAY_TS = pd.Timestamp(TODAY)
@@ -83,6 +88,34 @@ def _get_csv(safe: str) -> pd.DataFrame | None:
     return df if not df.empty else None
 
 
+def _build_intraday_today(db, doc_id: str, current_price: float) -> list[dict]:
+    """
+    Read existing intraday state from Firestore, archive previous day if needed,
+    and return the updated intraday_today list with current_price appended/replaced.
+    """
+    doc_ref = db.collection("companies").document(doc_id)
+    doc_snap = doc_ref.get()
+    existing = doc_snap.to_dict() if doc_snap.exists else {}
+
+    stored_date: str | None = existing.get("intraday_date")
+    stored_points: list = existing.get("intraday_today") or []
+
+    # Archive previous day's data to subcollection when the date rolls over
+    if stored_date and stored_date != TODAY_EAT and stored_points:
+        n_archived = len(stored_points)
+        (doc_ref.collection("intraday")
+                .document(stored_date)
+                .set({"date": stored_date, "points": stored_points}))
+        log.info("%s: archived intraday %s (%d pts)", doc_id, stored_date, n_archived)
+        stored_points = []
+
+    # Append or replace the current time's snapshot (idempotent on same-minute reruns)
+    updated = [p for p in stored_points if p.get("time") != TIME_EAT]
+    updated.append({"time": TIME_EAT, "price": current_price})
+    updated.sort(key=lambda p: p["time"])
+    return updated
+
+
 def push_company(company: dict, db) -> dict:
     """Read the scraped CSV and push a price-only update to Firestore."""
     safe = company["ticker"].replace(".", "_")   # used for CSV file lookup only
@@ -113,17 +146,22 @@ def push_company(company: dict, db) -> dict:
     else:
         change_pct = 0.0
 
+    # Build intraday_today: accumulate snapshots throughout the trading day
+    intraday_today = _build_intraday_today(db, doc_id, current_price)
+
     update_company_public(db, doc_id, {
         "current_price":    current_price,
         "change_pct_today": round(change_pct, 4),
         "price_history":    price_history,
         "price_preview":    [p["price"] for p in price_history[-30:]],
         "last_updated":     TODAY,
+        "intraday_today":   intraday_today,
+        "intraday_date":    TODAY_EAT,
     })
 
     log.info(
-        "%-20s  price=%.4f  chg=%+.2f%%  pts=%d",
-        doc_id, current_price, change_pct, len(price_history),
+        "%-20s  price=%.4f  chg=%+.2f%%  pts=%d  intraday=%d",
+        doc_id, current_price, change_pct, len(price_history), len(intraday_today),
     )
     return {"ticker": doc_id, "pushed": True, "price": current_price}
 
