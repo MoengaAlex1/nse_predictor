@@ -990,16 +990,39 @@ const DataQualityBanner: FC<{ history: PricePoint[] }> = ({ history }) => {
     ? Math.floor((Date.now() - new Date(lastDate + "T00:00:00").getTime()) / (1000 * 60 * 60 * 24))
     : null;
 
-  const hasNoData      = history.length === 0;
-  const hasDataGap     = !hasNoData && daysSinceLast !== null && daysSinceLast > 60;
-  const hasLimitedData = !hasNoData && !hasDataGap && history.length < 30;
+  const hasNoData  = history.length === 0;
+  const hasDataGap = !hasNoData && daysSinceLast !== null && daysSinceLast > 60;
 
-  if (!hasNoData && !hasDataGap && !hasLimitedData) return null;
+  // Detect the first internal gap > 90 days within the last 3 years.
+  // This catches cases where the most-recent data point is today but there is
+  // a large hole in the middle of the history (e.g. NSE/SCOM Oct 2025–Jul 2026).
+  const internalGap = useMemo(() => {
+    if (hasNoData || hasDataGap || history.length < 2) return null;
+    const cutoffMs = Date.now() - 3 * 365 * 24 * 60 * 60 * 1000;
+    const recent = history.filter(
+      p => new Date(p.date + "T00:00:00").getTime() >= cutoffMs
+    );
+    for (let i = 1; i < recent.length; i++) {
+      const prevMs = new Date(recent[i - 1].date + "T00:00:00").getTime();
+      const currMs = new Date(recent[i].date + "T00:00:00").getTime();
+      const gapDays = (currMs - prevMs) / (1000 * 60 * 60 * 24);
+      if (gapDays > 90) {
+        return { from: recent[i - 1].date, to: recent[i].date, days: Math.round(gapDays) };
+      }
+    }
+    return null;
+  }, [history, hasNoData, hasDataGap]);
+
+  const hasLimitedData = !hasNoData && !hasDataGap && !internalGap && history.length < 30;
+
+  if (!hasNoData && !hasDataGap && !internalGap && !hasLimitedData) return null;
 
   const message = hasNoData
     ? "No price history is available for this security. It may be newly listed or data is pending."
     : hasDataGap
     ? `Price data may be incomplete. Last recorded price: ${lastDate} (${daysSinceLast} days ago). NSE data sources may have a gap for this security.`
+    : internalGap
+    ? `Price history has a data gap of ~${Math.round(internalGap.days / 30)} months (${internalGap.from} → ${internalGap.to}). NSE data for this period is unavailable from our sources.`
     : `Limited trading history available (${history.length} trading ${history.length === 1 ? "day" : "days"} recorded). This security may be newly listed or thinly traded.`;
 
   return (
