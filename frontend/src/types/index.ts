@@ -165,3 +165,31 @@ export interface MarketOverviewDoc {
   nse20_value: number | null;
   nse20_change_pct: number | null;
 }
+
+export interface FundamentalsEstimate {
+  period: string;
+  eps_kes: number | null;
+  revenue_kes_mn: number | null;
+  net_income_kes_mn: number | null;
+  pe_forward: number | null;
+  source: "consensus" | "management";
+}
+
+export interface FundamentalsDoc {
+  ticker: string;
+  updated_at: string;
+  shares_outstanding_mn: number | null;
+  enterprise_value_kes_bn: number | null;
+  employees: number | null;
+  estimates: FundamentalsEstimate[];
+}
+
+export interface NewsItem {
+  id: string;
+  date: string;
+  title: string;
+  category: "earnings" | "dividend" | "regulatory" | "agm" | "corporate_action" | "general";
+  body: string | null;
+  url: string | null;
+  source: "NSE" | "scraper";
+}
