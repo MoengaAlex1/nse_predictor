@@ -24,7 +24,7 @@ DATA_CLEANED = REPO_ROOT / "data" / "cleaned"
 def build_records(df: pd.DataFrame, skip_stale: bool = False) -> dict:
     """Convert cleaned CSV DataFrame to {date_str: fields} dict."""
     if skip_stale and "Is_Stale" in df.columns:
-        df = df[df["Is_Stale"] == 0]
+        df = df[df["Is_Stale"] == 0].copy()
     df = df.sort_values("Date").reset_index(drop=True)
     records: dict = {}
     for i, row in df.iterrows():
