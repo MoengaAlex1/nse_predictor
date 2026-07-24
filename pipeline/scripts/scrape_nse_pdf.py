@@ -16,17 +16,23 @@ Usage:
 import argparse
 import datetime
 import logging
+import os
 import re
 import sys
-import os
+import tempfile
 from pathlib import Path
 
 import pdfplumber
 import pytesseract
 import requests
 
+# Ensure repo root is on sys.path for sibling-package imports (firebase_client, firebase_rtdb)
+_REPO_ROOT = str(Path(__file__).parent.parent.parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 log = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log.addHandler(logging.NullHandler())
 
 # Tesseract binary path for Windows
 _TESSERACT_WIN = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -210,6 +216,9 @@ NSE_PHRASES: dict[str, str] = {
 # Stocks whose prices are 100x inflated post 2026-01-01
 _INFLATION_TICKERS = {"EVRD", "HAFR", "UCHM"}
 
+# Pre-sorted once at module load for greedy longest-first matching
+_NSE_PHRASES_SORTED: list[str] = sorted(NSE_PHRASES, key=len, reverse=True)
+
 
 # ---------------------------------------------------------------------------
 # URL builder
@@ -280,6 +289,8 @@ def resolve_ticker(company_name: str) -> str | None:
 
 
 def parse_price_row(row: list[str]) -> dict:
+    if len(row) < 9:
+        raise ValueError(f"Expected ≥9 columns, got {len(row)}")
     return {
         "prev_close": clean_number(row[COL_PREV_CLOSE]),
         "open":       clean_number(row[COL_OPEN]),
@@ -300,7 +311,7 @@ def parse_price_row(row: list[str]) -> dict:
 def _match_line_ocr(line: str) -> str | None:
     """Return NSE ticker for this OCR line, or None. '__ETF__' means skip."""
     low = line.lower()
-    for phrase in sorted(NSE_PHRASES, key=len, reverse=True):
+    for phrase in _NSE_PHRASES_SORTED:
         if phrase in low:
             return NSE_PHRASES[phrase]
     return None
@@ -377,64 +388,65 @@ def extract_price_rows(pdf_bytes: bytes, resolution: int = 250) -> list[tuple[st
     For NSE scanned-image PDFs, pdfplumber.extract_tables() returns nothing;
     the function falls back to pytesseract OCR.
     """
-    import tempfile
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+    try:
+        os.write(tmp_fd, pdf_bytes)
+        os.close(tmp_fd)
 
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        tmp.write(pdf_bytes)
-        tmp_path = tmp.name
+        results: list[tuple[str, dict]] = []
 
-    results: list[tuple[str, dict]] = []
+        # --- Attempt 1: structured table extraction (text-selectable PDFs) ---
+        with pdfplumber.open(tmp_path) as pdf:
+            table_rows_found = 0
+            for page in pdf.pages:
+                for table in page.extract_tables():
+                    for row in table:
+                        if not row or len(row) < 9:
+                            continue
+                        company = str(row[0] or "").strip()
+                        if not company or company.upper() in ("SECURITY", "COMPANY", ""):
+                            continue
+                        try:
+                            float(re.sub(r"[,]", "", str(row[1] or "0")))
+                        except (ValueError, TypeError):
+                            continue
+                        results.append((company, parse_price_row([str(c or "0") for c in row])))
+                        table_rows_found += 1
 
-    # --- Attempt 1: structured table extraction (text-selectable PDFs) ---
-    with pdfplumber.open(tmp_path) as pdf:
-        table_rows_found = 0
-        for page in pdf.pages:
-            for table in page.extract_tables():
-                for row in table:
-                    if not row or len(row) < 9:
+            if table_rows_found > 0:
+                log.info("Table mode: extracted %d rows", table_rows_found)
+                return results
+
+        # --- Attempt 2: OCR (scanned-image PDFs) ---
+        log.info("No tables found — switching to OCR (resolution=%d dpi)", resolution)
+        seen: set[str] = set()
+
+        with pdfplumber.open(tmp_path) as pdf:
+            for page in pdf.pages:
+                img = page.to_image(resolution=resolution).original
+                text = pytesseract.image_to_string(img, config="--psm 6 --oem 3")
+                for line in text.split("\n"):
+                    line = line.strip()
+                    if not line or not _is_data_line(line):
                         continue
-                    company = str(row[0] or "").strip()
-                    if not company or company.upper() in ("SECURITY", "COMPANY", ""):
+                    ticker = _match_line_ocr(line)
+                    if not ticker or ticker == "__ETF__":
                         continue
-                    try:
-                        float(re.sub(r"[,]", "", str(row[1] or "0")))
-                    except (ValueError, TypeError):
+                    if ticker in seen:
                         continue
-                    results.append((company, parse_price_row([str(c or "0") for c in row])))
-                    table_rows_found += 1
+                    fields = _parse_ocr_row(line, ticker)
+                    if not fields:
+                        continue
+                    seen.add(ticker)
+                    results.append((ticker, fields))
+                    log.info(
+                        "  %-6s H=%.2f L=%.2f C=%.2f vol=%.0f",
+                        ticker, fields["high"], fields["low"], fields["close"], fields["volume"],
+                    )
 
-        if table_rows_found > 0:
-            log.info("Table mode: extracted %d rows", table_rows_found)
-            return results
-
-    # --- Attempt 2: OCR (scanned-image PDFs) ---
-    log.info("No tables found — switching to OCR (resolution=%d dpi)", resolution)
-    seen: set[str] = set()
-
-    with pdfplumber.open(tmp_path) as pdf:
-        for page in pdf.pages:
-            img = page.to_image(resolution=resolution).original
-            text = pytesseract.image_to_string(img, config="--psm 6 --oem 3")
-            for line in text.split("\n"):
-                line = line.strip()
-                if not line or not _is_data_line(line):
-                    continue
-                ticker = _match_line_ocr(line)
-                if not ticker or ticker == "__ETF__":
-                    continue
-                if ticker in seen:
-                    continue
-                fields = _parse_ocr_row(line, ticker)
-                if not fields:
-                    continue
-                seen.add(ticker)
-                results.append((ticker, fields))
-                log.info(
-                    "  %-6s H=%.2f L=%.2f C=%.2f vol=%.0f",
-                    ticker, fields["high"], fields["low"], fields["close"], fields["volume"],
-                )
-
-    return results
+        return results
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -442,10 +454,6 @@ def extract_price_rows(pdf_bytes: bytes, resolution: int = 250) -> list[tuple[st
 # ---------------------------------------------------------------------------
 
 def write_to_rtdb(root_ref, date_str: str, rows: list[tuple[str, dict]], dry_run: bool) -> int:
-    import sys as _sys
-    _repo_root = str(Path(__file__).parent.parent.parent)
-    if _repo_root not in _sys.path:
-        _sys.path.insert(0, _repo_root)
     from pipeline.scripts.firebase_rtdb import write_price_node
     written = 0
     unknown = []
@@ -480,6 +488,7 @@ def write_to_rtdb(root_ref, date_str: str, rows: list[tuple[str, dict]], dry_run
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     parser = argparse.ArgumentParser()
     parser.add_argument("--date",    help="YYYY-MM-DD (default: today)")
     parser.add_argument("--dry-run", action="store_true")
@@ -512,7 +521,6 @@ def main() -> None:
 
     if not args.dry_run:
         # Import inside branch so dry-run never needs Firebase credentials
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent))
         from pipeline.scripts.firebase_client import get_rtdb
         root_ref = get_rtdb()
     else:
