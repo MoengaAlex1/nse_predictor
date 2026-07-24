@@ -17,6 +17,7 @@ export interface RoeValue {
 }
 
 export interface FinancialPeriod {
+  ticker: string;
   period: string;
   comparison_period: string;
   income_statement: Record<string, MetricValue>;
