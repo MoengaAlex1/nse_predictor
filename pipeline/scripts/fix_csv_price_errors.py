@@ -173,22 +173,23 @@ def _flag_poisoned_years(year_medians: dict[int, float]) -> set[int]:
     Identify years whose prices are ~10x too high via adjacent-year jump detection.
 
     Strategy: scan year-medians chronologically. If year[y] / first-non-poisoned-
-    successor > JUMP_THRESHOLD (default 8x), year[y] is flagged as poisoned.
+    successor > JUMP_THRESHOLD (6.5x), year[y] is flagged as poisoned.
 
     "First non-poisoned successor" skips years that are themselves flagged so that
     a block of several consecutive poisoned years (e.g. EQTY 2007 AND 2008) can
-    all be traced back to the first clean reference year (2009).
+    all be traced back to the first clean reference year.
 
-    Threshold of 8x is deliberately conservative — it only fires when the ratio is
-    close to exactly 10x, which is the clear signature of a missing decimal point.
-    Legitimate multi-year price swings on NSE rarely exceed 3-5x in a single
-    year-to-year step (circuit-breaker limited to 9.9 % per day).
+    Threshold of 6.5x catches follow-on poisoned years that become detectable only
+    AFTER the primary poisoned year is corrected in an earlier iteration. Example:
+      EQTY 2007 (130 KES) and 2008 (189 KES) are both 10x wrong. After iteration 1
+      fixes 2008 → 18.9, the 2007/2008 ratio becomes 130/18.9 = 6.88x — just above
+      6.5, so iteration 2 catches 2007.
 
-    False-positive guard: IMH, CTUM, GLD had genuine multi-year bull runs where
-    prices peaked at 5-6x the later baseline — those never produce a single-step
-    8x+ drop, so they pass through unaffected.
+    Legitimate multi-year price swings on NSE stay well under 5x in a single
+    year-to-year step (circuit-breaker limited to 9.9 % per day). IMH, CTUM, GLD
+    checked empirically — max adjacent ratio ≤ 2.1x.
     """
-    JUMP_THRESHOLD = 8.0
+    JUMP_THRESHOLD = 6.5
 
     flagged: set[int] = set()
     if not year_medians:
@@ -196,7 +197,6 @@ def _flag_poisoned_years(year_medians: dict[int, float]) -> set[int]:
 
     years_sorted = sorted(year_medians)
 
-    # Two passes: flag forwards (year y is 8x above its clean successor)
     for i, yr in enumerate(years_sorted):
         ym = year_medians[yr]
         # Find the nearest SUBSEQUENT year not already flagged
@@ -219,12 +219,18 @@ def _fix_year_shifts(df: pd.DataFrame, ticker: str) -> tuple[pd.DataFrame, int]:
     Detect years where the ENTIRE year's prices are 10x too high.
 
     Strategy:
-      1. Identify "poisoned" years via _flag_poisoned_years (two complementary
-         tests: 20th-percentile reference + adjacent-year jump).
+      1. Iteratively identify "poisoned" years via _flag_poisoned_years.
       2. For each flagged year, confirm that ≥80 % of its rows have Close
-         above 3× the reference (guards against flagging years with genuine
+         above 3× the p20 reference (guards against flagging years with genuine
          price peaks driven by a few outlier days).
-      3. Divide all OHLC values in confirmed years by 10.
+      3. Divide all OHLC values in confirmed years by 10, then refresh year
+         medians and repeat until no more poisoned years are found.
+
+    Iterating is necessary because a block of consecutive poisoned years (e.g.
+    EQTY 2007 and 2008) may only become mutually detectable once the first
+    correction changes the year-median landscape. Example:
+      Pass 1: fixes 2008 (189 KES → 18.9). Now 2007 (130) / 2008 (18.9) = 6.88x.
+      Pass 2: fixes 2007 (130 KES → 13.0).
 
     For years that are only PARTIALLY wrong (some correct rows mixed with
     outlier rows), the row-spike pass (_fix_row_spikes) handles the individual
@@ -234,48 +240,61 @@ def _fix_year_shifts(df: pd.DataFrame, ticker: str) -> tuple[pd.DataFrame, int]:
         return df, 0
 
     close = df["Close"].astype(float)
-    year_medians: dict[int, float] = {}
-    for yr, grp in close.groupby(df.index.year):
-        year_medians[yr] = float(grp.median())
 
+    def _year_medians() -> dict[int, float]:
+        return {int(yr): float(grp.median()) for yr, grp in close.groupby(df.index.year)}
+
+    year_medians = _year_medians()
     if not year_medians:
         return df, 0
 
-    sorted_meds = sorted(year_medians.values())
-    p20_idx = max(0, int(len(sorted_meds) * 0.20) - 1)
-    ref = sorted_meds[p20_idx]
-    if ref <= 0:
-        return df, 0
+    total_corrected = 0
 
-    suspect_years = _flag_poisoned_years(year_medians)
-    corrected = 0
-    for yr in suspect_years:
-        ym = year_medians[yr]
+    for _ in range(20):  # cap at 20 iterations to prevent infinite loops
+        sorted_meds = sorted(year_medians.values())
+        p20_idx = max(0, int(len(sorted_meds) * 0.20) - 1)
+        ref = sorted_meds[p20_idx]
+        if ref <= 0:
+            break
 
-        # Confirm: ≥80% of this year's values are above 3× the p20 reference
-        yr_mask = df.index.year == yr
-        yr_close = close[yr_mask]
-        frac_high = (yr_close > ref * 3.0).mean()
+        suspect_years = _flag_poisoned_years(year_medians)
+        if not suspect_years:
+            break
 
-        if frac_high < 0.80:
-            log.debug(
-                "%s %d: year_median=%.2f flagged but only %.0f%% are high "
-                "— leaving for row-spike pass",
-                ticker, yr, ym, frac_high * 100,
+        made_correction = False
+        for yr in sorted(suspect_years):
+            ym = year_medians[yr]
+
+            # Confirm: ≥80% of this year's values are above 3× the p20 reference
+            yr_mask = df.index.year == yr
+            yr_close = close[yr_mask]
+            frac_high = (yr_close > ref * 3.0).mean()
+
+            if frac_high < 0.80:
+                log.debug(
+                    "%s %d: year_median=%.2f flagged but only %.0f%% are high "
+                    "— leaving for row-spike pass",
+                    ticker, yr, ym, frac_high * 100,
+                )
+                continue
+
+            log.info(
+                "%s %d: year_median=%.2f is %.1fx p20-ref=%.2f → dividing entire year by 10",
+                ticker, yr, ym, ym / ref if ref > 0 else 0, ref,
             )
-            continue
+            for col in OHLC_COLS:
+                if col in df.columns:
+                    df.loc[yr_mask, col] = (df.loc[yr_mask, col].astype(float) / 10.0).round(4)
 
-        log.info(
-            "%s %d: year_median=%.2f is %.1fx p20-ref=%.2f → dividing entire year by 10",
-            ticker, yr, ym, ym / ref if ref > 0 else 0, ref,
-        )
-        for col in OHLC_COLS:
-            if col in df.columns:
-                df.loc[yr_mask, col] = (df.loc[yr_mask, col].astype(float) / 10.0).round(4)
+            close = df["Close"].astype(float)
+            year_medians[yr] = float(close[yr_mask].median())
+            total_corrected += int(yr_mask.sum())
+            made_correction = True
 
-        corrected += int(yr_mask.sum())
+        if not made_correction:
+            break
 
-    return df, corrected
+    return df, total_corrected
 
 
 def _fix_single_value_100x(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
@@ -335,9 +354,22 @@ def _load_csv(path: Path) -> pd.DataFrame | None:
 
 def fix_ticker(csv_path: Path, dry_run: bool = False) -> dict:
     ticker = csv_path.stem.replace("_cleaned", "")
-    df = _load_csv(csv_path)
-    if df is None or df.empty:
+    df_full = _load_csv(csv_path)
+    if df_full is None or df_full.empty:
         return {"ticker": ticker, "rows_before": 0, "fixed": 0, "status": "no_data"}
+
+    # Exclude Is_Stale forward-fill rows from correction logic: these carry the
+    # previous session's close unchanged and would corrupt rolling-median references
+    # (e.g. 63 stale rows at 5.56 in HAFR 2026 would mask the real 1.2 median).
+    # Stale rows are preserved verbatim in the output.
+    stale_col = "Is_Stale"
+    if stale_col in df_full.columns:
+        stale_mask = df_full[stale_col].astype(str).str.lower().isin({"true", "1", "yes"})
+        df_stale = df_full[stale_mask]
+        df = df_full[~stale_mask].copy()
+    else:
+        df_stale = pd.DataFrame()
+        df = df_full.copy()
 
     rows_before = len(df)
     total_fixed = 0
@@ -368,7 +400,12 @@ def fix_ticker(csv_path: Path, dry_run: bool = False) -> dict:
     }
 
     if total_fixed and not dry_run:
-        df.to_csv(csv_path)
+        # Recombine corrected real rows with unchanged stale rows, restore sort order
+        if not df_stale.empty:
+            df_out = pd.concat([df, df_stale]).sort_index()
+        else:
+            df_out = df
+        df_out.to_csv(csv_path)
         log.info(
             "%-16s  %d correction(s) — saved (%d→%d rows)",
             ticker, total_fixed, rows_before, len(df),
@@ -383,9 +420,14 @@ def fix_ticker(csv_path: Path, dry_run: bool = False) -> dict:
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
-def main(dry_run: bool = False, ticker_filter: str | None = None) -> None:
+def main(
+    dry_run: bool = False,
+    ticker_filter: str | None = None,
+    skip_tickers: set[str] | None = None,
+) -> None:
     companies = load_companies()
     safe_set = {c["ticker"].replace(".", "_") for c in companies}
+    skip_set = skip_tickers or set()
 
     paths = sorted(DATA_CLEANED.glob("*_cleaned.csv"))
     if ticker_filter:
@@ -400,6 +442,9 @@ def main(dry_run: bool = False, ticker_filter: str | None = None) -> None:
     for path in paths:
         safe = path.stem.replace("_cleaned", "")
         if safe not in safe_set:
+            continue
+        if safe in skip_set:
+            log.debug("%-16s  skipped (--skip)", safe)
             continue
         result = fix_ticker(path, dry_run=dry_run)
         results.append(result)
@@ -419,6 +464,8 @@ def main(dry_run: bool = False, ticker_filter: str | None = None) -> None:
 
     print()
     print(f"Tickers with corrections: {len(changed)}")
+    if skip_set:
+        print(f"Skipped (need manual review): {', '.join(sorted(skip_set))}")
     if dry_run:
         print("(DRY RUN — no files written)")
 
@@ -427,5 +474,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fix decimal-point errors in cleaned CSVs")
     parser.add_argument("--dry-run", action="store_true", help="Report only, do not write")
     parser.add_argument("--ticker", default=None, help="Process one ticker, e.g. EQTY_NR")
+    parser.add_argument(
+        "--skip",
+        default=None,
+        help="Comma-separated tickers to exclude, e.g. HAFR_NR,TOTL_NR",
+    )
     args = parser.parse_args()
-    main(dry_run=args.dry_run, ticker_filter=args.ticker)
+    skip = set(args.skip.split(",")) if args.skip else None
+    main(dry_run=args.dry_run, ticker_filter=args.ticker, skip_tickers=skip)
