@@ -24,11 +24,13 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 
-def clean_value(raw: str) -> float | None:
+def clean_value(raw: object) -> float | None:
     """Parse a financial value string to float. Parentheses = negative. Returns None if unparseable."""
-    if not raw:
+    if raw is None:
         return None
     s = str(raw).strip()
+    if not s:
+        return None
     if s in ("-", "—", "n/a", "N/A", "nil", ""):
         return None
     negative = s.startswith("(") and s.endswith(")")
@@ -52,7 +54,12 @@ def parse_unit(raw: str) -> str:
     return "KES"
 
 
-def build_metric(current, prior, unit: str = "KES", currency: str = "KES") -> dict:
+def build_metric(
+    current: float | None,
+    prior: float | None,
+    unit: str = "KES",
+    currency: str = "KES",
+) -> dict:
     yoy = None
     if current is not None and prior is not None and prior != 0:
         yoy = round(((current - prior) / abs(prior)) * 100, 2)
@@ -136,51 +143,52 @@ def match_metric(label: str) -> str | None:
     return None
 
 
+def _process_row(row: list, result: dict) -> None:
+    """Populate result dict in-place from a single PDF table row."""
+    label = str(row[0] or "").strip()
+    metric_key = match_metric(label)
+    if not metric_key:
+        return
+
+    numbers = [n for n in (clean_value(str(c)) for c in row[1:] if c is not None) if n is not None]
+    unit = parse_unit(label + " ".join(str(c) for c in row))
+
+    if metric_key == "annualised_roe":
+        cur_raw = str(row[1] or "").strip() if len(row) > 1 else ""
+        pri_raw = str(row[2] or "").strip() if len(row) > 2 else ""
+        cur_pct = cur_raw if "%" in cur_raw else (f"{numbers[0]}%" if numbers else None)
+        pri_pct = pri_raw if "%" in pri_raw else (f"{numbers[1]}%" if len(numbers) > 1 else None)
+        direction = (
+            "increased" if len(numbers) > 1 and numbers[0] > numbers[1]
+            else "decreased" if len(numbers) > 1 and numbers[0] < numbers[1]
+            else None
+        )
+        result["returns"]["annualised_roe"] = {"current": cur_pct, "prior": pri_pct, "direction": direction}
+        return
+
+    current = numbers[0] if numbers else None
+    prior = numbers[1] if len(numbers) > 1 else None
+    metric = build_metric(current, prior, unit=unit, currency="KES")
+
+    for section in ("income_statement", "per_share", "balance_sheet", "cash_flow"):
+        if metric_key in result[section]:
+            result[section][metric_key] = metric
+            break
+
+
 def extract_from_pdf(pdf_path: str) -> dict:
-    """Parse PDF tables and return populated financials dict."""
+    """Parse PDF tables and return populated financials dict. Returns EMPTY_FINANCIALS on error."""
     result = EMPTY_FINANCIALS()
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            for table in (page.extract_tables() or []):
-                for row in table:
-                    if not row or len(row) < 2:
-                        continue
-                    label = str(row[0] or "").strip()
-                    metric_key = match_metric(label)
-                    if not metric_key:
-                        continue
-
-                    numbers = [clean_value(str(c)) for c in row[1:] if c is not None]
-                    numbers = [n for n in numbers if n is not None]
-
-                    unit = parse_unit(label + " ".join(str(c) for c in row))
-                    currency = "KES"
-
-                    if metric_key == "annualised_roe":
-                        cur_raw = str(row[1] or "").strip() if len(row) > 1 else ""
-                        pri_raw = str(row[2] or "").strip() if len(row) > 2 else ""
-                        cur_pct = cur_raw if "%" in cur_raw else (f"{numbers[0]}%" if numbers else None)
-                        pri_pct = pri_raw if "%" in pri_raw else (f"{numbers[1]}%" if len(numbers) > 1 else None)
-                        direction = (
-                            "increased" if numbers and len(numbers) > 1 and numbers[0] > numbers[1]
-                            else "decreased" if numbers and len(numbers) > 1 and numbers[0] < numbers[1]
-                            else None
-                        )
-                        result["returns"]["annualised_roe"] = {
-                            "current":   cur_pct,
-                            "prior":     pri_pct,
-                            "direction": direction,
-                        }
-                        continue
-
-                    current = numbers[0] if numbers else None
-                    prior   = numbers[1] if len(numbers) > 1 else None
-                    metric  = build_metric(current, prior, unit=unit, currency=currency)
-
-                    for section in ("income_statement", "per_share", "balance_sheet", "cash_flow"):
-                        if metric_key in result[section]:
-                            result[section][metric_key] = metric
-                            break
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                for table in (page.extract_tables() or []):
+                    for row in table:
+                        if not row or len(row) < 2:
+                            continue
+                        _process_row(row, result)
+    except Exception:
+        log.exception("Failed to extract tables from %s", pdf_path)
     return result
 
 
