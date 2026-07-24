@@ -17,7 +17,7 @@ from scripts.push_to_firestore import get_db
 
 
 def seed_company(db: Any, company: dict) -> None:
-    safe = company["ticker"].replace(".", "_")
+    doc_id = company["short"]   # e.g. "BRIT" — clean base ticker, no suffix
     doc = {
         "name":             company["name"],
         "short":            company["short"],
@@ -33,8 +33,8 @@ def seed_company(db: Any, company: dict) -> None:
         "price_preview":    [],
         "last_updated":     None,
     }
-    db.collection("companies").document(safe).set(doc, merge=True)
-    print(f"  Seeded: {safe}")
+    db.collection("companies").document(doc_id).set(doc, merge=True)
+    print(f"  Seeded: {doc_id}")
 
 
 def main() -> None:

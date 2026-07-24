@@ -1,0 +1,46 @@
+name: Seed Companies
+
+# Re-seeds the Firestore companies collection using the short ticker as the
+# document key (e.g. "BRIT" instead of "BRIT_NR"). Run this once after
+# the ticker-key migration to create the new documents, then let the
+# regular price_scrape workflow populate prices.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  seed:
+    name: Seed companies to Firestore
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Seed companies
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          set -o pipefail
+          cd $GITHUB_WORKSPACE
+          python pipeline/scripts/seed_companies.py 2>&1 | tee /tmp/seed.log
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seed-log-${{ github.run_id }}
+          path: /tmp/seed.log
+          retention-days: 7

@@ -85,11 +85,12 @@ def _get_csv(safe: str) -> pd.DataFrame | None:
 
 def push_company(company: dict, db) -> dict:
     """Read the scraped CSV and push a price-only update to Firestore."""
-    safe = company["ticker"].replace(".", "_")
+    safe = company["ticker"].replace(".", "_")   # used for CSV file lookup only
+    doc_id = company["short"]                    # Firestore document key (e.g. "BRIT")
 
     df = _get_csv(safe)
     if df is None:
-        return {"ticker": safe, "pushed": False}
+        return {"ticker": doc_id, "pushed": False}
 
     # Build price_history array
     price_history = [
@@ -98,7 +99,7 @@ def push_company(company: dict, db) -> dict:
         if not pd.isna(val)
     ]
     if not price_history:
-        return {"ticker": safe, "pushed": False}
+        return {"ticker": doc_id, "pushed": False}
 
     current_price = round(float(df["Close"].iloc[-1]), 4)
 
@@ -112,7 +113,7 @@ def push_company(company: dict, db) -> dict:
     else:
         change_pct = 0.0
 
-    update_company_public(db, safe, {
+    update_company_public(db, doc_id, {
         "current_price":    current_price,
         "change_pct_today": round(change_pct, 4),
         "price_history":    price_history,
@@ -122,9 +123,9 @@ def push_company(company: dict, db) -> dict:
 
     log.info(
         "%-20s  price=%.4f  chg=%+.2f%%  pts=%d",
-        safe, current_price, change_pct, len(price_history),
+        doc_id, current_price, change_pct, len(price_history),
     )
-    return {"ticker": safe, "pushed": True, "price": current_price}
+    return {"ticker": doc_id, "pushed": True, "price": current_price}
 
 
 def main() -> None:
