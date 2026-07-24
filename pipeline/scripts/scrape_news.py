@@ -10,6 +10,7 @@ Always exits 0 (best-effort enrichment, not core data).
 """
 import sys
 import os
+import json
 import hashlib
 import logging
 from datetime import datetime
@@ -17,22 +18,27 @@ from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 
-# ── Firebase init (same pattern as run_inference.py) ──────────────────────────
+# ── Firebase init — matches push_to_firestore.py pattern ─────────────────────
 import firebase_admin
 from firebase_admin import credentials, firestore as fs
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-_SA_KEY = os.environ.get("FIREBASE_SA_KEY_PATH", "firebase-key.json")
 if not firebase_admin._apps:
-    cred = credentials.Certificate(_SA_KEY)
+    sa_raw = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON", "")
+    if sa_raw.strip().startswith("{"):
+        sa_dict = json.loads(sa_raw)
+        cred = credentials.Certificate(sa_dict)
+    else:
+        # local dev fallback: path to key file
+        key_path = os.environ.get("FIREBASE_SA_KEY_PATH", "firebase-key.json")
+        cred = credentials.Certificate(key_path)
     firebase_admin.initialize_app(cred)
 
 db = fs.client()
 
 # ── Load company tickers from companies.json ──────────────────────────────────
-import json
 _CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "companies.json")
 with open(_CONFIG_PATH, encoding="utf-8") as f:
     _COMPANIES = json.load(f)

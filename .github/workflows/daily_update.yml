@@ -46,6 +46,14 @@ jobs:
           cd $GITHUB_WORKSPACE
           python pipeline/scripts/run_daily_update.py 2>&1 | tee /tmp/daily_update.log
 
+      - name: Scrape NSE announcements
+        continue-on-error: true
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -o pipefail
+          python pipeline/scripts/scrape_news.py 2>&1 | tee /tmp/scrape_news.log
+
       - name: Upload log
         if: always()
         uses: actions/upload-artifact@v4
