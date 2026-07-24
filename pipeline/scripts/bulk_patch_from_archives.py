@@ -64,9 +64,22 @@ def _parse_date(raw: str) -> str:
 
 def _safe_float(v: str | None) -> float:
     try:
-        return float(str(v or "").strip().replace(",", "").rstrip("%"))
+        s = str(v or "").strip().replace(",", "").rstrip("%")
+        if s in ("", "-", "N/A", "n/a"):
+            return 0.0
+        return float(s)
     except (ValueError, TypeError):
         return 0.0
+
+
+def _archive_price(row: dict) -> float:
+    """Extract best available price from an archive row (Adjusted Price → Day Price)."""
+    for key in ("Adjusted Price", "Day Price"):
+        val = row.get(key, "")
+        p = _safe_float(val)
+        if p > 0:
+            return p
+    return 0.0
 
 
 def _corrected_price(ticker: str, date_iso: str, price: float) -> float:
@@ -93,9 +106,7 @@ def load_archive_multidate(path: Path, ticker_filter: set[str] | None = None) ->
                     row["_date_iso"] = _parse_date(row.get("Date", ""))
                 except ValueError:
                     continue
-                adj_raw = (row.get("Adjusted Price") or row.get("Day Price") or "").strip()
-                adj = _safe_float(adj_raw)
-                if adj <= 0:
+                if _archive_price(row) <= 0:
                     continue
                 result.setdefault(code, []).append(row)
     except Exception as e:
@@ -116,8 +127,7 @@ def save_cleaned(path: Path, rows: list[dict]) -> None:
 
 
 def build_new_row(date_iso: str, archive_row: dict, ticker: str) -> dict:
-    adj = _safe_float(archive_row.get("Adjusted Price") or archive_row.get("Day Price", "0"))
-    adj = _corrected_price(ticker, date_iso, adj)
+    adj = _corrected_price(ticker, date_iso, _archive_price(archive_row))
     day_high = _corrected_price(ticker, date_iso, _safe_float(archive_row.get("Day High", "0"))) or adj
     day_low = _corrected_price(ticker, date_iso, _safe_float(archive_row.get("Day Low", "0"))) or adj
     volume = _safe_float(archive_row.get("Volume", "0"))
@@ -180,9 +190,7 @@ def patch_company_multidate(
     # Step 3: Process each archive date
     for arc_row in sorted(archive_rows, key=lambda x: x["_date_iso"]):
         date_iso = arc_row["_date_iso"]
-        adj_raw = (arc_row.get("Adjusted Price") or arc_row.get("Day Price") or "").strip()
-        archive_price_raw = _safe_float(adj_raw)
-        archive_price = _corrected_price(ticker, date_iso, archive_price_raw)
+        archive_price = _corrected_price(ticker, date_iso, _archive_price(arc_row))
 
         if archive_price <= 0:
             continue
