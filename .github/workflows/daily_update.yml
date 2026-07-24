@@ -34,6 +34,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r pipeline/requirements.txt
 
+      - name: Scrape NSE daily PDF → RTDB
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL: ${{ secrets.FIREBASE_RTDB_URL }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          python pipeline/scripts/scrape_nse_pdf.py 2>&1 | tee /tmp/scrape_pdf.log
+
       - name: Run daily model update
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
