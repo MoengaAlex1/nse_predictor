@@ -1,23 +1,13 @@
-import json
 import os
 from datetime import date, timedelta
 import firebase_admin
-from firebase_admin import credentials, firestore, storage as fb_storage
+from firebase_admin import storage as fb_storage
+
+from pipeline.scripts.firebase_client import get_firestore as _get_firestore
 
 
 def get_db():
-    if not firebase_admin._apps:
-        sa_raw = os.environ["FIREBASE_SERVICE_ACCOUNT_JSON"]
-        if sa_raw.strip().startswith("{"):
-            sa_dict = json.loads(sa_raw)
-        else:
-            with open(sa_raw, encoding="utf-8") as _fh:
-                sa_dict = json.load(_fh)
-        cred = credentials.Certificate(sa_dict)
-        firebase_admin.initialize_app(cred, {
-            "storageBucket": os.environ["FIREBASE_STORAGE_BUCKET"]
-        })
-    return firestore.client()
+    return _get_firestore()
 
 
 def write_snapshot(db, ticker: str, date_str: str, data: dict) -> None:
