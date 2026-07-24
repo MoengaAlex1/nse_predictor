@@ -62,25 +62,33 @@ def build_prompt(ticker: str, period: str, comparison: str, financials: dict) ->
     )
 
 
-def call_claude(prompt: str) -> dict:
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-        system=SYSTEM_PROMPT,
-    )
+def call_claude(prompt: str, api_key: str) -> dict:
+    client = anthropic.Anthropic(api_key=api_key)
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+            system=SYSTEM_PROMPT,
+        )
+    except anthropic.APIError as exc:
+        log.error("Claude API error: %s", exc)
+        raise
     raw = message.content[0].text.strip()
-    return json.loads(raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        log.error("Model returned non-JSON response: %s", raw[:200])
+        raise ValueError("Claude response was not valid JSON") from exc
 
 
 def save_analysis(db, ticker: str, period: str, analysis: dict) -> None:
-    analysis["generated_at"] = datetime.now(timezone.utc).isoformat()
+    doc = {**analysis, "generated_at": datetime.now(timezone.utc).isoformat()}
     (db.collection("financials")
        .document(ticker)
        .collection("analysis")
        .document(period)
-       .set(analysis))
+       .set(doc))
     log.info("Saved analysis for %s / %s", ticker, period)
 
 
@@ -90,6 +98,11 @@ def main() -> None:
     parser.add_argument("--ticker", required=True)
     parser.add_argument("--period", required=True, help="e.g. H1-2026")
     args = parser.parse_args()
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        log.error("ANTHROPIC_API_KEY environment variable is not set.")
+        sys.exit(1)
 
     from pipeline.scripts.firebase_client import get_firestore
     db = get_firestore()
@@ -101,14 +114,14 @@ def main() -> None:
              .get())
     if not doc.exists:
         log.error("No extracted metrics for %s / %s. Run extract_financials first.", args.ticker, args.period)
-        return
+        sys.exit(1)
 
     data = doc.to_dict()
     comparison = data.get("comparison_period", "prior period")
     prompt = build_prompt(args.ticker, args.period, comparison, data)
 
     log.info("Calling Claude API for %s / %s ...", args.ticker, args.period)
-    analysis = call_claude(prompt)
+    analysis = call_claude(prompt, api_key)
     save_analysis(db, args.ticker, args.period, analysis)
     log.info("Done.")
 
