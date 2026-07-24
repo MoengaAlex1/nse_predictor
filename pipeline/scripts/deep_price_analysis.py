@@ -16,6 +16,7 @@ import os
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import anthropic
 
@@ -70,7 +71,7 @@ Return only valid JSON. No markdown fences.
 """
 
 
-def fetch_price_summary(root_ref, ticker: str, days: int = 90) -> str:
+def fetch_price_summary(root_ref: Any, ticker: str, days: int = 90) -> list[dict]:
     end_date = date.today().isoformat()
     start_date = (date.today() - timedelta(days=days)).isoformat()
     snap = (
@@ -81,21 +82,14 @@ def fetch_price_summary(root_ref, ticker: str, days: int = 90) -> str:
         .get()
     )
     if not snap:
-        return "No price data available."
-    items = sorted(snap.items())
-    first, last = items[0], items[-1]
-    pct = round(
-        ((last[1].get("c", 0) - first[1].get("c", 0)) / (first[1].get("c", 1) or 1)) * 100, 1
-    )
-    summary = f"90-day change: {pct:+.1f}% (from {first[1].get('c', '?')} to {last[1].get('c', '?')} KES)\n"
-    lines = [
-        f"{date_str}: open={fields.get('o', '?')} close={fields.get('c', '?')} vol={fields.get('v', '?')}"
-        for date_str, fields in items[-10:]
+        return []
+    return [
+        {"date": date_str, **fields}
+        for date_str, fields in sorted(snap.items())
     ]
-    return summary + "\n".join(lines)
 
 
-def fetch_technicals(db, ticker: str) -> str:
+def fetch_technicals(db: Any, ticker: str) -> dict:
     docs = list(
         db.collection("companies")
         .document(ticker)
@@ -105,28 +99,23 @@ def fetch_technicals(db, ticker: str) -> str:
         .stream()
     )
     if not docs:
-        return "No technical data."
+        return {}
     d = docs[0].to_dict()
     wanted = {
         "rsi_14", "macd", "macd_signal", "bb_upper", "bb_lower",
         "sma_20", "sma_50", "sma_200", "volatility_30d",
     }
-    return json.dumps({k: v for k, v in d.items() if k in wanted}, indent=2)
+    return {k: v for k, v in d.items() if k in wanted}
 
 
-def fetch_news(db, ticker: str, days: int = 30) -> str:
+def fetch_news(db: Any, ticker: str, days: int = 30) -> list[dict]:
     cutoff = (date.today() - timedelta(days=days)).isoformat()
     docs = list(db.collection("news").document(ticker).collection("items").stream())
     recent = [d.to_dict() for d in docs if d.to_dict().get("date", "") >= cutoff]
-    if not recent:
-        return "No recent news."
-    return "\n".join(
-        f"- [{item['date']}] ({item.get('category', '')}) {item['title']}"
-        for item in sorted(recent, key=lambda x: x.get("date", ""), reverse=True)[:15]
-    )
+    return sorted(recent, key=lambda x: x.get("date", ""), reverse=True)[:15]
 
 
-def fetch_corporate_actions(db, ticker: str) -> str:
+def fetch_corporate_actions(db: Any, ticker: str) -> dict:
     docs = list(
         db.collection("companies")
         .document(ticker)
@@ -136,11 +125,11 @@ def fetch_corporate_actions(db, ticker: str) -> str:
         .stream()
     )
     if not docs:
-        return "No corporate actions."
-    return "\n".join(f"- [{d.id}] {json.dumps(d.to_dict())}" for d in docs)
+        return {}
+    return {d.id: d.to_dict() for d in docs}
 
 
-def fetch_financial_analysis(db, ticker: str) -> str:
+def fetch_financial_analysis(db: Any, ticker: str) -> dict:
     docs = list(
         db.collection("financials")
         .document(ticker)
@@ -150,26 +139,26 @@ def fetch_financial_analysis(db, ticker: str) -> str:
         .stream()
     )
     if not docs:
-        return "No financial analysis available."
-    d = docs[0].to_dict()
-    return (
-        f"Summary: {d.get('summary', '')}\n"
-        f"Revenue: {d.get('revenue_trend', '')}\n"
-        f"Profit: {d.get('profit_trend', '')}\n"
-        f"Risks: {'; '.join(d.get('key_risks', []))}"
-    )
+        return {}
+    return docs[0].to_dict()
 
 
-def run_analysis(ticker: str, target_date: str, db, root_ref, api_key: str) -> dict:
+def run_analysis(ticker: str, target_date: str, db: Any, root_ref: Any, api_key: str) -> dict:
     short = ticker.replace(".NR", "").replace("_NR", "")
+
+    price_data = fetch_price_summary(root_ref, short)
+    technicals_data = fetch_technicals(db, ticker)
+    news_data = fetch_news(db, ticker)
+    corporate_actions_data = fetch_corporate_actions(db, ticker)
+    financial_analysis_data = fetch_financial_analysis(db, ticker)
 
     prompt = USER_PROMPT_TEMPLATE.format(
         ticker=ticker,
-        price_summary=fetch_price_summary(root_ref, short),
-        technicals=fetch_technicals(db, ticker),
-        news_items=fetch_news(db, ticker),
-        corporate_actions=fetch_corporate_actions(db, ticker),
-        financial_analysis=fetch_financial_analysis(db, ticker),
+        price_summary=json.dumps(price_data, indent=2) if price_data else "No price data available.",
+        technicals=json.dumps(technicals_data, indent=2) if technicals_data else "No technical data.",
+        news_items=json.dumps(news_data, indent=2) if news_data else "No recent news.",
+        corporate_actions=json.dumps(corporate_actions_data, indent=2) if corporate_actions_data else "No corporate actions.",
+        financial_analysis=json.dumps(financial_analysis_data, indent=2) if financial_analysis_data else "No financial analysis available.",
     )
 
     client = anthropic.Anthropic(api_key=api_key)
@@ -198,7 +187,7 @@ def run_analysis(ticker: str, target_date: str, db, root_ref, api_key: str) -> d
     }
 
 
-def save_result(db, ticker: str, date_str: str, result: dict) -> None:
+def save_result(db: Any, ticker: str, date_str: str, result: dict) -> None:
     (
         db.collection("deep_analysis")
         .document(ticker)
