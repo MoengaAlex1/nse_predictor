@@ -20,6 +20,8 @@ from typing import Any
 
 import anthropic
 
+from pipeline.scripts.firebase_client import get_firestore, get_rtdb
+
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
 
@@ -111,7 +113,8 @@ def fetch_technicals(db: Any, ticker: str) -> dict:
 def fetch_news(db: Any, ticker: str, days: int = 30) -> list[dict]:
     cutoff = (date.today() - timedelta(days=days)).isoformat()
     docs = list(db.collection("news").document(ticker).collection("items").stream())
-    recent = [d.to_dict() for d in docs if d.to_dict().get("date", "") >= cutoff]
+    all_dicts = [d.to_dict() for d in docs]
+    recent = [d for d in all_dicts if d.get("date", "") >= cutoff]
     return sorted(recent, key=lambda x: x.get("date", ""), reverse=True)[:15]
 
 
@@ -172,6 +175,8 @@ def run_analysis(ticker: str, target_date: str, db: Any, root_ref: Any, api_key:
     except anthropic.APIError as exc:
         log.error("Claude API error for %s: %s", ticker, exc)
         raise
+    if not message.content:
+        raise ValueError("Claude returned an empty content list")
     raw = message.content[0].text.strip()
     try:
         result = json.loads(raw)
@@ -210,9 +215,17 @@ def main() -> None:
         log.error("ANTHROPIC_API_KEY environment variable is not set.")
         sys.exit(1)
 
-    target_date = args.date or date.today().isoformat()
+    firebase_sa = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON")
+    if not firebase_sa:
+        log.error("FIREBASE_SERVICE_ACCOUNT_JSON environment variable is not set.")
+        sys.exit(1)
 
-    from pipeline.scripts.firebase_client import get_firestore, get_rtdb
+    rtdb_url = os.environ.get("FIREBASE_RTDB_URL")
+    if not rtdb_url:
+        log.error("FIREBASE_RTDB_URL environment variable is not set.")
+        sys.exit(1)
+
+    target_date = args.date or date.today().isoformat()
 
     db = get_firestore()
     root_ref = get_rtdb()
@@ -220,10 +233,8 @@ def main() -> None:
     if args.ticker:
         tickers = [args.ticker]
     else:
-        import json as _json
-
         config_path = Path(__file__).parent.parent / "config" / "companies.json"
-        tickers = [c["ticker"] for c in _json.loads(config_path.read_text())]
+        tickers = [c["ticker"] for c in json.loads(config_path.read_text())]
 
     for ticker in tickers:
         try:
