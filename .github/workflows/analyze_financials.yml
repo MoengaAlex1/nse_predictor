@@ -1,0 +1,55 @@
+# .github/workflows/analyze_financials.yml
+name: Analyze Financial Reports (AI)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ticker:
+        description: "Ticker to process (e.g. BAT)"
+        required: true
+      period:
+        description: "Period key (e.g. H1-2026)"
+        required: true
+      pdf_path:
+        description: "Path to PDF in Firebase Storage (e.g. financial_reports/BAT/H1-2026/report.pdf)"
+        required: false
+  schedule:
+    - cron: "0 6 1 * *"   # 1st of each month at 06:00 UTC
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - run: pip install -r pipeline/requirements.txt
+
+      - name: Extract financials from PDF
+        if: ${{ github.event.inputs.pdf_path != '' }}
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL: ${{ secrets.FIREBASE_RTDB_URL }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          python pipeline/scripts/extract_financials.py \
+            --ticker ${{ github.event.inputs.ticker }} \
+            --period ${{ github.event.inputs.period }} \
+            --pdf ${{ github.event.inputs.pdf_path }}
+
+      - name: Generate AI narrative
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL: ${{ secrets.FIREBASE_RTDB_URL }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python pipeline/scripts/analyze_financials_ai.py \
+            --ticker ${{ github.event.inputs.ticker }} \
+            --period ${{ github.event.inputs.period }}
