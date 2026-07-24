@@ -1,0 +1,76 @@
+name: Fix CSV Decimal Errors
+
+# Downloads CSVs from Firebase Storage, corrects known decimal-point errors
+# (e.g. 342 → 34.2 for EQTY/KCB historical data, 123 → 1.23 for TRFC),
+# re-uploads the fixed CSVs, and pushes corrected price_history to Firestore.
+#
+# Affected tickers: EQTY_NR KCB_NR OCH_NR TRFC_NR
+# Trigger manually after identifying a decimal error via QA.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: >
+          Space-separated safe ticker names to fix
+          (e.g. EQTY_NR KCB_NR OCH_NR TRFC_NR).
+          Leave blank to scan all companies.
+        required: false
+        default: "EQTY_NR KCB_NR OCH_NR TRFC_NR"
+      dry_run:
+        description: "Set to 'true' to report only — no files written, no Firestore update"
+        required: false
+        default: "false"
+
+jobs:
+  fix-csvs:
+    name: Fix decimal errors + push to Firestore
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Fix CSVs and push to Firestore
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          set -o pipefail
+          cd $GITHUB_WORKSPACE
+
+          if [ -n "${{ github.event.inputs.tickers }}" ]; then
+            TICKER_ARGS="--tickers ${{ github.event.inputs.tickers }}"
+          else
+            TICKER_ARGS="--all"
+          fi
+
+          DRY_RUN_ARG=""
+          [ "${{ github.event.inputs.dry_run }}" = "true" ] && DRY_RUN_ARG="--dry-run"
+
+          python pipeline/scripts/fix_storage_csvs.py $TICKER_ARGS $DRY_RUN_ARG 2>&1 | tee /tmp/fix_csvs.log
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fix-csvs-log-${{ github.run_id }}
+          path: /tmp/fix_csvs.log
+          retention-days: 7
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::CSV fix failed — check artifact log"
+          tail -30 /tmp/fix_csvs.log || true

@@ -983,6 +983,33 @@ const GatedContent: FC<{
   );
 };
 
+// ── Data quality banner ────────────────────────────────────────────────────────
+const DataQualityBanner: FC<{ history: PricePoint[] }> = ({ history }) => {
+  const lastDate = history.length > 0 ? history[history.length - 1].date : null;
+  const daysSinceLast = lastDate
+    ? Math.floor((Date.now() - new Date(lastDate + "T00:00:00").getTime()) / (1000 * 60 * 60 * 24))
+    : null;
+
+  const hasNoData      = history.length === 0;
+  const hasDataGap     = !hasNoData && daysSinceLast !== null && daysSinceLast > 60;
+  const hasLimitedData = !hasNoData && !hasDataGap && history.length < 30;
+
+  if (!hasNoData && !hasDataGap && !hasLimitedData) return null;
+
+  const message = hasNoData
+    ? "No price history is available for this security. It may be newly listed or data is pending."
+    : hasDataGap
+    ? `Price data may be incomplete. Last recorded price: ${lastDate} (${daysSinceLast} days ago). NSE data sources may have a gap for this security.`
+    : `Limited trading history available (${history.length} trading ${history.length === 1 ? "day" : "days"} recorded). This security may be newly listed or thinly traded.`;
+
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-amber-700/40 bg-amber-950/25 px-4 py-3">
+      <span className="mt-0.5 shrink-0 text-amber-400">⚠</span>
+      <p className="text-xs leading-relaxed text-amber-300/80">{message}</p>
+    </div>
+  );
+};
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export const CompanyDeepDive: FC = () => {
   const { ticker = "" } = useParams<{ ticker: string }>();
@@ -992,20 +1019,21 @@ export const CompanyDeepDive: FC = () => {
   const { data: events = [] } = useCorporateEvents(ticker);
   const { data: financials } = useFinancials(ticker);
   const { data: macro } = useMacro();
+
+  // Today's date in EAT (UTC+3) — must be defined before state that depends on it
+  const todayEAT = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  // Range state lives here so both StatsStrip and ChartSection share it
+  const [range, setRange]             = useState<RangeKey>("3M");
+  const [from, setFrom]               = useState("");
+  const [to, setTo]                   = useState("");
+  const [intradayDay, setIntradayDay] = useState(todayEAT);
+
   const { data: historicalIntraday } = useIntradayDay(
     ticker,
     intradayDay,
     range === "1D" && intradayDay !== todayEAT,
   );
-
-  // Today's date in EAT (UTC+3), used as the default and max for the intraday day picker
-  const todayEAT = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
-
-  // Range state lives here so both StatsStrip and ChartSection share it
-  const [range, setRange]           = useState<RangeKey>("3M");
-  const [from, setFrom]             = useState("");
-  const [to, setTo]                 = useState("");
-  const [intradayDay, setIntradayDay] = useState(todayEAT);
 
   if (isLoading) {
     return (
@@ -1138,6 +1166,9 @@ export const CompanyDeepDive: FC = () => {
           currentPrice={company.current_price}
           technicals={technicals}
         />
+
+        {/* ── Data quality banner (shows for gaps / limited / no history) ── */}
+        <DataQualityBanner history={history} />
 
         {/* ── Trading chart ─────────────────────────────────────────────── */}
         {(history.length > 1 || range === "1D") && (
