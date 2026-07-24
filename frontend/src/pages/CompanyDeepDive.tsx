@@ -11,6 +11,7 @@ import { TradingChart } from "../components/charts/TradingChart";
 import { PredictionChart } from "../components/charts/PredictionChart";
 import { PriceExplainer } from "../components/company/PriceExplainer";
 import { useCompany, useLatestSnapshot, useLatestTechnicals, useCorporateEvents, useFinancials, useMacro, useIntradayDay, useFundamentals, useNews } from "../hooks/useCompany";
+import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
 import type { PricePoint, IntradayPoint, SnapshotDoc, TechnicalsDoc, CompanyDoc, CorporateEvent, FinancialsDoc, NSEAnnouncement } from "../types";
 import { CompanyProfileCard } from "../components/investor/CompanyProfileCard";
 import { QuoteSummaryPanel } from "../components/investor/QuoteSummaryPanel";
@@ -1067,6 +1068,22 @@ export const CompanyDeepDive: FC = () => {
     range === "1D" && intradayDay !== todayEAT,
   );
 
+  // ── RTDB historical prices ────────────────────────────────────────────────────
+  // Date range covers all available history
+  const chartEnd   = new Date().toISOString().slice(0, 10);
+  const chartStart = "2008-01-01";
+  const cleanTicker = ticker.replace(/\.(NR|KE)$/, "").replace(/_NR$/, "");
+  const { data: rtdbPrices = [] } = useHistoricalPrices(
+    cleanTicker,
+    chartStart,
+    chartEnd,
+  );
+
+  // Map RTDB data to PricePoint format (c = close price)
+  const rtdbHistory: PricePoint[] = rtdbPrices
+    .filter((p) => p.c !== null && p.c !== undefined)
+    .map((p) => ({ date: p.date, price: p.c as number }));
+
   // Auto-widen range to ALL when the default 3M view has fewer than 20 data points.
   // Fires once per ticker load so the user's manual range selection is not overridden.
   const autoRangedRef = useRef(false);
@@ -1107,7 +1124,9 @@ export const CompanyDeepDive: FC = () => {
   }
 
   const change  = company.change_pct_today;
-  const history = cleanPriceHistory(company.price_history ?? []);
+  // Use RTDB data when available, fall back to Firestore price_history
+  const chartData = rtdbHistory.length > 0 ? rtdbHistory : cleanPriceHistory(company.price_history ?? []);
+  const history   = chartData;
 
   const intradaySource: IntradayPoint[] | undefined =
     range === "1D"
