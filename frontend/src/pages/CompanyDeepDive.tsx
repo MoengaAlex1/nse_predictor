@@ -511,7 +511,7 @@ const ChartSection: FC<{
   intradayDay: string;
   setIntradayDay: (d: string) => void;
   todayEAT: string;
-}> = ({ company, technicals, range, setRange, from, setFrom, to, setTo, visible, announcements, intradayDate, intradayDay, setIntradayDay, todayEAT }) => {
+}> = ({ company, technicals, range, setRange, from, setFrom, to, setTo, visible, announcements, intradayDay, setIntradayDay, todayEAT }) => {
   const [showFib, setShowFib]    = useState(true);
   const [showSMAs, setShowSMAs]  = useState(true);
   const [showEvents, setShowEvents] = useState(true);

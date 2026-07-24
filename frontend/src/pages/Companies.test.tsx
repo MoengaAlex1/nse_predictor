@@ -30,6 +30,7 @@ const mockCompanies: CompanyDoc[] = [
     price_history: [],
     price_preview: [],
     last_updated: "2026-07-15",
+    price_date: null,
   },
   {
     id: "EQTY_NR",
@@ -46,6 +47,7 @@ const mockCompanies: CompanyDoc[] = [
     price_history: [],
     price_preview: [],
     last_updated: "2026-07-15",
+    price_date: null,
   },
 ];
 
