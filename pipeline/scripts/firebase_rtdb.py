@@ -1,9 +1,10 @@
 import math
+import re
 
 
 def to_short_ticker(ticker: str) -> str:
-    """SCOM.NR or SCOM_NR → SCOM."""
-    return ticker.replace(".NR", "").replace("_NR", "").replace(".", "").upper()
+    """SCOM.NR or SCOM_NR → SCOM. Splits on first dot or underscore separator."""
+    return re.split(r"[._]", ticker)[0].upper()
 
 
 def _clean(val) -> float | None:
@@ -16,20 +17,17 @@ def _clean(val) -> float | None:
         return None
 
 
+_FIELDS = ("o", "h", "l", "c", "v", "pc", "ch", "pch", "vv")
+
+
+def _build_node(fields: dict) -> dict:
+    return {k: _clean(fields.get(k)) for k in _FIELDS}
+
+
 def write_price_node(root_ref, ticker: str, date_str: str, fields: dict) -> None:
-    """Write a single OHLCV node. Uses update() so existing nodes are never overwritten."""
+    """Write a single OHLCV node via multi-path update(). Atomically writes the node dict."""
     short = to_short_ticker(ticker)
-    node = {
-        "o":   _clean(fields.get("o")),
-        "h":   _clean(fields.get("h")),
-        "l":   _clean(fields.get("l")),
-        "c":   _clean(fields.get("c")),
-        "v":   _clean(fields.get("v")),
-        "pc":  _clean(fields.get("pc")),
-        "ch":  _clean(fields.get("ch")),
-        "pch": _clean(fields.get("pch")),
-        "vv":  _clean(fields.get("vv")),
-    }
+    node = _build_node(fields)
     root_ref.update({f"prices/{short}/{date_str}": node})
 
 
@@ -39,17 +37,7 @@ def bulk_write_prices(root_ref, ticker: str, records: dict, batch_size: int = 50
     batch: dict = {}
     total = 0
     for date_str, fields in records.items():
-        node = {
-            "o":   _clean(fields.get("o")),
-            "h":   _clean(fields.get("h")),
-            "l":   _clean(fields.get("l")),
-            "c":   _clean(fields.get("c")),
-            "v":   _clean(fields.get("v")),
-            "pc":  _clean(fields.get("pc")),
-            "ch":  _clean(fields.get("ch")),
-            "pch": _clean(fields.get("pch")),
-            "vv":  _clean(fields.get("vv")),
-        }
+        node = _build_node(fields)
         batch[f"prices/{short}/{date_str}"] = node
         if len(batch) >= batch_size:
             root_ref.update(batch)
