@@ -10,8 +10,12 @@ import { CompanyLogo } from "../components/ui/CompanyLogo";
 import { TradingChart } from "../components/charts/TradingChart";
 import { PredictionChart } from "../components/charts/PredictionChart";
 import { PriceExplainer } from "../components/company/PriceExplainer";
-import { useCompany, useLatestSnapshot, useLatestTechnicals, useCorporateEvents, useFinancials, useMacro, useIntradayDay } from "../hooks/useCompany";
+import { useCompany, useLatestSnapshot, useLatestTechnicals, useCorporateEvents, useFinancials, useMacro, useIntradayDay, useFundamentals, useNews } from "../hooks/useCompany";
 import type { PricePoint, IntradayPoint, SnapshotDoc, TechnicalsDoc, CompanyDoc, CorporateEvent, FinancialsDoc, NSEAnnouncement } from "../types";
+import { CompanyProfileCard } from "../components/investor/CompanyProfileCard";
+import { QuoteSummaryPanel } from "../components/investor/QuoteSummaryPanel";
+import { ValuationPanel } from "../components/investor/ValuationPanel";
+import { NewsPanel } from "../components/investor/NewsPanel";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type RangeKey = "1D" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL" | "Custom";
@@ -1042,6 +1046,8 @@ export const CompanyDeepDive: FC = () => {
   const { data: events = [] } = useCorporateEvents(ticker);
   const { data: financials } = useFinancials(ticker);
   const { data: macro } = useMacro();
+  const { data: fundamentals } = useFundamentals(ticker);
+  const { data: newsItems = [] } = useNews(ticker);
 
   // Today's date in EAT (UTC+3) — stable across renders
   const todayEAT = useMemo(
@@ -1201,6 +1207,17 @@ export const CompanyDeepDive: FC = () => {
           </div>
         </div>
 
+        {/* ── Company profile ───────────────────────────────────────────── */}
+        <CompanyProfileCard company={company} />
+
+        {/* ── Quote summary ─────────────────────────────────────────────── */}
+        <QuoteSummaryPanel
+          company={company}
+          technicals={technicals}
+          financials={financials ?? null}
+          snapshot={snapshot ?? null}
+        />
+
         {/* ── Stats strip — reacts to selected range ────────────────────── */}
         <StatsStrip
           data={visible.length > 0 ? visible : history}
@@ -1245,8 +1262,18 @@ export const CompanyDeepDive: FC = () => {
           />
         )}
 
+        {/* ── Company valuation ─────────────────────────────────────────── */}
+        <ValuationPanel
+          company={company}
+          financials={financials ?? null}
+          fundamentals={fundamentals ?? null}
+        />
+
         {/* ── NSE filings timeline ──────────────────────────────────────── */}
         <FilingsTimeline financials={financials ?? undefined} />
+
+        {/* ── News & press releases ─────────────────────────────────────── */}
+        <NewsPanel financials={financials} newsItems={newsItems} />
 
         {/* ── AI signal + technicals ────────────────────────────────────── */}
         <GatedContent
