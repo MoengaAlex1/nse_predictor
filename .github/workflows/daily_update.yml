@@ -62,6 +62,16 @@ jobs:
           set -o pipefail
           python pipeline/scripts/scrape_news.py 2>&1 | tee /tmp/scrape_news.log
 
+      - name: Deep price analysis (Claude AI)
+        continue-on-error: true
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL: ${{ secrets.FIREBASE_RTDB_URL }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python pipeline/scripts/deep_price_analysis.py 2>&1 | tee /tmp/deep_analysis.log
+
       - name: Upload log
         if: always()
         uses: actions/upload-artifact@v4
