@@ -91,7 +91,9 @@ def parse_announcement(row: dict) -> dict:
         "category":   _infer_category(title, raw_type),
         "body":       row.get("body", None),
         "url":        row.get("url", None) or None,
-        "source":     "scraper",
+        "source":     row.get("source", "scraper"),
+        "is_pdf":     row.get("is_pdf", False),
+        "pdf_url":    row.get("pdf_url", None),
         "created_at": datetime.utcnow().isoformat(),
     }
 
@@ -151,6 +153,103 @@ def fetch_nse_announcements(safe_ticker: str) -> list:
         return []
 
 
+# ── Company IR page scraper ───────────────────────────────────────────────────
+COMPANY_IR_URLS: dict[str, str] = {
+    "SCOM":  "https://www.safaricom.co.ke/investor-relations/financial-information",
+    "KCB":   "https://ke.kcbgroup.com/investor-relations/financial-highlights",
+    "EQTY":  "https://equitygroupholdings.com/investor-relations/",
+    "COOP":  "https://www.co-opbank.co.ke/investor-relations/",
+    "EABL":  "https://www.eabl.com/investor-relations",
+    "BAT":   "https://www.bat.com/group/sites/UK__9D9KCY.nsf/vwPagesWebLive/DOBBMNC8",
+    "BAMB":  "https://www.bamburi.com/en/investors",
+    "NMG":   "https://www.nationmedia.com/investor-relations/",
+    "BRIT":  "https://www.britam.com/investor-relations",
+    "JUB":   "https://www.jubileeinsurance.com/ke/investor-relations",
+    "NCBA":  "https://ke.ncbagroup.com/investor-relations/",
+    "ABSA":  "https://www.absa.co.ke/investor-relations/",
+}
+
+
+def fetch_company_ir_news(safe_ticker: str) -> list:
+    """Scrape company investor relations page for press releases and results."""
+    short = safe_ticker.replace("_NR", "").replace(".NR", "")
+    url = COMPANY_IR_URLS.get(short)
+    if not url:
+        return []
+    try:
+        resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+        rows = []
+        for a_tag in soup.find_all("a", href=True):
+            text = a_tag.get_text(strip=True)
+            if len(text) < 10:
+                continue
+            if not any(kw in text.lower() for kw in (
+                "result", "earning", "profit", "revenue", "dividend",
+                "annual", "report", "interim", "half year", "full year"
+            )):
+                continue
+            href = a_tag["href"]
+            if not href.startswith("http"):
+                from urllib.parse import urljoin
+                href = urljoin(url, href)
+            is_pdf = href.lower().endswith(".pdf")
+            rows.append({
+                "date":    datetime.utcnow().strftime("%Y-%m-%d"),
+                "title":   text,
+                "type":    "general",
+                "url":     href,
+                "body":    None,
+                "is_pdf":  is_pdf,
+                "pdf_url": href if is_pdf else None,
+                "source":  short.lower() + ".ir",
+            })
+        log.info("%s: fetched %d IR items", safe_ticker, len(rows))
+        return rows[:20]
+    except Exception as exc:
+        log.warning("%s IR: fetch failed — %s", safe_ticker, exc)
+        return []
+
+
+def fetch_marketscreener_news(short_ticker: str) -> list:
+    """Fetch latest news from MarketScreener for a ticker."""
+    url = f"https://www.marketscreener.com/quote/stock/{short_ticker}/news/"
+    try:
+        resp = requests.get(url, timeout=15, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        })
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+        rows = []
+        for article in soup.select("article, .article-item, .news-item"):
+            title_el = article.find(["h2", "h3", "a"])
+            if not title_el:
+                continue
+            title = title_el.get_text(strip=True)
+            date_el = article.find(["time", ".date"])
+            date_str = date_el.get("datetime", "")[:10] if date_el else datetime.utcnow().strftime("%Y-%m-%d")
+            link_el = article.find("a", href=True)
+            href = link_el["href"] if link_el else url
+            if href.startswith("/"):
+                href = "https://www.marketscreener.com" + href
+            rows.append({
+                "date":    date_str or datetime.utcnow().strftime("%Y-%m-%d"),
+                "title":   title,
+                "type":    "general",
+                "url":     href,
+                "body":    None,
+                "is_pdf":  False,
+                "pdf_url": None,
+                "source":  "marketscreener",
+            })
+        log.info("%s: fetched %d MarketScreener items", short_ticker, len(rows))
+        return rows[:30]
+    except Exception as exc:
+        log.warning("%s MarketScreener: fetch failed — %s", short_ticker, exc)
+        return []
+
+
 def _parse_date(raw: str) -> str:
     """Normalise NSE date string to ISO YYYY-MM-DD. Falls back to today on parse error."""
     for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d %b %Y"):
@@ -166,9 +265,13 @@ def main() -> None:
     log.info("NSE news scraper starting — %d companies", len(TICKERS))
     pushed_total = 0
     for safe_ticker in TICKERS:
+        short = safe_ticker.replace("_NR", "")
         try:
-            rows = fetch_nse_announcements(safe_ticker)
-            for row in rows:
+            all_rows: list = []
+            all_rows += fetch_nse_announcements(safe_ticker)
+            all_rows += fetch_company_ir_news(safe_ticker)
+            all_rows += fetch_marketscreener_news(short)
+            for row in all_rows:
                 item = parse_announcement(row)
                 if not item["title"] or not item["date"]:
                     continue
