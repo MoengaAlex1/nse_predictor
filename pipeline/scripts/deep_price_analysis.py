@@ -20,15 +20,15 @@ from typing import Any
 
 import anthropic
 
-from pipeline.scripts.firebase_client import get_firestore, get_rtdb
-
-log = logging.getLogger(__name__)
-log.addHandler(logging.NullHandler())
-
-# Ensure repo root on sys.path
+# Ensure repo root on sys.path before importing sibling packages
 _REPO_ROOT = str(Path(__file__).parent.parent.parent)
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
+
+from pipeline.scripts.firebase_client import get_firestore, get_rtdb  # noqa: E402
+
+log = logging.getLogger(__name__)
+log.addHandler(logging.NullHandler())
 
 SYSTEM_PROMPT = (
     "You are a senior NSE equity analyst. Explain stock price movements using only the "
