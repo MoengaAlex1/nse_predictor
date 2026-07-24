@@ -1,0 +1,78 @@
+name: Push Storage CSVs to Firestore
+
+# Syncs Firebase Storage CSVs → Firestore price_history without modifying the CSVs.
+# Use after a backfill scrape has populated Storage with the correct historical data
+# so that Firestore (and therefore the live website) reflects the updated prices.
+#
+# Typical usage:
+#   1. Run price_scrape.yml with --backfill to update Storage CSVs
+#   2. Run this workflow to push those CSVs to Firestore
+
+on:
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: >
+          Space-separated safe ticker names to push
+          (e.g. NSE_NR SCOM_NR CGEN_NR ALP_NR).
+          Leave blank to push all companies.
+        required: false
+        default: ""
+      dry_run:
+        description: "Set to 'true' to report only — no Firestore writes"
+        required: false
+        default: "false"
+
+jobs:
+  push-from-storage:
+    name: Push Storage CSVs → Firestore
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Push Storage CSVs to Firestore
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          set -o pipefail
+          cd $GITHUB_WORKSPACE
+
+          if [ -n "${{ github.event.inputs.tickers }}" ]; then
+            TICKER_ARGS="--tickers ${{ github.event.inputs.tickers }}"
+          else
+            TICKER_ARGS="--all"
+          fi
+
+          DRY_RUN_ARG=""
+          [ "${{ github.event.inputs.dry_run }}" = "true" ] && DRY_RUN_ARG="--dry-run"
+
+          python pipeline/scripts/fix_storage_csvs.py \
+            --force-push $TICKER_ARGS $DRY_RUN_ARG 2>&1 | tee /tmp/push_from_storage.log
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: push-from-storage-log-${{ github.run_id }}
+          path: /tmp/push_from_storage.log
+          retention-days: 7
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Firestore push from Storage failed — check artifact log"
+          tail -30 /tmp/push_from_storage.log || true

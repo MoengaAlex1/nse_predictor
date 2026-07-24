@@ -9,6 +9,11 @@ Usage:
     python pipeline/scripts/fix_storage_csvs.py --tickers EQTY_NR KCB_NR OCH_NR TRFC_NR
     python pipeline/scripts/fix_storage_csvs.py --all
     python pipeline/scripts/fix_storage_csvs.py --dry-run --tickers EQTY_NR
+    python pipeline/scripts/fix_storage_csvs.py --force-push --tickers NSE_NR SCOM_NR
+
+    --force-push: skip decimal-fix step; just download from Storage and push to Firestore.
+                  Use after a backfill scrape to sync the updated CSV to Firestore without
+                  re-running the decimal correction logic.
 
 Env: FIREBASE_SERVICE_ACCOUNT_JSON, FIREBASE_STORAGE_BUCKET
 """
@@ -92,8 +97,18 @@ def _build_firestore_payload(csv_path: Path) -> dict | None:
         return None
 
 
-def fix_and_push(company: dict, db, dry_run: bool = False) -> dict:
-    """Download from Storage, fix decimal errors, re-upload, and push to Firestore."""
+def fix_and_push(
+    company: dict,
+    db,
+    dry_run: bool = False,
+    force_push: bool = False,
+) -> dict:
+    """Download from Storage, fix decimal errors, re-upload, and push to Firestore.
+
+    When force_push=True the decimal-fix step is skipped and the CSV is pushed
+    to Firestore as-is.  Use this after a backfill scrape has already updated
+    the Storage CSV with the correct data.
+    """
     safe = company["ticker"].replace(".", "_")
     doc_id = company["short"]
     storage_path = f"data/cleaned/{safe}_cleaned.csv"
@@ -105,6 +120,22 @@ def fix_and_push(company: dict, db, dry_run: bool = False) -> dict:
     if not ok:
         log.warning("%s: not found in Firebase Storage — skipping", safe)
         return {"ticker": safe, "fixed": 0, "status": "not_found"}
+
+    if force_push:
+        if dry_run:
+            log.info("%s: --force-push --dry-run — would push from Storage CSV to Firestore", safe)
+            return {"ticker": safe, "fixed": 0, "status": "dry_run_force_push"}
+        payload = _build_firestore_payload(local_path)
+        if payload:
+            update_company_public(db, doc_id, payload)
+            log.info(
+                "%s: force-pushed to Firestore — price_history=%d pts, current_price=%.4f",
+                safe, len(payload["price_history"]), payload["current_price"],
+            )
+            return {"ticker": safe, "fixed": 0, "status": "force_pushed",
+                    "rows": len(payload["price_history"])}
+        log.warning("%s: could not build Firestore payload", safe)
+        return {"ticker": safe, "fixed": 0, "status": "no_payload"}
 
     result = fix_ticker(local_path, dry_run=dry_run)
 
@@ -125,7 +156,12 @@ def fix_and_push(company: dict, db, dry_run: bool = False) -> dict:
     return result
 
 
-def main(dry_run: bool = False, tickers: list[str] | None = None, all_: bool = False) -> None:
+def main(
+    dry_run: bool = False,
+    tickers: list[str] | None = None,
+    all_: bool = False,
+    force_push: bool = False,
+) -> None:
     companies = load_companies()
     safe_map = {c["ticker"].replace(".", "_"): c for c in companies}
 
@@ -144,23 +180,31 @@ def main(dry_run: bool = False, tickers: list[str] | None = None, all_: bool = F
         return
 
     db = get_db()
+    mode = "FORCE-PUSH" if force_push else "fix + push"
     log.info(
-        "=== CSV fix + push | %d companies%s ===",
-        len(targets), " [DRY RUN]" if dry_run else "",
+        "=== CSV %s | %d companies%s ===",
+        mode, len(targets), " [DRY RUN]" if dry_run else "",
     )
 
     results = []
     for company in targets:
-        result = fix_and_push(company, db, dry_run=dry_run)
+        result = fix_and_push(company, db, dry_run=dry_run, force_push=force_push)
         results.append(result)
 
-    changed = [r for r in results if r.get("fixed", 0) > 0]
-    print()
-    print(f"Fixed: {len(changed)}/{len(results)} tickers")
-    for r in changed:
-        before = r.get("rows_before", 0)
-        after = r.get("rows_after", before)
-        print(f"  {r['ticker']}: {r['fixed']} correction(s)  ({before} → {after} rows)")
+    if force_push:
+        pushed = [r for r in results if r.get("status") in ("force_pushed",)]
+        print()
+        print(f"Force-pushed: {len(pushed)}/{len(results)} tickers")
+        for r in pushed:
+            print(f"  {r['ticker']}: {r.get('rows', '?')} price points")
+    else:
+        changed = [r for r in results if r.get("fixed", 0) > 0]
+        print()
+        print(f"Fixed: {len(changed)}/{len(results)} tickers")
+        for r in changed:
+            before = r.get("rows_before", 0)
+            after = r.get("rows_after", before)
+            print(f"  {r['ticker']}: {r['fixed']} correction(s)  ({before} → {after} rows)")
     if dry_run:
         print("(DRY RUN — no files written)")
 
@@ -172,5 +216,10 @@ if __name__ == "__main__":
     parser.add_argument("--dry-run", action="store_true", help="Report only — no writes")
     parser.add_argument("--tickers", nargs="+", help="Safe ticker names e.g. EQTY_NR KCB_NR")
     parser.add_argument("--all", dest="all_", action="store_true", help="Process all companies")
+    parser.add_argument(
+        "--force-push",
+        action="store_true",
+        help="Skip decimal fix; push current Storage CSV to Firestore as-is (use after backfill)",
+    )
     args = parser.parse_args()
-    main(dry_run=args.dry_run, tickers=args.tickers, all_=args.all_)
+    main(dry_run=args.dry_run, tickers=args.tickers, all_=args.all_, force_push=args.force_push)
