@@ -1,15 +1,22 @@
 import { useState } from "react";
-import { useFinancials, type MetricValue } from "../hooks/useFinancials";
+import { useFinancials, type MetricValue, type FinancialPeriod } from "../hooks/useFinancials";
 
 const TABS = ["Income Statement", "Cash Flow", "Balance Sheet", "Per Share"] as const;
 type Tab = typeof TABS[number];
 
-const SECTION_MAP: Record<Tab, string> = {
+const SECTION_KEYS = ["income_statement", "per_share", "balance_sheet", "cash_flow"] as const;
+type SectionKey = typeof SECTION_KEYS[number];
+
+const SECTION_MAP: Record<Tab, SectionKey> = {
   "Income Statement": "income_statement",
   "Cash Flow":        "cash_flow",
   "Balance Sheet":    "balance_sheet",
   "Per Share":        "per_share",
 };
+
+function getSection(data: FinancialPeriod, key: SectionKey): Record<string, MetricValue> {
+  return data[key] as Record<string, MetricValue>;
+}
 
 const LABEL_MAP: Record<string, string> = {
   gross_revenue:                "Gross Revenue",
@@ -58,12 +65,13 @@ function MetricRow({ label, metric }: { label: string; metric: MetricValue }) {
 
 export function FinancialsPanel({ ticker }: { ticker: string }) {
   const [tab, setTab] = useState<Tab>("Income Statement");
-  const { data, isLoading } = useFinancials(ticker);
+  const { data, isLoading, isError } = useFinancials(ticker);
 
   if (isLoading) return <div className="p-4 text-sm text-gray-500">Loading financials…</div>;
+  if (isError) return <div className="text-red-500 text-sm p-4">Failed to load financials.</div>;
   if (!data) return <div className="p-4 text-sm text-gray-400">No financial data available yet.</div>;
 
-  const section = (data as Record<string, unknown>)[SECTION_MAP[tab]] as Record<string, MetricValue> | undefined;
+  const section = getSection(data, SECTION_MAP[tab]);
 
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">

@@ -1,20 +1,23 @@
 import { useState } from "react";
 import { useFinancialAnalysis } from "../hooks/useFinancialAnalysis";
 
+type NarrativeKey = "revenue_trend" | "profit_trend" | "debt_levels" | "cash_flow_health" | "dividend_history";
+
+const sections: { key: NarrativeKey; label: string }[] = [
+  { key: "revenue_trend",    label: "Revenue" },
+  { key: "profit_trend",     label: "Profit" },
+  { key: "debt_levels",      label: "Debt" },
+  { key: "cash_flow_health", label: "Cash Flow" },
+  { key: "dividend_history", label: "Dividends" },
+];
+
 export function FinancialNarrativeCard({ ticker }: { ticker: string }) {
-  const { data, isLoading } = useFinancialAnalysis(ticker);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const { data, isLoading, isError } = useFinancialAnalysis(ticker);
+  const [expanded, setExpanded] = useState<NarrativeKey | null>(null);
 
   if (isLoading) return null;
+  if (isError) return <div className="text-red-500 text-sm p-4">Failed to load analysis.</div>;
   if (!data) return null;
-
-  const sections = [
-    { key: "revenue_trend",    label: "Revenue" },
-    { key: "profit_trend",     label: "Profit" },
-    { key: "debt_levels",      label: "Debt" },
-    { key: "cash_flow_health", label: "Cash Flow" },
-    { key: "dividend_history", label: "Dividends" },
-  ];
 
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 mt-3">
@@ -38,7 +41,7 @@ export function FinancialNarrativeCard({ ticker }: { ticker: string }) {
 
       {expanded && (
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-          {(data as Record<string, unknown>)[expanded] as string}
+          {data[expanded]}
         </p>
       )}
 
