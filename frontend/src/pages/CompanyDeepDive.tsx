@@ -10,7 +10,7 @@ import { CompanyLogo } from "../components/ui/CompanyLogo";
 import { TradingChart } from "../components/charts/TradingChart";
 import { PredictionChart } from "../components/charts/PredictionChart";
 import { PriceExplainer } from "../components/company/PriceExplainer";
-import { useCompany, useLatestSnapshot, useLatestTechnicals, useCorporateEvents, useFinancials, useMacro } from "../hooks/useCompany";
+import { useCompany, useLatestSnapshot, useLatestTechnicals, useCorporateEvents, useFinancials, useMacro, useIntradayDay } from "../hooks/useCompany";
 import type { PricePoint, IntradayPoint, SnapshotDoc, TechnicalsDoc, CompanyDoc, CorporateEvent, FinancialsDoc, NSEAnnouncement } from "../types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -508,7 +508,10 @@ const ChartSection: FC<{
   visible: PricePoint[];
   announcements: NSEAnnouncement[];
   intradayDate?: string;
-}> = ({ company, technicals, range, setRange, from, setFrom, to, setTo, visible, announcements, intradayDate }) => {
+  intradayDay: string;
+  setIntradayDay: (d: string) => void;
+  todayEAT: string;
+}> = ({ company, technicals, range, setRange, from, setFrom, to, setTo, visible, announcements, intradayDate, intradayDay, setIntradayDay, todayEAT }) => {
   const [showFib, setShowFib]    = useState(true);
   const [showSMAs, setShowSMAs]  = useState(true);
   const [showEvents, setShowEvents] = useState(true);
@@ -529,7 +532,7 @@ const ChartSection: FC<{
           {visible.length > 0 && (
             <span className="ml-2 font-mono text-[10px] text-hint">
               {isIntraday
-                ? `${intradayDate ?? "today"} · ${visible.length} snapshot${visible.length !== 1 ? "s" : ""}`
+                ? `${intradayDay} · ${visible.length} snapshot${visible.length !== 1 ? "s" : ""}`
                 : `${visible[0].date} → ${visible[visible.length - 1].date} · ${visible.length} days`}
             </span>
           )}
@@ -581,6 +584,26 @@ const ChartSection: FC<{
               />
             ))}
           </div>
+          {range === "1D" && (
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={intradayDay}
+                max={todayEAT}
+                onChange={(e) => setIntradayDay(e.target.value)}
+                className="rounded border border-rim bg-raised px-2 py-1 text-xs text-ink focus:border-accent focus:outline-none"
+              />
+              {intradayDay !== todayEAT && (
+                <button
+                  type="button"
+                  onClick={() => setIntradayDay(todayEAT)}
+                  className="rounded border border-rim px-2 py-1 text-[10px] font-semibold text-muted hover:border-sub hover:text-sub"
+                >
+                  Today
+                </button>
+              )}
+            </div>
+          )}
           {range === "Custom" && (
             <div className="flex items-center gap-2">
               <input type="date" value={from} min={dataMin} max={to || dataMax}
@@ -653,7 +676,9 @@ const ChartSection: FC<{
           <div className="flex h-80 items-center justify-center text-muted">
             <p>
               {isIntraday
-                ? "No intraday snapshots yet for today. Data accumulates on each of the 5 daily runs."
+                ? intradayDay === todayEAT
+                  ? "No intraday snapshots yet for today. Data accumulates on each of the 5 daily runs."
+                  : `No intraday data recorded for ${intradayDay}.`
                 : "Not enough data for this range."}
             </p>
           </div>
@@ -967,11 +992,20 @@ export const CompanyDeepDive: FC = () => {
   const { data: events = [] } = useCorporateEvents(ticker);
   const { data: financials } = useFinancials(ticker);
   const { data: macro } = useMacro();
+  const { data: historicalIntraday } = useIntradayDay(
+    ticker,
+    intradayDay,
+    range === "1D" && intradayDay !== todayEAT,
+  );
+
+  // Today's date in EAT (UTC+3), used as the default and max for the intraday day picker
+  const todayEAT = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   // Range state lives here so both StatsStrip and ChartSection share it
-  const [range, setRange] = useState<RangeKey>("3M");
-  const [from, setFrom]   = useState("");
-  const [to, setTo]       = useState("");
+  const [range, setRange]           = useState<RangeKey>("3M");
+  const [from, setFrom]             = useState("");
+  const [to, setTo]                 = useState("");
+  const [intradayDay, setIntradayDay] = useState(todayEAT);
 
   if (isLoading) {
     return (
@@ -999,9 +1033,16 @@ export const CompanyDeepDive: FC = () => {
   const change  = company.change_pct_today;
   const history = cleanPriceHistory(company.price_history ?? []);
 
+  const intradaySource: IntradayPoint[] | undefined =
+    range === "1D"
+      ? intradayDay === todayEAT
+        ? company.intraday_today
+        : (historicalIntraday ?? undefined)
+      : undefined;
+
   const intradayPoints: PricePoint[] | undefined =
-    range === "1D" && (company.intraday_today?.length ?? 0) > 0
-      ? (company.intraday_today as IntradayPoint[]).map((p) => ({ date: p.time, price: p.price }))
+    intradaySource && intradaySource.length > 0
+      ? intradaySource.map((p) => ({ date: p.time, price: p.price }))
       : undefined;
 
   const visible = intradayPoints ?? filterByRange(history, range, from, to);
@@ -1112,6 +1153,9 @@ export const CompanyDeepDive: FC = () => {
             visible={visible}
             announcements={financials?.announcements ?? []}
             intradayDate={company.intraday_date}
+            intradayDay={intradayDay}
+            setIntradayDay={setIntradayDay}
+            todayEAT={todayEAT}
           />
         )}
 

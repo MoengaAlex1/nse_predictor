@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchCompany, fetchLatestSnapshot, fetchLatestTechnicals, fetchCorporateEvents, fetchFinancials, fetchMacro } from "../lib/firestore";
-import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, CorporateEvent, FinancialsDoc, MacroDoc } from "../types";
+import { fetchCompany, fetchLatestSnapshot, fetchLatestTechnicals, fetchCorporateEvents, fetchFinancials, fetchMacro, fetchIntradayDay } from "../lib/firestore";
+import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, CorporateEvent, FinancialsDoc, MacroDoc, IntradayPoint } from "../types";
 
 export function useCompany(safeTicker: string) {
   return useQuery<CompanyDoc | null>({
@@ -46,6 +46,15 @@ export function useMacro() {
   return useQuery<MacroDoc | null>({
     queryKey: ["macro", "kenya"],
     queryFn: () => fetchMacro(),
+    staleTime: 1000 * 60 * 60,
+  });
+}
+
+export function useIntradayDay(safeTicker: string, date: string, enabled: boolean) {
+  return useQuery<IntradayPoint[] | null>({
+    queryKey: ["intraday", safeTicker, date],
+    queryFn: () => fetchIntradayDay(safeTicker, date),
+    enabled: !!safeTicker && !!date && enabled,
     staleTime: 1000 * 60 * 60,
   });
 }
