@@ -38,19 +38,21 @@ def _get_db():
         return None
 
 
-def get_signal(ticker: str) -> dict | None:
-    """Return the latest pre-computed signal for a ticker from Firestore, or None."""
+def get_signal(doc_id: str) -> dict | None:
+    """Return the latest pre-computed signal for a company from Firestore, or None.
+
+    doc_id must be the short-form Firestore document key (e.g. 'BRIT', not 'BRIT.NR').
+    """
     db = _get_db()
     if db is None:
         return None
-    safe = ticker.replace(".", "_")
     try:
-        doc = db.collection("companies").document(safe).get()
+        doc = db.collection("companies").document(doc_id).get()
         if doc.exists:
             return doc.to_dict()
         return None
     except Exception as e:
-        log.warning("Firestore read failed for %s: %s", ticker, e)
+        log.warning("Firestore read failed for %s: %s", doc_id, e)
         return None
 
 

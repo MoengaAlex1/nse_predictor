@@ -424,7 +424,7 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         ]
 
         return {
-            "ticker": safe,
+            "ticker": company["short"],
             "snapshot": snapshot,
             "technicals": technicals,
             "public_update": {

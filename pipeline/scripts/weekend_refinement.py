@@ -60,7 +60,7 @@ def _load_csv_prices(csv_path: Path) -> dict[str, float]:
         date_col = next((c for c in df.columns if "date" in c.lower()), None)
         if date_col is None:
             return {}
-        df[date_col] = pd.to_datetime(df[date_col], dayfirst=True, format="mixed")
+        df[date_col] = pd.to_datetime(df[date_col], dayfirst=False, format="mixed")
         df = df.dropna(subset=["Close"])
         return {d.date().isoformat(): round(float(p), 4)
                 for d, p in zip(df[date_col], df["Close"])}
@@ -94,8 +94,9 @@ def _write_refinement(db, ticker_safe: str, ref_date: str, data: dict) -> None:
 
 def analyse_company(db, company: dict, csv_prices: dict[str, float]) -> dict | None:
     """Compare recent predictions vs actuals. Returns summary or None on failure."""
-    safe = company["ticker"].replace(".", "_")
-    snapshots = _fetch_snapshots(db, safe)
+    safe = company["ticker"].replace(".", "_")   # used for CSV filename matching only
+    doc_id = company["short"]                    # Firestore document key
+    snapshots = _fetch_snapshots(db, doc_id)
     if not snapshots:
         return None
 
@@ -126,7 +127,7 @@ def analyse_company(db, company: dict, csv_prices: dict[str, float]) -> dict | N
             "signal_predicted":  snap.get("signal"),
         }
         errors.append(entry)
-        _write_refinement(db, safe, target, entry)
+        _write_refinement(db, doc_id, target, entry)
         log.info(
             "%-20s  target=%-12s  pred=%-10.4f  actual=%-10.4f  err=%+.2f%%  dir=%s",
             safe, target, predicted, actual,
@@ -146,7 +147,7 @@ def analyse_company(db, company: dict, csv_prices: dict[str, float]) -> dict | N
         "refinement_date":          TODAY,
         "refinement_sample_size":   len(errors),
     }
-    update_company_public(db, safe, summary)
+    update_company_public(db, doc_id, summary)
     return summary
 
 
