@@ -102,12 +102,18 @@ def fix_and_push(
     db,
     dry_run: bool = False,
     force_push: bool = False,
+    from_git: bool = False,
 ) -> dict:
     """Download from Storage, fix decimal errors, re-upload, and push to Firestore.
 
     When force_push=True the decimal-fix step is skipped and the CSV is pushed
     to Firestore as-is.  Use this after a backfill scrape has already updated
     the Storage CSV with the correct data.
+
+    When from_git=True the Storage download step is skipped entirely and the
+    git-checked-out file in data/cleaned/ is used directly.  This lets CI push
+    already-corrected CSVs (committed to git) to Storage + Firestore without
+    needing those files to exist in Storage first.
     """
     safe = company["ticker"].replace(".", "_")
     doc_id = company["short"]
@@ -115,6 +121,27 @@ def fix_and_push(
     local_path = DATA_CLEANED / f"{safe}_cleaned.csv"
 
     DATA_CLEANED.mkdir(parents=True, exist_ok=True)
+
+    if from_git:
+        if not local_path.exists():
+            log.warning("%s: not found in git checkout (%s) — skipping", safe, local_path)
+            return {"ticker": safe, "fixed": 0, "status": "not_found_local"}
+        if dry_run:
+            log.info("%s: --from-git --dry-run — would upload git CSV to Storage + Firestore", safe)
+            return {"ticker": safe, "fixed": 0, "status": "dry_run_from_git"}
+        upload_model_to_storage(str(local_path), storage_path)
+        log.info("%s: git CSV uploaded to Storage", safe)
+        payload = _build_firestore_payload(local_path)
+        if payload:
+            update_company_public(db, doc_id, payload)
+            log.info(
+                "%s: Firestore seeded from git CSV — price_history=%d pts, current_price=%.4f",
+                safe, len(payload["price_history"]), payload["current_price"],
+            )
+            return {"ticker": safe, "fixed": len(payload["price_history"]),
+                    "status": "seeded_from_git", "rows": len(payload["price_history"])}
+        log.warning("%s: could not build Firestore payload from git CSV", safe)
+        return {"ticker": safe, "fixed": 0, "status": "no_payload"}
 
     ok = download_model_from_storage(storage_path, str(local_path))
     if not ok:
@@ -161,6 +188,7 @@ def main(
     tickers: list[str] | None = None,
     all_: bool = False,
     force_push: bool = False,
+    from_git: bool = False,
 ) -> None:
     companies = load_companies()
     safe_map = {c["ticker"].replace(".", "_"): c for c in companies}
@@ -180,7 +208,12 @@ def main(
         return
 
     db = get_db()
-    mode = "FORCE-PUSH" if force_push else "fix + push"
+    if from_git:
+        mode = "seed-from-git"
+    elif force_push:
+        mode = "FORCE-PUSH"
+    else:
+        mode = "fix + push"
     log.info(
         "=== CSV %s | %d companies%s ===",
         mode, len(targets), " [DRY RUN]" if dry_run else "",
@@ -188,10 +221,18 @@ def main(
 
     results = []
     for company in targets:
-        result = fix_and_push(company, db, dry_run=dry_run, force_push=force_push)
+        result = fix_and_push(
+            company, db, dry_run=dry_run, force_push=force_push, from_git=from_git
+        )
         results.append(result)
 
-    if force_push:
+    if from_git:
+        seeded = [r for r in results if r.get("status") == "seeded_from_git"]
+        print()
+        print(f"Seeded from git: {len(seeded)}/{len(results)} tickers")
+        for r in seeded:
+            print(f"  {r['ticker']}: {r.get('rows', '?')} price points")
+    elif force_push:
         pushed = [r for r in results if r.get("status") in ("force_pushed",)]
         print()
         print(f"Force-pushed: {len(pushed)}/{len(results)} tickers")
@@ -221,5 +262,19 @@ if __name__ == "__main__":
         action="store_true",
         help="Skip decimal fix; push current Storage CSV to Firestore as-is (use after backfill)",
     )
+    parser.add_argument(
+        "--from-git",
+        action="store_true",
+        help=(
+            "Skip Storage download; upload git-checked-out data/cleaned/ CSV to Storage "
+            "and seed Firestore. Use when the corrected CSV is committed but not yet in Storage."
+        ),
+    )
     args = parser.parse_args()
-    main(dry_run=args.dry_run, tickers=args.tickers, all_=args.all_, force_push=args.force_push)
+    main(
+        dry_run=args.dry_run,
+        tickers=args.tickers,
+        all_=args.all_,
+        force_push=args.force_push,
+        from_git=args.from_git,
+    )

@@ -4,6 +4,10 @@ name: Fix CSV Decimal Errors
 # (e.g. 342 → 34.2 for EQTY/KCB historical data, 123 → 1.23 for TRFC),
 # re-uploads the fixed CSVs, and pushes corrected price_history to Firestore.
 #
+# Use from_git=true to bypass Storage download and seed directly from the
+# git-committed data/cleaned/ CSVs (required when the Storage CSV doesn't exist
+# yet, or the fix algorithm can't auto-detect the error, e.g. TRFC single-row).
+#
 # Affected tickers: EQTY_NR KCB_NR OCH_NR TRFC_NR
 # Trigger manually after identifying a decimal error via QA.
 
@@ -19,6 +23,13 @@ on:
         default: "EQTY_NR KCB_NR OCH_NR TRFC_NR"
       dry_run:
         description: "Set to 'true' to report only — no files written, no Firestore update"
+        required: false
+        default: "false"
+      from_git:
+        description: >
+          Set to 'true' to skip Storage download and seed Firestore directly from
+          git-committed data/cleaned/ CSVs. Use for tickers whose corrected CSV is
+          in git but the Storage CSV still has errors or does not exist.
         required: false
         default: "false"
 
@@ -59,7 +70,10 @@ jobs:
           DRY_RUN_ARG=""
           [ "${{ github.event.inputs.dry_run }}" = "true" ] && DRY_RUN_ARG="--dry-run"
 
-          python pipeline/scripts/fix_storage_csvs.py $TICKER_ARGS $DRY_RUN_ARG 2>&1 | tee /tmp/fix_csvs.log
+          FROM_GIT_ARG=""
+          [ "${{ github.event.inputs.from_git }}" = "true" ] && FROM_GIT_ARG="--from-git"
+
+          python pipeline/scripts/fix_storage_csvs.py $TICKER_ARGS $DRY_RUN_ARG $FROM_GIT_ARG 2>&1 | tee /tmp/fix_csvs.log
 
       - name: Upload log
         if: always()
