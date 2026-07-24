@@ -61,6 +61,8 @@ def download_model_from_storage(storage_path: str, local_path: str) -> bool:
     blob = bucket.blob(storage_path)
     if not blob.exists():
         return False
-    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    parent = os.path.dirname(local_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     blob.download_to_filename(local_path)
     return True

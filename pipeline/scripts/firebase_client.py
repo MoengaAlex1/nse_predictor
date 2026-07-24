@@ -7,7 +7,9 @@ from firebase_admin import credentials, firestore, db as _rtdb, storage as _stor
 def _init() -> None:
     if firebase_admin._apps:
         return
-    sa_raw = os.environ["FIREBASE_SERVICE_ACCOUNT_JSON"]
+    sa_raw = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON")
+    if not sa_raw:
+        raise RuntimeError("FIREBASE_SERVICE_ACCOUNT_JSON env var is not set")
     if sa_raw.strip().startswith("{"):
         sa_dict = json.loads(sa_raw)
     else:

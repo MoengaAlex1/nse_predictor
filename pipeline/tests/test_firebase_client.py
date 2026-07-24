@@ -18,6 +18,7 @@ def test_get_firestore_returns_client():
         importlib.reload(fc)
         result = fc.get_firestore()
         assert result is not None
+        assert result is mock_fs.return_value
 
 
 def test_get_rtdb_returns_reference():
@@ -35,6 +36,7 @@ def test_get_rtdb_returns_reference():
         importlib.reload(fc)
         result = fc.get_rtdb()
         assert result is not None
+        mock_rtdb.assert_called_once_with("/")
 
 
 def test_init_not_called_twice():
