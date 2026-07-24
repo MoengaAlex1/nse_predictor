@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import type { FC } from "react";
 import { useParams, Link } from "react-router-dom";
 import { fmtDate, fmtMedium, fmtDay, fmtLabel } from "../lib/dateUtils";
@@ -1043,8 +1043,11 @@ export const CompanyDeepDive: FC = () => {
   const { data: financials } = useFinancials(ticker);
   const { data: macro } = useMacro();
 
-  // Today's date in EAT (UTC+3) — must be defined before state that depends on it
-  const todayEAT = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  // Today's date in EAT (UTC+3) — stable across renders
+  const todayEAT = useMemo(
+    () => new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    [],
+  );
 
   // Range state lives here so both StatsStrip and ChartSection share it
   const [range, setRange]             = useState<RangeKey>("3M");
@@ -1057,6 +1060,22 @@ export const CompanyDeepDive: FC = () => {
     intradayDay,
     range === "1D" && intradayDay !== todayEAT,
   );
+
+  // Auto-widen range to ALL when the default 3M view has fewer than 20 data points.
+  // Fires once per ticker load so the user's manual range selection is not overridden.
+  const autoRangedRef = useRef(false);
+  useEffect(() => {
+    if (autoRangedRef.current || !company?.price_history?.length) return;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 90);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    const in3M = cleanPriceHistory(company.price_history).filter((p) => p.date >= cutoffStr);
+    if (in3M.length < 20) {
+      setRange("ALL");
+    }
+    autoRangedRef.current = true;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [company?.price_history]);
 
   if (isLoading) {
     return (
