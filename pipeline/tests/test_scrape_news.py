@@ -16,6 +16,14 @@ def test_fetch_marketscreener_returns_list_on_error():
     assert result == []
 
 
+def test_fetch_company_ir_news_returns_list_on_error():
+    from pipeline.scripts.scrape_news import fetch_company_ir_news
+    with patch("requests.get", side_effect=ConnectionError("timeout")):
+        result = fetch_company_ir_news("SCOM")
+    assert isinstance(result, list)
+    assert result == []
+
+
 def test_parse_announcement_includes_is_pdf():
     from pipeline.scripts.scrape_news import parse_announcement
     item = parse_announcement({

@@ -13,7 +13,8 @@ import os
 import json
 import hashlib
 import logging
-from datetime import datetime
+from datetime import datetime, UTC
+from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -94,7 +95,7 @@ def parse_announcement(row: dict) -> dict:
         "source":     row.get("source", "scraper"),
         "is_pdf":     row.get("is_pdf", False),
         "pdf_url":    row.get("pdf_url", None),
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -192,11 +193,10 @@ def fetch_company_ir_news(safe_ticker: str) -> list:
                 continue
             href = a_tag["href"]
             if not href.startswith("http"):
-                from urllib.parse import urljoin
                 href = urljoin(url, href)
             is_pdf = href.lower().endswith(".pdf")
             rows.append({
-                "date":    datetime.utcnow().strftime("%Y-%m-%d"),
+                "date":    datetime.now(UTC).strftime("%Y-%m-%d"),
                 "title":   text,
                 "type":    "general",
                 "url":     href,
@@ -228,13 +228,13 @@ def fetch_marketscreener_news(short_ticker: str) -> list:
                 continue
             title = title_el.get_text(strip=True)
             date_el = article.find(["time", ".date"])
-            date_str = date_el.get("datetime", "")[:10] if date_el else datetime.utcnow().strftime("%Y-%m-%d")
+            date_str = date_el.get("datetime", "")[:10] if date_el else datetime.now(UTC).strftime("%Y-%m-%d")
             link_el = article.find("a", href=True)
             href = link_el["href"] if link_el else url
             if href.startswith("/"):
                 href = "https://www.marketscreener.com" + href
             rows.append({
-                "date":    date_str or datetime.utcnow().strftime("%Y-%m-%d"),
+                "date":    date_str or datetime.now(UTC).strftime("%Y-%m-%d"),
                 "title":   title,
                 "type":    "general",
                 "url":     href,
@@ -257,7 +257,7 @@ def _parse_date(raw: str) -> str:
             return datetime.strptime(raw.strip(), fmt).strftime("%Y-%m-%d")
         except ValueError:
             continue
-    return datetime.utcnow().strftime("%Y-%m-%d")
+    return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -278,7 +278,7 @@ def main() -> None:
                 push_item(safe_ticker, item)
                 pushed_total += 1
         except Exception as exc:
-            log.error("%s: unhandled error — %s", safe_ticker, exc)
+            log.error("%s: unhandled error — %s", safe_ticker, exc, exc_info=True)
             continue
     log.info("Done — pushed %d items total", pushed_total)
 
