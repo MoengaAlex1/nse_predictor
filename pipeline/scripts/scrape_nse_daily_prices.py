@@ -410,11 +410,21 @@ def _parse_ticker_from_text(safe: str, text: str) -> Optional[dict]:
             }
 
         if len(nums) >= 4 and _validate_ohlcv(nums):
+            high, low, close, prev_close = nums[0], nums[1], nums[2], nums[3]
+            volume = int(nums[4]) if len(nums) >= 5 else 0
+            # OCR sometimes drops the decimal point (e.g. 61.25 → 6125).
+            # Detect: any field is >10x the High, which is the most reliable anchor.
+            if high > 0:
+                if close > high * 10:
+                    close = round(close / 100, 4)
+                if low > high * 10:
+                    low = round(low / 100, 4)
+                if prev_close > high * 10:
+                    prev_close = round(prev_close / 100, 4)
             return {
-                "high": nums[0], "low": nums[1],
-                "close": nums[2], "prev_close": nums[3],
-                "volume": int(nums[4]) if len(nums) >= 5 else 0,
-                "no_trade": False,
+                "high": high, "low": low,
+                "close": close, "prev_close": prev_close,
+                "volume": volume, "no_trade": False,
             }
 
         if len(nums) in (2, 3):
