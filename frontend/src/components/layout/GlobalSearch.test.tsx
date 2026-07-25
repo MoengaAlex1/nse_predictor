@@ -9,6 +9,13 @@ const mockCompany = {
   price_history: [], price_preview: [], price_date: null, last_updated: null, csv: "",
 };
 
+const mockNavigate = vi.fn();
+
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+  return { ...actual, useNavigate: () => mockNavigate };
+});
+
 vi.mock("../../hooks/useCompanies", () => ({
   useCompanies: () => ({ data: [mockCompany], isLoading: false }),
 }));
@@ -18,6 +25,8 @@ import { GlobalSearch } from "./GlobalSearch";
 const wrap = (ui: React.ReactElement) => render(<MemoryRouter>{ui}</MemoryRouter>);
 
 describe("GlobalSearch", () => {
+  beforeEach(() => mockNavigate.mockClear());
+
   it("renders a search icon button initially", () => {
     wrap(<GlobalSearch />);
     expect(screen.getByTitle("Search companies")).toBeInTheDocument();
@@ -52,5 +61,15 @@ describe("GlobalSearch", () => {
     await user.click(screen.getByTitle("Search companies"));
     await user.keyboard("{Escape}");
     expect(screen.queryByPlaceholderText("Search companies…")).not.toBeInTheDocument();
+  });
+
+  it("navigates to company on ArrowDown + Enter", async () => {
+    const user = userEvent.setup();
+    wrap(<GlobalSearch />);
+    await user.click(screen.getByTitle("Search companies"));
+    await user.type(screen.getByPlaceholderText("Search companies…"), "SCOM");
+    await user.keyboard("{ArrowDown}");
+    await user.keyboard("{Enter}");
+    expect(mockNavigate).toHaveBeenCalledWith("/company/SCOM.NR");
   });
 });
