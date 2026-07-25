@@ -1,7 +1,6 @@
 import type { FC } from "react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { PageShell } from "../components/layout/PageShell";
 import { Card } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { SignalBadge } from "../components/ui/Badge";
@@ -349,7 +348,7 @@ export const Companies: FC = () => {
   }, [companies, search, sector]);
 
   return (
-    <PageShell>
+    <>
       <div className="space-y-6">
         {/* Page header */}
         <div className="flex items-end justify-between">
@@ -448,6 +447,6 @@ export const Companies: FC = () => {
           <BoardView companies={filtered} />
         )}
       </div>
-    </PageShell>
+    </>
   );
 };

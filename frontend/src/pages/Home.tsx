@@ -1,6 +1,5 @@
 import type { FC } from "react";
 import { Link } from "react-router-dom";
-import { PageShell } from "../components/layout/PageShell";
 import { Card } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { SignalBadge } from "../components/ui/Badge";
@@ -10,7 +9,7 @@ export const Home: FC = () => {
   const { data: market, isLoading, isError } = useMarketOverview();
 
   return (
-    <PageShell>
+    <>
       <div className="space-y-8">
         <div>
           <h1 className="text-3xl font-bold text-ink">NSE Market Overview</h1>
@@ -117,6 +116,6 @@ export const Home: FC = () => {
           </Link>
         </p>
       </div>
-    </PageShell>
+    </>
   );
 };

@@ -2,7 +2,6 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import type { FC } from "react";
 import { useParams, Link } from "react-router-dom";
 import { fmtDate, fmtMedium, fmtDay, fmtLabel } from "../lib/dateUtils";
-import { PageShell } from "../components/layout/PageShell";
 import { Card } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { SignalBadge } from "../components/ui/Badge";
@@ -1150,24 +1149,24 @@ export const CompanyDeepDive: FC = () => {
 
   if (isLoading) {
     return (
-      <PageShell>
+      <>
         <div className="flex justify-center py-20">
           <Spinner size="lg" />
         </div>
-      </PageShell>
+      </>
     );
   }
 
   if (isError || !company) {
     return (
-      <PageShell>
+      <>
         <Card className="border-red-900 bg-red-950/20">
           <p className="text-red-400">Company not found.</p>
           <Link to="/companies" className="mt-2 block text-sm text-accent hover:underline">
             ← Back to companies
           </Link>
         </Card>
-      </PageShell>
+      </>
     );
   }
 
@@ -1202,7 +1201,7 @@ export const CompanyDeepDive: FC = () => {
     "Custom Period";
 
   return (
-    <PageShell>
+    <>
       <div className="space-y-4">
         {/* ── Trading terminal header ────────────────────────────────────── */}
         <div className="overflow-hidden rounded-xl border border-rim bg-surface shadow-sm">
@@ -1370,6 +1369,6 @@ export const CompanyDeepDive: FC = () => {
           techLoading={techLoading}
         />
       </div>
-    </PageShell>
+    </>
   );
 };
