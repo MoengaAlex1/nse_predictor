@@ -20,6 +20,8 @@ const SmallLogo: FC<Pick<CompanyDoc, "id" | "short" | "color" | "icon">> = ({ id
   }
   return (
     <span
+      role="img"
+      aria-label={short}
       className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px]"
       style={{ backgroundColor: `${color}22`, border: `1px solid ${color}55` }}
     >
@@ -47,9 +49,9 @@ export const TickerTape: FC = () => {
   const gainers = market.top_gainers.slice(0, 5);
   const losers = market.top_losers.slice(0, 5);
 
-  const items = (
+  // Accepts a prefix so the duplicate copy has unique React keys
+  const renderItems = (prefix: string) => (
     <>
-      {/* NSE 20 */}
       <span className="flex items-center gap-1.5">
         <span className="text-[11px] font-semibold text-muted">NSE 20</span>
         {market.nse20_value != null && (
@@ -64,7 +66,7 @@ export const TickerTape: FC = () => {
         const c = companyMap.get(g.ticker);
         return (
           <Link
-            key={`g-${g.ticker}`}
+            key={`${prefix}-g-${g.ticker}`}
             to={`/company/${g.ticker}`}
             className="flex items-center gap-1 transition-opacity hover:opacity-80"
           >
@@ -81,7 +83,7 @@ export const TickerTape: FC = () => {
         const c = companyMap.get(l.ticker);
         return (
           <Link
-            key={`l-${l.ticker}`}
+            key={`${prefix}-l-${l.ticker}`}
             to={`/company/${l.ticker}`}
             className="flex items-center gap-1 transition-opacity hover:opacity-80"
           >
@@ -106,9 +108,8 @@ export const TickerTape: FC = () => {
       `}</style>
       <div className="ticker-tape sticky top-14 z-40 hidden h-8 overflow-hidden border-b border-seam bg-surface sm:block">
         <div className="ticker-track flex h-full w-max items-center gap-4 px-4">
-          {items}
-          {/* Duplicate for seamless loop */}
-          {items}
+          {renderItems("a")}
+          {renderItems("b")}
         </div>
       </div>
     </>
