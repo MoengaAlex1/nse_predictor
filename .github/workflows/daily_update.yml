@@ -52,6 +52,15 @@ jobs:
           [ -n "${{ github.event.inputs.scrape_date }}" ] && DATE_ARG="--date ${{ github.event.inputs.scrape_date }}"
           python pipeline/scripts/scrape_nse_pdf.py $DATE_ARG 2>&1 | tee /tmp/scrape_pdf.log
 
+      - name: Audit and fix decimal errors
+        continue-on-error: true
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL: ${{ secrets.FIREBASE_RTDB_URL }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python pipeline/scripts/fix_all_decimals.py 2>&1 | tee /tmp/decimal_audit.log
+
       - name: Run daily model update
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}

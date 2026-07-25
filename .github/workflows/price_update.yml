@@ -45,6 +45,15 @@ jobs:
           [ -n "${{ github.event.inputs.date }}" ] && DATE_ARG="--date ${{ github.event.inputs.date }}"
           python pipeline/scripts/scrape_nse_pdf.py $DATE_ARG 2>&1 | tee /tmp/price_update.log
 
+      - name: Audit and fix decimal errors
+        continue-on-error: true
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL: ${{ secrets.FIREBASE_RTDB_URL }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python pipeline/scripts/fix_all_decimals.py 2>&1 | tee /tmp/decimal_audit.log
+
       - name: Upload log
         if: always()
         uses: actions/upload-artifact@v4
