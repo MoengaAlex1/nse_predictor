@@ -69,8 +69,8 @@ describe("Companies page", () => {
     } as any);
 
     render(<Companies />, { wrapper: Wrapper });
-    expect(screen.getByText("Safaricom PLC")).toBeInTheDocument();
-    expect(screen.getByText("Equity Group Holdings")).toBeInTheDocument();
+    expect(screen.getAllByText("Safaricom PLC").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Equity Group Holdings").length).toBeGreaterThan(0);
   });
 
   it("filters companies by search text", async () => {
@@ -86,8 +86,9 @@ describe("Companies page", () => {
     const input = screen.getByPlaceholderText("Search companies...");
     await user.type(input, "safar");
 
-    expect(screen.getByText("Safaricom PLC")).toBeInTheDocument();
-    expect(screen.queryByText("Equity Group Holdings")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Safaricom PLC").length).toBeGreaterThan(0);
+    // EQTY price only appears in its company card, not in the sidebar — verifies it's filtered out
+    expect(screen.queryByText("KES 55.00")).not.toBeInTheDocument();
   });
 
   it("shows spinner while loading", () => {

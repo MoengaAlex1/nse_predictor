@@ -17,7 +17,7 @@ const baseCompany: CompanyDoc = {
   change_pct_today: 1.2,
   signal: "BUY",
   price_history: [
-    { date: "2025-07-24", price: 10.8 },
+    { date: "2025-08-01", price: 10.8 },
     { date: "2026-01-15", price: 14.2 },
     { date: "2026-07-24", price: 13.5 },
   ],
