@@ -9,8 +9,10 @@ describe("NseLogo", () => {
     expect(screen.getByText("Intelligence")).toBeInTheDocument();
   });
 
-  it("links to /", () => {
+  it("links to / and has decorative SVG hidden from screen readers", () => {
     render(<MemoryRouter><NseLogo /></MemoryRouter>);
-    expect(screen.getByRole("link", { name: /NSE Intelligence Home/i })).toHaveAttribute("href", "/");
+    const link = screen.getByRole("link", { name: /NSE Intelligence Home/i });
+    expect(link).toHaveAttribute("href", "/");
+    expect(link.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
   });
 });

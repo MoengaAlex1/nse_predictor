@@ -1,7 +1,6 @@
-import type { FC } from "react";
 import { Link } from "react-router-dom";
 
-export const NseLogo: FC = () => (
+export const NseLogo = () => (
   <Link
     to="/"
     className="flex select-none items-center gap-2"
