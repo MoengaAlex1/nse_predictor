@@ -260,14 +260,34 @@ def _extract_numbers(line: str) -> list[float]:
 
 
 def _fix_decimal_vs_peers(values: list[float]) -> list[float]:
-    """Correct 100x OCR scale errors using the min non-zero value as reference."""
+    """
+    Correct 100x OCR scale errors (e.g. 61.25 → 6125).
+
+    Two passes:
+    1. Min-reference: if any value is ≥50x the smallest, it is 100x inflated.
+    2. Consensus: if the majority of values agree on a scale, fix outliers.
+       Handles the case where ALL values are inflated (min-reference misses it).
+    """
     positives = [v for v in values if v > 0]
     if len(positives) < 2:
         return values
+
+    # Pass 1 — min-reference
     ref = min(positives)
-    if ref <= 0:
-        return values
-    return [round(v / 100, 4) if (v > 0 and v / ref >= 50) else v for v in values]
+    fixed = [round(v / 100, 4) if (v > 0 and v / ref >= 50) else v for v in values]
+
+    # Pass 2 — consensus: if most values are >30x the median after pass 1,
+    # ALL of them are still inflated (pass 1 missed because min was also inflated).
+    pos2 = [v for v in fixed if v > 0]
+    if len(pos2) >= 2:
+        median2 = sorted(pos2)[len(pos2) // 2]
+        if median2 > 0 and all(v / median2 < 3 for v in pos2):
+            # values are now consistent — check if the whole group is 100x a sane range
+            # A sane NSE price is < 2000 KES; if median > 2000, divide everything
+            if median2 > 2000:
+                fixed = [round(v / 100, 4) if v > 0 else v for v in fixed]
+
+    return fixed
 
 
 def _apply_inflation(ticker: str, price: float) -> float:
