@@ -21,6 +21,7 @@ describe("MobileNav", () => {
     expect(screen.getByText("Menu")).toBeInTheDocument();
     expect(screen.getByText("Markets")).toBeInTheDocument();
     expect(screen.getByText("Screener")).toBeInTheDocument();
+    expect(screen.getByText("News")).toBeInTheDocument();
   });
 
   it("calls onClose when the close button is clicked", async () => {
