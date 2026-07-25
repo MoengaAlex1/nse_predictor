@@ -53,7 +53,7 @@ export const MobileNav: FC<MobileNavProps> = ({ isOpen, onClose }) => {
             <XIcon />
           </button>
         </div>
-        <nav className="flex-1 overflow-y-auto py-2">
+        <nav aria-label="Mobile navigation" className="flex-1 overflow-y-auto py-2">
           {NAV_LINKS.map(({ label, to }) => (
             <NavLink
               key={label}
