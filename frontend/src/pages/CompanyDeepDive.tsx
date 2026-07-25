@@ -21,6 +21,8 @@ import { NewsPanel } from "../components/investor/NewsPanel";
 import { FinancialsPanel } from "../components/FinancialsPanel";
 import { FinancialNarrativeCard } from "../components/FinancialNarrativeCard";
 import { DeepAnalysisPanel } from "../components/DeepAnalysisPanel";
+import { MarketQuotePanel } from "../components/MarketQuotePanel";
+import { NewsPriceChart } from "../components/charts/NewsPriceChart";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type RangeKey = "1D" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL" | "Custom";
@@ -525,7 +527,7 @@ const ChartSection: FC<{
   const [showFib, setShowFib]    = useState(true);
   const [showSMAs, setShowSMAs]  = useState(true);
   const [showEvents, setShowEvents] = useState(true);
-  const [chartView, setChartView] = useState<"price" | "technical">("price");
+  const [chartView, setChartView] = useState<"area" | "line" | "candles" | "ohlc">("area");
 
   const isIntraday = range === "1D";
   const history = cleanPriceHistory(company.price_history ?? []);
@@ -549,9 +551,16 @@ const ChartSection: FC<{
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Chart view toggle */}
+          {/* Chart type selector */}
           <div className="flex gap-0.5 rounded border border-rim bg-raised p-0.5">
-            {(["price", "technical"] as const).map((v) => (
+            {(
+              [
+                { v: "area",    label: "Area"    },
+                { v: "line",    label: "Line"    },
+                { v: "candles", label: "Candles" },
+                { v: "ohlc",    label: "OHLC"    },
+              ] as const
+            ).map(({ v, label }) => (
               <button
                 key={v}
                 type="button"
@@ -562,12 +571,12 @@ const ChartSection: FC<{
                     : "text-muted hover:text-sub"
                 }`}
               >
-                {v === "price" ? "Price" : "Technical"}
+                {label}
               </button>
             ))}
           </div>
 
-          {chartView === "price" && (
+          {(chartView === "area" || chartView === "line") && (
             <>
               <button
                 type="button"
@@ -651,7 +660,7 @@ const ChartSection: FC<{
         </div>
       </div>
 
-      {!isIntraday && chartView === "price" && showEvents && announcements.length > 0 && (
+      {!isIntraday && (chartView === "area" || chartView === "line") && showEvents && announcements.length > 0 && (
         <div className="flex flex-wrap gap-3 border-b border-seam/50 px-4 py-2">
           {[
             { type: "financial_result", color: "#38bdf8", label: "R · Results" },
@@ -671,7 +680,7 @@ const ChartSection: FC<{
         </div>
       )}
 
-      {!isIntraday && chartView === "price" && showSMAs && (technicals?.sma_20 || technicals?.sma_50 || technicals?.sma_200) && (
+      {!isIntraday && (chartView === "area" || chartView === "line") && showSMAs && (technicals?.sma_20 || technicals?.sma_50 || technicals?.sma_200) && (
         <div className="flex gap-4 border-b border-seam/50 px-4 py-2">
           {technicals?.sma_20 != null && (
             <span className="flex items-center gap-1.5 text-[10px] font-mono">
@@ -695,8 +704,8 @@ const ChartSection: FC<{
       )}
 
       <div className="px-1 pt-1 pb-3">
-        {chartView === "technical" ? (
-          <TechnicalChart data={rtdbData} height={480} />
+        {chartView === "candles" || chartView === "ohlc" ? (
+          <TechnicalChart data={rtdbData} height={480} chartType={chartView} />
         ) : visible.length > 1 ? (
           <TradingChart
             data={visible}
@@ -706,6 +715,7 @@ const ChartSection: FC<{
             sma50={!isIntraday && showSMAs ? technicals?.sma_50 : null}
             sma200={!isIntraday && showSMAs ? technicals?.sma_200 : null}
             events={!isIntraday && showEvents ? announcements : undefined}
+            variant={chartView === "line" ? "line" : "area"}
           />
         ) : (
           <div className="flex h-80 items-center justify-center text-muted">
@@ -1275,6 +1285,14 @@ export const CompanyDeepDive: FC = () => {
           snapshot={snapshot ?? null}
         />
 
+        {/* ── Market quote (today's OHLCV from RTDB) ────────────────────── */}
+        {rtdbPrices.length > 0 && (
+          <MarketQuotePanel
+            latest={rtdbPrices[rtdbPrices.length - 1]}
+            currentPrice={company.current_price}
+          />
+        )}
+
         {/* ── Stats strip — reacts to selected range ────────────────────── */}
         <StatsStrip
           data={visible.length > 0 ? visible : history}
@@ -1337,6 +1355,12 @@ export const CompanyDeepDive: FC = () => {
 
         {/* ── News & press releases ─────────────────────────────────────── */}
         <NewsPanel financials={financials} newsItems={newsItems} />
+
+        {/* ── News price impact chart ───────────────────────────────────── */}
+        <NewsPriceChart
+          news={newsItems}
+          rtdbPrices={rtdbPrices}
+        />
 
         {/* ── AI signal + technicals ────────────────────────────────────── */}
         <GatedContent

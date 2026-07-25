@@ -18,6 +18,7 @@ import type { RtdbPricePoint } from "../../hooks/useHistoricalPrices";
 interface Props {
   data: RtdbPricePoint[];
   height?: number;
+  chartType?: "candles" | "ohlc";
 }
 
 interface ChartRow {
@@ -71,6 +72,41 @@ const LegendItem: FC<{ color: string; label: string; dashed?: boolean; square?: 
     {label}
   </span>
 );
+
+// ── OHLC bar shape ────────────────────────────────────────────────────────────
+
+const OhlcShape = (props: {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  payload?: ChartRow;
+}) => {
+  const { x = 0, y = 0, width = 0, height = 0, payload } = props;
+  if (!payload) return null;
+  const { open, close, high, low } = payload;
+  const isGreen = close >= open;
+  const color = isGreen ? "#16a34a" : "#dc2626";
+  const cx = x + width / 2;
+  const priceRange = high - low;
+  if (priceRange === 0) return null;
+  const ppu = height / priceRange;
+  const yHigh = y;
+  const yLow = y + height;
+  const yOpen = y + (high - open) * ppu;
+  const yClose = y + (high - close) * ppu;
+  const tickLen = Math.max(Math.min(width * 0.4, 6), 2);
+  return (
+    <g>
+      {/* Vertical stem */}
+      <line x1={cx} y1={yHigh} x2={cx} y2={yLow} stroke={color} strokeWidth={1.5} />
+      {/* Open tick — left */}
+      <line x1={cx - tickLen} y1={yOpen} x2={cx} y2={yOpen} stroke={color} strokeWidth={1.5} />
+      {/* Close tick — right */}
+      <line x1={cx} y1={yClose} x2={cx + tickLen} y2={yClose} stroke={color} strokeWidth={1.5} />
+    </g>
+  );
+};
 
 // ── Candlestick shape ─────────────────────────────────────────────────────────
 
@@ -170,7 +206,7 @@ const OhlcTooltip = ({ active, payload }: { active?: boolean; payload?: Array<{ 
 const TICK_COLOR = "#475569";
 const GRID_COLOR = "rgba(255,255,255,0.06)";
 
-export const TechnicalChart: FC<Props> = ({ data, height = 480 }) => {
+export const TechnicalChart: FC<Props> = ({ data, height = 480, chartType = "candles" }) => {
   const chartData = useMemo<ChartRow[]>(() => {
     const valid = data.filter(
       (p) => p.o != null && p.h != null && p.l != null && p.c != null,
@@ -250,7 +286,7 @@ export const TechnicalChart: FC<Props> = ({ data, height = 480 }) => {
     <div style={{ height }} className="w-full [&_svg]:overflow-visible">
       {/* Legend */}
       <div className="flex flex-wrap gap-3 px-2 py-1">
-        <LegendItem color="#6b7280" label="Price" square />
+        <LegendItem color="#6b7280" label={chartType === "ohlc" ? "OHLC" : "Candles"} square />
         <LegendItem color="#3b82f6" label="SMA (20)" />
         <LegendItem color="#ec4899" label="SMA (50)" />
         <LegendItem color="#f59e0b" label="SMA (100)" />
@@ -282,10 +318,14 @@ export const TechnicalChart: FC<Props> = ({ data, height = 480 }) => {
             cursor={{ stroke: "#334155", strokeDasharray: "4 2", strokeWidth: 1 }}
           />
 
-          {/* Candlestick bars */}
+          {/* Candlestick / OHLC bars */}
           <Bar
             dataKey="range"
-            shape={(p: object) => <CandleShape {...(p as Parameters<typeof CandleShape>[0])} />}
+            shape={
+              chartType === "ohlc"
+                ? (p: object) => <OhlcShape {...(p as Parameters<typeof OhlcShape>[0])} />
+                : (p: object) => <CandleShape {...(p as Parameters<typeof CandleShape>[0])} />
+            }
             isAnimationActive={false}
           />
 

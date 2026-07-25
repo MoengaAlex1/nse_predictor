@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import {
   ComposedChart,
   Area,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -62,6 +63,7 @@ interface Props {
   sma200?: number | null;
   events?: NSEAnnouncement[];
   height?: number;
+  variant?: "area" | "line";
 }
 
 const FIB_LEVELS = [
@@ -150,6 +152,7 @@ export const TradingChart: FC<Props> = ({
   sma200,
   events,
   height = 380,
+  variant = "area",
 }) => {
   const { resolvedTheme } = useTheme();
   const c = CHART_COLORS[resolvedTheme];
@@ -320,15 +323,26 @@ export const TradingChart: FC<Props> = ({
             );
           })}
 
-          <Area
-            type="monotone"
-            dataKey="price"
-            stroke={color}
-            strokeWidth={2}
-            fill={`url(#${gradId})`}
-            dot={false}
-            activeDot={{ r: 4, strokeWidth: 0, fill: color }}
-          />
+          {variant === "line" ? (
+            <Line
+              type="monotone"
+              dataKey="price"
+              stroke={color}
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 4, strokeWidth: 0, fill: color }}
+            />
+          ) : (
+            <Area
+              type="monotone"
+              dataKey="price"
+              stroke={color}
+              strokeWidth={2}
+              fill={`url(#${gradId})`}
+              dot={false}
+              activeDot={{ r: 4, strokeWidth: 0, fill: color }}
+            />
+          )}
         </ComposedChart>
       </ResponsiveContainer>
     </div>
