@@ -8,6 +8,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { SignalBadge } from "../components/ui/Badge";
 import { CompanyLogo } from "../components/ui/CompanyLogo";
 import { TradingChart } from "../components/charts/TradingChart";
+import { TechnicalChart } from "../components/charts/TechnicalChart";
 import { PredictionChart } from "../components/charts/PredictionChart";
 import { PriceExplainer } from "../components/company/PriceExplainer";
 import { useCompany, useLatestSnapshot, useLatestTechnicals, useCorporateEvents, useFinancials, useMacro, useIntradayDay, useFundamentals, useNews } from "../hooks/useCompany";
@@ -514,15 +515,17 @@ const ChartSection: FC<{
   to: string;
   setTo: (s: string) => void;
   visible: PricePoint[];
+  rtdbData: import("../hooks/useHistoricalPrices").RtdbPricePoint[];
   announcements: NSEAnnouncement[];
   intradayDate?: string;
   intradayDay: string;
   setIntradayDay: (d: string) => void;
   todayEAT: string;
-}> = ({ company, technicals, range, setRange, from, setFrom, to, setTo, visible, announcements, intradayDay, setIntradayDay, todayEAT }) => {
+}> = ({ company, technicals, range, setRange, from, setFrom, to, setTo, visible, rtdbData, announcements, intradayDay, setIntradayDay, todayEAT }) => {
   const [showFib, setShowFib]    = useState(true);
   const [showSMAs, setShowSMAs]  = useState(true);
   const [showEvents, setShowEvents] = useState(true);
+  const [chartView, setChartView] = useState<"price" | "technical">("price");
 
   const isIntraday = range === "1D";
   const history = cleanPriceHistory(company.price_history ?? []);
@@ -546,41 +549,63 @@ const ChartSection: FC<{
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowFib((s) => !s)}
-            className={`rounded border px-2 py-1 text-[10px] font-semibold transition-colors ${
-              showFib
-                ? "border-amber-500 bg-amber-500/10 text-amber-500"
-                : "border-rim text-muted hover:border-sub hover:text-sub"
-            }`}
-          >
-            Fib
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowSMAs((s) => !s)}
-            className={`rounded border px-2 py-1 text-[10px] font-semibold transition-colors ${
-              showSMAs
-                ? "border-sky-500 bg-sky-500/10 text-sky-500"
-                : "border-rim text-muted hover:border-sub hover:text-sub"
-            }`}
-          >
-            MA
-          </button>
-          {announcements.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowEvents((s) => !s)}
-              className={`rounded border px-2 py-1 text-[10px] font-semibold transition-colors ${
-                showEvents
-                  ? "border-violet-500 bg-violet-500/10 text-violet-400"
-                  : "border-rim text-muted hover:border-sub hover:text-sub"
-              }`}
-              title="Toggle NSE filing markers"
-            >
-              Events
-            </button>
+          {/* Chart view toggle */}
+          <div className="flex gap-0.5 rounded border border-rim bg-raised p-0.5">
+            {(["price", "technical"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setChartView(v)}
+                className={`rounded px-2 py-0.5 text-[10px] font-semibold transition-colors ${
+                  chartView === v
+                    ? "bg-sky-500/20 text-sky-400"
+                    : "text-muted hover:text-sub"
+                }`}
+              >
+                {v === "price" ? "Price" : "Technical"}
+              </button>
+            ))}
+          </div>
+
+          {chartView === "price" && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowFib((s) => !s)}
+                className={`rounded border px-2 py-1 text-[10px] font-semibold transition-colors ${
+                  showFib
+                    ? "border-amber-500 bg-amber-500/10 text-amber-500"
+                    : "border-rim text-muted hover:border-sub hover:text-sub"
+                }`}
+              >
+                Fib
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSMAs((s) => !s)}
+                className={`rounded border px-2 py-1 text-[10px] font-semibold transition-colors ${
+                  showSMAs
+                    ? "border-sky-500 bg-sky-500/10 text-sky-500"
+                    : "border-rim text-muted hover:border-sub hover:text-sub"
+                }`}
+              >
+                MA
+              </button>
+              {announcements.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowEvents((s) => !s)}
+                  className={`rounded border px-2 py-1 text-[10px] font-semibold transition-colors ${
+                    showEvents
+                      ? "border-violet-500 bg-violet-500/10 text-violet-400"
+                      : "border-rim text-muted hover:border-sub hover:text-sub"
+                  }`}
+                  title="Toggle NSE filing markers"
+                >
+                  Events
+                </button>
+              )}
+            </>
           )}
           <div className="flex gap-0.5 rounded-lg border border-rim bg-raised p-0.5">
             {PRESETS.map((r) => (
@@ -626,7 +651,7 @@ const ChartSection: FC<{
         </div>
       </div>
 
-      {!isIntraday && showEvents && announcements.length > 0 && (
+      {!isIntraday && chartView === "price" && showEvents && announcements.length > 0 && (
         <div className="flex flex-wrap gap-3 border-b border-seam/50 px-4 py-2">
           {[
             { type: "financial_result", color: "#38bdf8", label: "R · Results" },
@@ -646,7 +671,7 @@ const ChartSection: FC<{
         </div>
       )}
 
-      {!isIntraday && showSMAs && (technicals?.sma_20 || technicals?.sma_50 || technicals?.sma_200) && (
+      {!isIntraday && chartView === "price" && showSMAs && (technicals?.sma_20 || technicals?.sma_50 || technicals?.sma_200) && (
         <div className="flex gap-4 border-b border-seam/50 px-4 py-2">
           {technicals?.sma_20 != null && (
             <span className="flex items-center gap-1.5 text-[10px] font-mono">
@@ -670,7 +695,9 @@ const ChartSection: FC<{
       )}
 
       <div className="px-1 pt-1 pb-3">
-        {visible.length > 1 ? (
+        {chartView === "technical" ? (
+          <TechnicalChart data={rtdbData} height={480} />
+        ) : visible.length > 1 ? (
           <TradingChart
             data={visible}
             color={company.color}
@@ -1087,6 +1114,14 @@ export const CompanyDeepDive: FC = () => {
     .filter((p) => p.c !== null && p.c !== undefined)
     .map((p) => ({ date: p.date, price: p.c as number }));
 
+  // RTDB data filtered to the currently selected date range (for TechnicalChart)
+  const rtdbVisible = useMemo(() => {
+    if (!from && !to) return rtdbPrices;
+    return rtdbPrices.filter(
+      (p) => (!from || p.date >= from) && (!to || p.date <= to),
+    );
+  }, [rtdbPrices, from, to]);
+
   // Auto-widen range to ALL when the default 3M view has fewer than 20 data points.
   // Fires once per ticker load so the user's manual range selection is not overridden.
   const autoRangedRef = useRef(false);
@@ -1263,6 +1298,7 @@ export const CompanyDeepDive: FC = () => {
             to={to}
             setTo={setTo}
             visible={visible}
+            rtdbData={rtdbVisible}
             announcements={financials?.announcements ?? []}
             intradayDate={company.intraday_date}
             intradayDay={intradayDay}
