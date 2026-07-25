@@ -35,6 +35,9 @@ jobs:
           cache: "pip"
           cache-dependency-path: pipeline/requirements.txt
 
+      - name: Install system dependencies
+        run: sudo apt-get install -y tesseract-ocr
+
       - name: Install dependencies
         run: pip install -r pipeline/requirements.txt
 
