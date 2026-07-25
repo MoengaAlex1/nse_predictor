@@ -23,6 +23,8 @@ from typing import Optional
 import fitz  # PyMuPDF
 import firebase_admin
 from firebase_admin import credentials as fb_credentials, firestore as fb_firestore
+import json
+import os
 import pandas as pd
 import pdfplumber
 import pytesseract
@@ -476,10 +478,6 @@ def _merge_rows(
 
 # ── Firestore update ──────────────────────────────────────────────────────────
 
-# Service account key — used for Firestore writes (avoids firebase-tools token expiry)
-_SA_KEY = (
-    Path.home() / "Downloads" / "nse-market-dashboard-firebase-adminsdk-fbsvc-68d525293a.json"
-)
 _fb_app: Optional[firebase_admin.App] = None
 _db = None
 
@@ -488,10 +486,21 @@ def _get_firestore_client():
     global _fb_app, _db
     if _db is not None:
         return _db
-    if not _SA_KEY.exists():
+
+    sa_raw = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON")
+    if not sa_raw:
         return None
-    cred = fb_credentials.Certificate(str(_SA_KEY))
-    _fb_app = firebase_admin.initialize_app(cred)
+
+    if sa_raw.strip().startswith("{"):
+        sa_dict = json.loads(sa_raw)
+    else:
+        with open(sa_raw, encoding="utf-8") as fh:
+            sa_dict = json.load(fh)
+
+    cred = fb_credentials.Certificate(sa_dict)
+    _fb_app = firebase_admin.initialize_app(cred, {
+        "storageBucket": os.environ.get("FIREBASE_STORAGE_BUCKET", ""),
+    })
     _db = fb_firestore.client()
     return _db
 
@@ -519,7 +528,7 @@ def _update_firestore(
 
     db = _get_firestore_client()
     if db is None:
-        print(f"    Firestore skipped: service account key not found at {_SA_KEY}")
+        print("    Firestore skipped: FIREBASE_SERVICE_ACCOUNT_JSON env var not set")
         return
 
     db.collection("companies").document(short_ticker).update({
