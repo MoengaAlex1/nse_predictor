@@ -195,11 +195,13 @@ def extract_from_pdf(pdf_path: str) -> dict:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pdf",        required=True)
-    parser.add_argument("--ticker",     required=True)
-    parser.add_argument("--period",     required=True, help="e.g. H1-2026")
-    parser.add_argument("--comparison", required=True, help="e.g. H1-2025")
-    parser.add_argument("--out",        help="Output JSON path")
+    parser.add_argument("--pdf",            required=True)
+    parser.add_argument("--ticker",         required=True)
+    parser.add_argument("--period",         required=True, help="e.g. H1-2026")
+    parser.add_argument("--comparison",     required=True, help="e.g. H1-2025")
+    parser.add_argument("--out",            help="Output JSON path")
+    parser.add_argument("--seed-firestore", action="store_true",
+                        help="Push extracted data to Firestore financials/{ticker}/periods/{period}")
     args = parser.parse_args()
 
     data = extract_from_pdf(args.pdf)
@@ -211,6 +213,16 @@ def main() -> None:
     with open(out, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
     log.info("Saved to %s", out)
+
+    if args.seed_firestore:
+        from pipeline.scripts.firebase_client import get_firestore  # noqa: PLC0415
+        db = get_firestore()
+        (db.collection("financials")
+           .document(args.ticker)
+           .collection("periods")
+           .document(args.period)
+           .set(data))
+        log.info("Seeded Firestore financials/%s/periods/%s", args.ticker, args.period)
 
 
 if __name__ == "__main__":

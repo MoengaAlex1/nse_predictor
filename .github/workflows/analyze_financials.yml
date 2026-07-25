@@ -10,11 +10,14 @@ on:
       period:
         description: "Period key (e.g. H1-2026)"
         required: true
-      pdf_path:
-        description: "Path to PDF in Firebase Storage (e.g. financial_reports/BAT/H1-2026/report.pdf)"
+      comparison_period:
+        description: "Comparison period (e.g. H1-2025)"
         required: false
-  schedule:
-    - cron: "0 6 1 * *"   # 1st of each month at 06:00 UTC
+        default: ""
+      pdf_path:
+        description: "Local path to the extracted PDF on the runner (leave blank to skip extraction)"
+        required: false
+        default: ""
 
 jobs:
   analyze:
@@ -41,7 +44,9 @@ jobs:
           python pipeline/scripts/extract_financials.py \
             --ticker ${{ github.event.inputs.ticker }} \
             --period ${{ github.event.inputs.period }} \
-            --pdf ${{ github.event.inputs.pdf_path }}
+            --comparison "${{ github.event.inputs.comparison_period }}" \
+            --pdf "${{ github.event.inputs.pdf_path }}" \
+            --seed-firestore
 
       - name: Generate AI narrative
         env:
