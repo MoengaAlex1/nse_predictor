@@ -167,6 +167,12 @@ def push_company(company: dict, db) -> dict:
 
 
 def main() -> None:
+    # NSE is closed on weekends — writing intraday snapshots on a non-trading day
+    # would pollute the 1D chart with stale/rumour prices.
+    if date.today().weekday() >= 5:
+        log.info("NSE closed today (%s). Skipping intraday push.", date.today().strftime("%A %Y-%m-%d"))
+        return
+
     CSVS_TMP.mkdir(parents=True, exist_ok=True)
     db = get_db()
     companies = load_companies()

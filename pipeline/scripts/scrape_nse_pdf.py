@@ -504,6 +504,11 @@ def main() -> None:
     )
     date_str = target_date.isoformat()
 
+    # NSE is closed on weekends — skip unless a specific date was given explicitly
+    if not args.date and target_date.weekday() >= 5:
+        log.info("NSE closed today (%s). Use --date to backfill. Exiting.", target_date.strftime("%A %Y-%m-%d"))
+        return
+
     if args.pdf:
         pdf_bytes = Path(args.pdf).read_bytes()
         log.info("Using local PDF: %s", args.pdf)
