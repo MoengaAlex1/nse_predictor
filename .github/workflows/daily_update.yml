@@ -61,6 +61,15 @@ jobs:
         run: |
           python pipeline/scripts/fix_all_decimals.py 2>&1 | tee /tmp/decimal_audit.log
 
+      - name: Fix duplicates and OHLC violations
+        continue-on-error: true
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL: ${{ secrets.FIREBASE_RTDB_URL }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python pipeline/scripts/fix_dedup_ohlc.py 2>&1 | tee /tmp/dedup_ohlc.log
+
       - name: Forward-fill missing trading days
         continue-on-error: true
         env:

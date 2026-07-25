@@ -66,7 +66,8 @@ def fill_ticker(csv_path: Path, calendar: set[datetime.date], dry_run: bool) -> 
 
     # All trading days this ticker should have data for
     expected_days = sorted(d for d in calendar if first_date <= d <= last_date)
-    existing_days = set(active["Date"].dt.date.tolist())
+    # Use ALL rows (stale and active) so we don't add forward-fills for stale-only dates
+    existing_days = set(df["Date"].dt.date.tolist())
     missing_days = [d for d in expected_days if d not in existing_days]
 
     if not missing_days:
