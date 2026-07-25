@@ -91,9 +91,23 @@ def fetch_all_ticker_prices(root_ref, short: str) -> dict[str, dict]:
         return {}
 
 
+def _best_candidate(val: float, ref: float, direction: str) -> float | None:
+    if direction == "high":
+        for divisor in (10, 100):
+            cand = round(val / divisor, 4)
+            if RESTORE_LO * ref <= cand <= RESTORE_HI * ref:
+                return cand
+    else:
+        for multiplier in (10, 100):
+            cand = round(val * multiplier, 4)
+            if RESTORE_LO * ref <= cand <= RESTORE_HI * ref:
+                return cand
+    return None
+
+
 def detect_spikes(records: dict[str, dict]) -> list[tuple[str, str, float, float]]:
     """
-    Consecutive-ratio spike detection on RTDB close prices.
+    Consecutive-ratio spike detection — both upward and downward.
     Returns list of (date_str, field, bad_value, fixed_value).
     """
     sorted_dates = sorted(records.keys())
@@ -110,27 +124,29 @@ def detect_spikes(records: dict[str, dict]) -> list[tuple[str, str, float, float
             prev = positive[i - 1][1] if i > 0 else None
             nxt  = positive[i + 1][1] if i < n - 1 else None
 
-            is_spike = False
+            direction = None
             ref = None
+
             if prev and nxt:
                 if (val / prev >= JUMP_RATIO) and (val / nxt >= JUMP_RATIO):
-                    is_spike = True
-                    ref = (prev + nxt) / 2
+                    direction, ref = "high", (prev + nxt) / 2
+                elif (prev / val >= JUMP_RATIO) and (nxt / val >= JUMP_RATIO):
+                    direction, ref = "low", (prev + nxt) / 2
             elif prev and not nxt:
                 if val / prev >= JUMP_RATIO:
-                    is_spike = True
-                    ref = prev
+                    direction, ref = "high", prev
+                elif prev / val >= JUMP_RATIO:
+                    direction, ref = "low", prev
             elif nxt and not prev:
                 if val / nxt >= JUMP_RATIO:
-                    is_spike = True
-                    ref = nxt
+                    direction, ref = "high", nxt
+                elif nxt / val >= JUMP_RATIO:
+                    direction, ref = "low", nxt
 
-            if is_spike and ref and ref > 0:
-                for divisor in (10, 100):
-                    candidate = round(val / divisor, 4)
-                    if RESTORE_LO * ref <= candidate <= RESTORE_HI * ref:
-                        fixes.append((date_str, field, val, candidate))
-                        break
+            if direction and ref and ref > 0:
+                candidate = _best_candidate(val, ref, direction)
+                if candidate is not None:
+                    fixes.append((date_str, field, val, candidate))
 
     return fixes
 

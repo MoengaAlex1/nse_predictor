@@ -43,23 +43,36 @@ RESTORE_LO = 0.5
 RESTORE_HI = 2.0
 
 
-def _best_candidate(val: float, ref: float) -> float | None:
+def _best_candidate(val: float, ref: float, direction: str) -> float | None:
     """
-    Given a spike value and a reference (avg of neighbors), return the corrected
-    value by choosing the divisor (10 or 100) whose result is closest to ref.
-    Returns None if neither candidate is within RESTORE_LO..RESTORE_HI of ref.
+    Return the corrected value for an outlier.
+
+    direction="high": val is too large — try dividing by 10 or 100.
+    direction="low":  val is too small — try multiplying by 10 or 100.
+
+    Accepts the first candidate within [RESTORE_LO * ref, RESTORE_HI * ref].
+    Returns None if no candidate passes.
     """
-    for divisor in (10, 100):
-        cand = round(val / divisor, 4)
-        if RESTORE_LO * ref <= cand <= RESTORE_HI * ref:
-            return cand
+    if direction == "high":
+        for divisor in (10, 100):
+            cand = round(val / divisor, 4)
+            if RESTORE_LO * ref <= cand <= RESTORE_HI * ref:
+                return cand
+    else:  # "low"
+        for multiplier in (10, 100):
+            cand = round(val * multiplier, 4)
+            if RESTORE_LO * ref <= cand <= RESTORE_HI * ref:
+                return cand
     return None
 
 
 def _fix_spikes_in_series(values: list[float | None]) -> tuple[list[float | None], int]:
     """
-    Apply consecutive-ratio spike detection to a list of price values.
-    Picks the divisor (10 or 100) that brings the value closest to its neighbors.
+    Detect and fix both upward and downward decimal spikes:
+      - Upward:   val ≥ JUMP_RATIO × neighbor  → OCR added digit(s) → divide by 10 or 100
+      - Downward: val ≤ neighbor / JUMP_RATIO  → OCR dropped digit(s) → multiply by 10 or 100
+
+    Picks the factor that brings the value to within [RESTORE_LO, RESTORE_HI] of neighbors.
     Returns (fixed_values, n_changes).
     """
     n = len(values)
@@ -70,28 +83,36 @@ def _fix_spikes_in_series(values: list[float | None]) -> tuple[list[float | None
         if val is None or val <= 0:
             continue
 
-        # Neighbours (skip None/zero)
         prev = next((values[j] for j in range(i - 1, -1, -1) if values[j] and values[j] > 0), None)
         nxt  = next((values[j] for j in range(i + 1, n)       if values[j] and values[j] > 0), None)
 
-        is_spike = False
+        direction = None
         ref = None
 
         if prev and nxt:
             if (val / prev >= JUMP_RATIO) and (val / nxt >= JUMP_RATIO):
-                is_spike = True
+                direction = "high"
+                ref = (prev + nxt) / 2
+            elif (prev / val >= JUMP_RATIO) and (nxt / val >= JUMP_RATIO):
+                direction = "low"
                 ref = (prev + nxt) / 2
         elif prev and not nxt:
             if val / prev >= JUMP_RATIO:
-                is_spike = True
+                direction = "high"
+                ref = prev
+            elif prev / val >= JUMP_RATIO:
+                direction = "low"
                 ref = prev
         elif nxt and not prev:
             if val / nxt >= JUMP_RATIO:
-                is_spike = True
+                direction = "high"
+                ref = nxt
+            elif nxt / val >= JUMP_RATIO:
+                direction = "low"
                 ref = nxt
 
-        if is_spike and ref and ref > 0:
-            candidate = _best_candidate(val, ref)
+        if direction and ref and ref > 0:
+            candidate = _best_candidate(val, ref, direction)
             if candidate is not None:
                 out[i] = candidate
                 changes += 1
