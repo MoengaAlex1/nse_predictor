@@ -26,7 +26,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r pipeline/requirements.txt
 
-      - name: Rehydrate RTDB from fixed CSVs
+      - name: Rehydrate RTDB from cleaned CSVs
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
           FIREBASE_RTDB_URL: ${{ secrets.FIREBASE_RTDB_URL }}
@@ -35,7 +35,7 @@ jobs:
           set -o pipefail
           TICKER_ARG=""
           [ -n "${{ github.event.inputs.ticker }}" ] && TICKER_ARG="--ticker ${{ github.event.inputs.ticker }}"
-          python pipeline/scripts/fix_dedup_ohlc.py --force-push $TICKER_ARG 2>&1 | tee /tmp/rehydrate.log
+          python pipeline/scripts/migrate_prices_to_rtdb.py $TICKER_ARG 2>&1 | tee /tmp/rehydrate.log
           echo "Last 20 lines:"
           tail -20 /tmp/rehydrate.log
 
