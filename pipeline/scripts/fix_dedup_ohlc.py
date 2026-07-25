@@ -222,7 +222,7 @@ def push_to_rtdb(root_ref, ticker: str, df: pd.DataFrame) -> int:
     return total
 
 
-def process_ticker(csv_path: Path, root_ref, dry_run: bool, csv_only: bool) -> dict:
+def process_ticker(csv_path: Path, root_ref, dry_run: bool, csv_only: bool, force_push: bool = False) -> dict:
     ticker = csv_path.stem.replace("_cleaned", "")
     df = pd.read_csv(csv_path, parse_dates=["Date"])
 
@@ -239,11 +239,12 @@ def process_ticker(csv_path: Path, root_ref, dry_run: bool, csv_only: bool) -> d
         stats["slam_fixed"] = n_slam
 
     changed = n_promoted + n_ohlc + stats["slam_fixed"]
-    if changed == 0:
+    if changed == 0 and not force_push:
         return stats
 
     if not dry_run:
-        df.to_csv(csv_path, index=False)
+        if changed > 0:
+            df.to_csv(csv_path, index=False)
         if not csv_only and root_ref is not None:
             pushed = push_to_rtdb(root_ref, ticker, df)
             stats["rtdb_pushed"] = pushed
@@ -264,6 +265,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--ticker", help="Process single ticker only")
     parser.add_argument("--csv-only", action="store_true")
+    parser.add_argument("--force-push", action="store_true",
+                        help="Push all tickers to RTDB even if no changes detected")
     args = parser.parse_args()
 
     csv_files = sorted(DATA_CLEANED.glob("*_cleaned.csv"))
@@ -282,7 +285,7 @@ def main() -> None:
     totals = {"promoted": 0, "ohlc_fixed": 0, "slam_fixed": 0, "rtdb_pushed": 0}
     for csv_path in csv_files:
         try:
-            stats = process_ticker(csv_path, root_ref, args.dry_run, args.csv_only)
+            stats = process_ticker(csv_path, root_ref, args.dry_run, args.csv_only, args.force_push)
             for k in totals:
                 totals[k] += stats.get(k, 0)
         except Exception as exc:

@@ -1,0 +1,48 @@
+name: Rehydrate RTDB from cleaned CSVs
+
+on:
+  workflow_dispatch:
+    inputs:
+      ticker:
+        description: "Single ticker to rehydrate (blank = all)"
+        required: false
+        default: ""
+
+jobs:
+  rehydrate:
+    name: Push all cleaned CSVs → RTDB
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Rehydrate RTDB from fixed CSVs
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL: ${{ secrets.FIREBASE_RTDB_URL }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -o pipefail
+          TICKER_ARG=""
+          [ -n "${{ github.event.inputs.ticker }}" ] && TICKER_ARG="--ticker ${{ github.event.inputs.ticker }}"
+          python pipeline/scripts/fix_dedup_ohlc.py --force-push $TICKER_ARG 2>&1 | tee /tmp/rehydrate.log
+          echo "Last 20 lines:"
+          tail -20 /tmp/rehydrate.log
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rehydrate-log-${{ github.run_id }}
+          path: /tmp/rehydrate.log
+          retention-days: 7
