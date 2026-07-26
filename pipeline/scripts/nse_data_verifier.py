@@ -56,6 +56,7 @@ from pipeline.scripts.scrape_nse_pdf import (  # noqa: E402
     extract_price_rows,
     _is_data_line,
     _match_line_ocr,
+    NSE_PHRASES,
 )
 
 # ---------------------------------------------------------------------------
@@ -301,6 +302,23 @@ def verify(
                 mismatch["ticker"], mismatch["pdf_prev"], mismatch["csv_last"], mismatch["pct_diff"],
             )
 
+    # --- Step 2b: Phrase→CSV integrity check ---
+    # Every NSE_PHRASES entry that maps to a real ticker (not __ETF__ or __SKIP__)
+    # must have a corresponding CSV file.  A missing CSV means the scraper is
+    # silently discarding price rows for that company every single day.
+    existing_csvs = {p.stem.replace("_NR_cleaned", "") for p in DATA_CLEANED.glob("*_NR_cleaned.csv")}
+    orphan_mappings: list[dict] = []
+    for phrase, ticker in NSE_PHRASES.items():
+        if ticker.startswith("__"):
+            continue
+        if ticker not in existing_csvs:
+            orphan_mappings.append({"phrase": phrase, "ticker": ticker})
+            log.warning(
+                "ORPHAN_PHRASE: '%s' → '%s' but %s_NR_cleaned.csv does not exist "
+                "— prices being silently discarded",
+                phrase, ticker, ticker,
+            )
+
     # --- Step 3: Missing tickers ---
     active_tickers = get_active_tickers(DATA_CLEANED)
     missing = sorted(active_tickers - set(extracted_tickers))
@@ -322,7 +340,7 @@ def verify(
             log.warning("OHLC_INVALID %s: %s", ticker, "; ".join(violations))
 
     # --- Step 6: Determine status ---
-    if missing or ohlc_invalid:
+    if missing or ohlc_invalid or orphan_mappings:
         status = "FAIL"
     elif prev_close_mismatches or unmatched_lines:
         status = "WARN"
@@ -333,6 +351,7 @@ def verify(
         "date":                  date_str,
         "extracted_count":       len(extracted_tickers),
         "missing":               missing,
+        "orphan_mappings":       orphan_mappings,
         "prev_close_mismatches": prev_close_mismatches,
         "unmatched_lines":       unmatched_lines,
         "ohlc_invalid":          ohlc_invalid,
@@ -346,6 +365,12 @@ def _print_summary(report: dict[str, Any]) -> None:
     log.info("=== Verification Summary: %s ===", report["date"])
     log.info("  Status           : %s", report["status"])
     log.info("  Extracted tickers: %d", report["extracted_count"])
+    if report.get("orphan_mappings"):
+        log.warning("  Orphan phrases   : %d (phrase→ticker with no CSV)", len(report["orphan_mappings"]))
+        for o in report["orphan_mappings"]:
+            log.warning("    '%s' → %s (no CSV)", o["phrase"], o["ticker"])
+    else:
+        log.info("  Orphan phrases   : none")
     if report["missing"]:
         log.warning("  Missing tickers  : %s", report["missing"])
     else:

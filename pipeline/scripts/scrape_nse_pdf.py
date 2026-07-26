@@ -150,16 +150,16 @@ NSE_PHRASES: dict[str, str] = {
     "co-operative bank":             "COOP",
     "cooperative bank":              "COOP",
     # Commercial
-    "deacons":                       "DCON",
-    "deacens":                       "DCON",   # OCR variant
+    "deacons":                       "__SKIP__",  # delisted/suspended
+    "deacens":                       "__SKIP__",  # OCR variant of deacons
     "eveready east africa":          "EVRD",
     "express kenya":                 "XPRS",
-    "homeboyz entertainment":        "HMBY",
+    "homeboyz entertainment":        "__SKIP__",  # delisted
     "kenya airways":                 "KQ",
     "longhorn publishers":           "LKL",
     "nairobi business ventures":     "NBV",
     "nation media":                  "NMG",
-    "sameer africa":                 "SMAF",
+    "sameer africa":                 "SMER",      # FIXED: was "SMAF" (wrong ticker)
     "standard group":                "SGL",
     "tps eastern africa":            "TPSE",
     "uchumi supermarket":            "UCHM",
@@ -167,38 +167,38 @@ NSE_PHRASES: dict[str, str] = {
     # Construction
     "e.a.portland":                  "PORT",
     "portland cement":               "PORT",
-    "bamburi":                       "BAMB",
+    "bamburi":                       "__SKIP__",  # delisted 2024 (Holcim acquisition)
     "crown paints":                  "CRWN",
-    "east african cables":           "CABL",
+    "east african cables":           "__SKIP__",  # suspended/delisted
     # Energy
-    "kenolkobil":                    "KNL",
+    "kenolkobil":                    "__SKIP__",  # acquired by Rubis, no longer listed
     "kengen":                        "KEGN",
-    "kenol":                         "KNL",
-    "totalenergies":                 "TOTL",   # OCR variant (no space)
+    "kenol":                         "__SKIP__",  # acquired by Rubis, no longer listed
+    "totalenergies":                 "TOTL",      # OCR variant (no space)
     "total energies":                "TOTL",
     "total kenya":                   "TOTL",
-    "kenya pipeline":                "KPC",    # NEW: was missing entirely
+    "kenya pipeline":                "KPC",
     # Insurance
     "britam":                        "BRIT",
-    "brito":                         "BRIT",   # OCR variant
-    "brita":                         "BRIT",   # OCR variant
+    "brito":                         "BRIT",      # OCR variant
+    "brita":                         "BRIT",      # OCR variant
     "cic insurance":                 "CIC",
-    "ctc insurance":                 "CIC",    # OCR variant (I misread as T)
+    "ctc insurance":                 "CIC",       # OCR variant (I misread as T)
     "jubilee holdings":              "JUB",
     "kenya re insurance":            "KNRE",
     "kenya re":                      "KNRE",
     "liberty kenya":                 "LBTY",
-    "madison insurance":             "MASD",
-    "pan africa insurance":          "PAN",
-    "sanlam allianz":                "SLAM",   # NEW: company rebranded from Sanlam Kenya
-    "sanlam kenya":                  "SLAM",   # legacy name
+    "madison insurance":             "__SKIP__",  # not in recent PDFs; no CSV
+    "pan africa insurance":          "__SKIP__",  # inactive
+    "sanlam allianz":                "SLAM",
+    "sanlam kenya":                  "SLAM",
     # Investment
     "centum":                        "CTUM",
     "home afrika":                   "HAFR",
     "kurwitu":                       "KURV",
     "olympia capital":               "OCH",
     "glympia capital":               "OCH",
-    "trans-century":                 "TCL",
+    "trans-century":                 "__SKIP__",  # suspended
     "nairobi securities exchange":   "NSE",
     "nse plc":                       "NSE",
     # Manufacturing
@@ -210,19 +210,19 @@ NSE_PHRASES: dict[str, str] = {
     "flame tree":                    "FTGH",
     "unga group":                    "UNGA",
     "umeme":                         "UMME",
-    "mumias sugar":                  "MSC",
-    "athi river":                    "ARML",
+    "mumias sugar":                  "__SKIP__",  # suspended
+    "athi river":                    "__SKIP__",  # ARM Cement — insolvent/delisted
     "kenya power":                   "KPLC",
     "shri krishna":                  "SHKL",
-    "shri krishana":                 "SHKL",   # OCR variant (extra a)
+    "shri krishana":                 "SHKL",      # OCR variant (extra a)
     "africa mega agricorp":          "AMAC",
     # Telecom
     "safaricom":                     "SCOM",
-    # REITs
-    "acorn d reit":                  "ACRD",
-    "acorn t reit":                  "ACRT",
-    "ilam fahari":                   "ILAM",
-    "laptrust":                      "LPTR",
+    # REITs (illiquid, rarely in daily PDF — skip to avoid phantom unmatched warnings)
+    "acorn d reit":                  "__SKIP__",
+    "acorn t reit":                  "__SKIP__",
+    "ilam fahari":                   "__SKIP__",
+    "laptrust":                      "__SKIP__",
     "trific":                        "TRFC",
     "alp industrial":                "ALP",
     # ETFs — skip
@@ -266,9 +266,19 @@ def clean_number(raw: str) -> float:
 
 
 def _extract_numbers(line: str) -> list[float]:
-    """Extract all positive numbers from an OCR line."""
-    # Replace dot-as-thousands separator (e.g. 5.105.845 → 5105845)
-    cleaned = re.sub(r"(\d)\.(\d{3})(?=[.,\d])", r"\1\2", line)
+    """Extract all positive numbers from an OCR line.
+
+    Handles three OCR number formats that appear in NSE daily PDFs:
+    - Standard: 17.45, 73829
+    - Dot-as-thousands: 5.105.845 → 5105845
+    - European comma-decimal: 15,25 → 15.25  (OCR reads "15.25" as "15,25"
+      because comma and period look similar in low-res scanned text)
+    """
+    # Step 1: European comma-decimal: X,YY or X,Y (1-2 digits after comma, not 3)
+    # must come BEFORE the thousands-separator step so "15,25" → "15.25" not split
+    normalized = re.sub(r"(\d),(\d{1,2})(?!\d)", r"\1.\2", line)
+    # Step 2: Dot-as-thousands separator (e.g. 5.105.845 → 5105845)
+    cleaned = re.sub(r"(\d)\.(\d{3})(?=[.,\d])", r"\1\2", normalized)
     tokens = re.findall(r"\b\d{1,3}(?:,\d{3})*(?:\.\d{1,4})?\b", cleaned)
     result: list[float] = []
     for t in tokens:
@@ -526,7 +536,7 @@ def extract_price_rows(pdf_bytes: bytes, resolution: int = 250) -> list[tuple[st
                     if not line or not _is_data_line(line):
                         continue
                     ticker = _match_line_ocr(line)
-                    if ticker == "__ETF__":
+                    if ticker in ("__ETF__", "__SKIP__"):
                         continue
                     if not ticker:
                         unmatched_lines.append(line)
