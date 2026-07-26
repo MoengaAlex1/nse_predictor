@@ -168,6 +168,8 @@ NSE_PHRASES: dict[str, str] = {
     "total kenya":                   "TOTL",
     # Insurance
     "britam":                        "BRIT",
+    "brito":                         "BRIT",
+    "brita":                         "BRIT",
     "cic insurance":                 "CIC",
     "jubilee holdings":              "JUB",
     "kenya re insurance":            "KNRE",
