@@ -230,16 +230,13 @@ NSE_PHRASES: dict[str, str] = {
     "satrix msci":                   "__ETF__",
 }
 
-# Stocks whose OCR prices are consistently 100x inflated.
-# Values: per-ticker threshold above which the raw price is divided by 100.
-# Low thresholds (5.0) for sub-1 KES stocks; higher thresholds (20.0) for
-# stocks that legitimately trade up to ~15 KES but OCR drops the decimal point.
-_INFLATION_TICKERS: dict[str, float] = {
-    "EVRD": 5.0,
-    "HAFR": 5.0,
-    "UCHM": 5.0,
-    "CIC":  20.0,  # normally 3-7 KES; OCR sometimes reads 300-700
-}
+# Scale-correction parameters for _fix_scale_vs_prev.
+# Any price that deviates from prev_close by more than _SCALE_TRIGGER_RATIO
+# is treated as a potential OCR decimal-shift error and we try ÷10, ÷100,
+# ×10, ×100 to find a value that lands within _SCALE_OK_BAND of prev_close.
+_SCALE_TRIGGER_RATIO = 3.5   # deviation ≥ this → attempt correction
+_SCALE_OK_BAND       = (0.4, 2.5)  # corrected / prev_close must land here
+_SCALE_FACTORS       = (10, 100)   # divisors/multipliers to try (in order)
 
 # Pre-sorted once at module load for greedy longest-first matching
 _NSE_PHRASES_SORTED: list[str] = sorted(NSE_PHRASES, key=len, reverse=True)
@@ -286,43 +283,69 @@ def _extract_numbers(line: str) -> list[float]:
 
 def _fix_decimal_vs_peers(values: list[float]) -> list[float]:
     """
-    Correct 100x OCR scale errors (e.g. 61.25 → 6125).
+    Correct uniform OCR scale errors where ALL columns (H, L, C, prev) are
+    inflated by the same factor — the case where peer-comparison can't detect
+    individual outliers because they all agree with each other.
 
-    Two passes:
-    1. Min-reference: if any value is ≥80x the smallest, it is 100x inflated.
-       Threshold is 80 (not 50) to avoid false corrections when an "Ord X.00"
-       face-value (e.g. 1.00, 5.00) leaks into the number sequence and becomes
-       the reference — a valid 69 KES stock (I&M, 69/1=69 < 80) or a 291 KES
-       stock (Stanbic, 291/5=58 < 80) would otherwise be wrongly divided.
-    2. Consensus: if the majority of values agree on a scale, fix outliers.
-       Handles the case where ALL values are inflated (min-reference misses it).
+    Uses two signals:
+    1. NSE max sane price cap: if the median of the group > 2000 KES, divide
+       everything by 100 (no NSE stock legitimately trades above 2000 KES).
+    2. Large peer-ratio: if any value is ≥80× the minimum, that individual
+       value is a decimal-shift outlier; divide it by 100.
+       Threshold is 80 (not lower) to avoid false corrections when an
+       "Ord X.00" face-value (e.g. 5.00) leaks into the number sequence —
+       e.g. IMH at 69 KES: 69/1=69 < 80; Stanbic at 291 KES: 291/5=58 < 80.
     """
     positives = [v for v in values if v > 0]
     if len(positives) < 2:
         return values
 
-    # Pass 1 — min-reference (threshold 80x)
+    # Pass 1 — uniform-inflation guard (all values inflated together)
+    median = sorted(positives)[len(positives) // 2]
+    if median > 2000:
+        return [round(v / 100, 4) if v > 0 else v for v in values]
+
+    # Pass 2 — individual outlier (one column much larger than its peers)
     ref = min(positives)
-    fixed = [round(v / 100, 4) if (v > 0 and v / ref >= 80) else v for v in values]
-
-    # Pass 2 — consensus: if most values are >30x the median after pass 1,
-    # ALL of them are still inflated (pass 1 missed because min was also inflated).
-    pos2 = [v for v in fixed if v > 0]
-    if len(pos2) >= 2:
-        median2 = sorted(pos2)[len(pos2) // 2]
-        if median2 > 0 and all(v / median2 < 3 for v in pos2):
-            # values are now consistent — check if the whole group is 100x a sane range
-            # A sane NSE price is < 2000 KES; if median > 2000, divide everything
-            if median2 > 2000:
-                fixed = [round(v / 100, 4) if v > 0 else v for v in fixed]
-
-    return fixed
+    return [round(v / 100, 4) if (v > 0 and v / ref >= 80) else v for v in values]
 
 
-def _apply_inflation(ticker: str, price: float) -> float:
-    threshold = _INFLATION_TICKERS.get(ticker)
-    if threshold is not None and price > threshold:
-        return round(price / 100, 4)
+def _fix_scale_vs_prev(price: float, prev_close: float, ticker: str) -> float:
+    """
+    Use prev_close (the PDF's authoritative previous close) as an anchor to
+    auto-correct any OCR decimal-shift error in *price* — not just 100×, but
+    also 10×, and in either direction (inflated or deflated).
+
+    Tries ÷10, ÷100, ×10, ×100 in order; returns the first candidate whose
+    ratio to prev_close falls within _SCALE_OK_BAND.  If no correction lands
+    in the band, returns the original value (the ≥5× reject in _parse_ocr_row
+    acts as the final safety net).
+    """
+    if prev_close <= 0 or price <= 0:
+        return price
+
+    ratio = price / prev_close
+    lo, hi = _SCALE_OK_BAND
+
+    if ratio >= _SCALE_TRIGGER_RATIO:
+        for f in _SCALE_FACTORS:
+            candidate = round(price / f, 4)
+            if lo <= candidate / prev_close <= hi:
+                log.info(
+                    "  [SCALE_FIX] %s: %.4f ÷ %d → %.4f (prev_close=%.4f)",
+                    ticker, price, f, candidate, prev_close,
+                )
+                return candidate
+    elif ratio <= 1.0 / _SCALE_TRIGGER_RATIO:
+        for f in _SCALE_FACTORS:
+            candidate = round(price * f, 4)
+            if lo <= candidate / prev_close <= hi:
+                log.info(
+                    "  [SCALE_FIX] %s: %.4f × %d → %.4f (prev_close=%.4f)",
+                    ticker, price, f, candidate, prev_close,
+                )
+                return candidate
+
     return price
 
 
@@ -390,9 +413,13 @@ def _parse_ocr_row(line: str, ticker: str) -> dict | None:
     prices_fixed = _fix_decimal_vs_peers([day_h_raw, day_l_raw, day_c_raw, prev_raw])
     day_h, day_l, day_c, prev_close = prices_fixed
 
-    day_h = _apply_inflation(ticker, day_h)
-    day_l = _apply_inflation(ticker, day_l)
-    day_c = _apply_inflation(ticker, day_c)
+    # Use prev_close as an anchor to fix any remaining per-column scale errors.
+    # This handles both ÷10 and ÷100 (and ×10 / ×100) — not just 100×.
+    # prev_close itself is already corrected by _fix_decimal_vs_peers (peer pass).
+    if prev_close > 0:
+        day_h = _fix_scale_vs_prev(day_h, prev_close, ticker)
+        day_l = _fix_scale_vs_prev(day_l, prev_close, ticker)
+        day_c = _fix_scale_vs_prev(day_c, prev_close, ticker)
 
     if day_h < day_l:
         day_h, day_l = day_l, day_h
@@ -404,9 +431,10 @@ def _parse_ocr_row(line: str, ticker: str) -> dict | None:
     if day_c < day_l * 0.7 or day_c > day_h * 1.4:
         return None
 
-    # Cross-validate close against prev_close from the PDF.
-    # The PDF's prev_close is NSE's official previous close — a reliable anchor.
-    # A ≥5× deviation almost always indicates an OCR decimal error or mis-parsed row.
+    # Final cross-check: reject or warn on large moves vs prev_close.
+    # By this point scale errors should already be corrected above, so a
+    # remaining ≥3.5× deviation signals a genuinely bad row or a real extreme
+    # move that needs manual review.
     if prev_close > 0:
         pc_ratio = max(day_c / prev_close, prev_close / day_c)
         if pc_ratio >= 5.0:
