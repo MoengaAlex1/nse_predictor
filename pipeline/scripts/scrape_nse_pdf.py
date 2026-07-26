@@ -117,14 +117,20 @@ COMPANY_TO_TICKER: dict[str, str] = {
 NSE_PHRASES: dict[str, str] = {
     # Agricultural
     "enagad":                        "EGAD",
+    "eangads":                       "EGAD",   # OCR variant
+    "eacgads":                       "EGAD",   # OCR variant
+    "eagads":                        "EGAD",   # OCR variant
     "kakuzi":                        "KUKZ",
     "kapchorua tea":                 "KAPC",
     "kopackhora tea":                "KAPC",
     "limuru tea":                    "LIMT",
     "sasini":                        "SASN",
+    "sesini":                        "SASN",   # OCR variant
     "williamson tea":                "WTK",
     # Automobiles
     "car and general":               "CGEN",
+    "car & general":                 "CGEN",   # OCR variant
+    "car&general":                   "CGEN",   # OCR variant
     # Banking
     "absa bank":                     "ABSA",
     "bk group":                      "BKG",
@@ -132,16 +138,20 @@ NSE_PHRASES: dict[str, str] = {
     "equity group":                  "EQTY",
     "family bank":                   "FMLY",
     "hfck group":                    "HFCK",
+    "hfcb group":                    "HFCK",   # OCR variant (K misread as B)
     "i&m group":                     "IMH",
+    "t&m group":                     "IMH",    # OCR variant (I misread as T)
+    "4m group":                      "IMH",    # OCR variant (I misread as 4)
     "kcb group":                     "KCB",
     "ncba group":                    "NCBA",
-    "stanbic holdings":              "SLAM",
+    "stanbic holdings":              "SBIC",   # FIX: was wrongly mapped to SLAM
     "standard chartered bank kenya": "SCBK",
     "co-operetive bank":             "COOP",
     "co-operative bank":             "COOP",
     "cooperative bank":              "COOP",
     # Commercial
     "deacons":                       "DCON",
+    "deacens":                       "DCON",   # OCR variant
     "eveready east africa":          "EVRD",
     "express kenya":                 "XPRS",
     "homeboyz entertainment":        "HMBY",
@@ -164,20 +174,24 @@ NSE_PHRASES: dict[str, str] = {
     "kenolkobil":                    "KNL",
     "kengen":                        "KEGN",
     "kenol":                         "KNL",
+    "totalenergies":                 "TOTL",   # OCR variant (no space)
     "total energies":                "TOTL",
     "total kenya":                   "TOTL",
+    "kenya pipeline":                "KPC",    # NEW: was missing entirely
     # Insurance
     "britam":                        "BRIT",
-    "brito":                         "BRIT",
-    "brita":                         "BRIT",
+    "brito":                         "BRIT",   # OCR variant
+    "brita":                         "BRIT",   # OCR variant
     "cic insurance":                 "CIC",
+    "ctc insurance":                 "CIC",    # OCR variant (I misread as T)
     "jubilee holdings":              "JUB",
     "kenya re insurance":            "KNRE",
     "kenya re":                      "KNRE",
     "liberty kenya":                 "LBTY",
     "madison insurance":             "MASD",
     "pan africa insurance":          "PAN",
-    "sanlam kenya":                  "SLAM",
+    "sanlam allianz":                "SLAM",   # NEW: company rebranded from Sanlam Kenya
+    "sanlam kenya":                  "SLAM",   # legacy name
     # Investment
     "centum":                        "CTUM",
     "home afrika":                   "HAFR",
@@ -200,6 +214,7 @@ NSE_PHRASES: dict[str, str] = {
     "athi river":                    "ARML",
     "kenya power":                   "KPLC",
     "shri krishna":                  "SHKL",
+    "shri krishana":                 "SHKL",   # OCR variant (extra a)
     "africa mega agricorp":          "AMAC",
     # Telecom
     "safaricom":                     "SCOM",
@@ -215,8 +230,16 @@ NSE_PHRASES: dict[str, str] = {
     "satrix msci":                   "__ETF__",
 }
 
-# Stocks whose prices are 100x inflated post 2026-01-01
-_INFLATION_TICKERS = {"EVRD", "HAFR", "UCHM"}
+# Stocks whose OCR prices are consistently 100x inflated.
+# Values: per-ticker threshold above which the raw price is divided by 100.
+# Low thresholds (5.0) for sub-1 KES stocks; higher thresholds (20.0) for
+# stocks that legitimately trade up to ~15 KES but OCR drops the decimal point.
+_INFLATION_TICKERS: dict[str, float] = {
+    "EVRD": 5.0,
+    "HAFR": 5.0,
+    "UCHM": 5.0,
+    "CIC":  20.0,  # normally 3-7 KES; OCR sometimes reads 300-700
+}
 
 # Pre-sorted once at module load for greedy longest-first matching
 _NSE_PHRASES_SORTED: list[str] = sorted(NSE_PHRASES, key=len, reverse=True)
@@ -266,7 +289,11 @@ def _fix_decimal_vs_peers(values: list[float]) -> list[float]:
     Correct 100x OCR scale errors (e.g. 61.25 → 6125).
 
     Two passes:
-    1. Min-reference: if any value is ≥50x the smallest, it is 100x inflated.
+    1. Min-reference: if any value is ≥80x the smallest, it is 100x inflated.
+       Threshold is 80 (not 50) to avoid false corrections when an "Ord X.00"
+       face-value (e.g. 1.00, 5.00) leaks into the number sequence and becomes
+       the reference — a valid 69 KES stock (I&M, 69/1=69 < 80) or a 291 KES
+       stock (Stanbic, 291/5=58 < 80) would otherwise be wrongly divided.
     2. Consensus: if the majority of values agree on a scale, fix outliers.
        Handles the case where ALL values are inflated (min-reference misses it).
     """
@@ -274,9 +301,9 @@ def _fix_decimal_vs_peers(values: list[float]) -> list[float]:
     if len(positives) < 2:
         return values
 
-    # Pass 1 — min-reference
+    # Pass 1 — min-reference (threshold 80x)
     ref = min(positives)
-    fixed = [round(v / 100, 4) if (v > 0 and v / ref >= 50) else v for v in values]
+    fixed = [round(v / 100, 4) if (v > 0 and v / ref >= 80) else v for v in values]
 
     # Pass 2 — consensus: if most values are >30x the median after pass 1,
     # ALL of them are still inflated (pass 1 missed because min was also inflated).
@@ -293,7 +320,8 @@ def _fix_decimal_vs_peers(values: list[float]) -> list[float]:
 
 
 def _apply_inflation(ticker: str, price: float) -> float:
-    if ticker in _INFLATION_TICKERS and price > 5.0:
+    threshold = _INFLATION_TICKERS.get(ticker)
+    if threshold is not None and price > threshold:
         return round(price / 100, 4)
     return price
 
@@ -376,6 +404,23 @@ def _parse_ocr_row(line: str, ticker: str) -> dict | None:
     if day_c < day_l * 0.7 or day_c > day_h * 1.4:
         return None
 
+    # Cross-validate close against prev_close from the PDF.
+    # The PDF's prev_close is NSE's official previous close — a reliable anchor.
+    # A ≥5× deviation almost always indicates an OCR decimal error or mis-parsed row.
+    if prev_close > 0:
+        pc_ratio = max(day_c / prev_close, prev_close / day_c)
+        if pc_ratio >= 5.0:
+            log.warning(
+                "  [PREV_CLOSE_MISMATCH] %s: close %.4f is %.1f× prev_close %.4f — row rejected",
+                ticker, day_c, pc_ratio, prev_close,
+            )
+            return None
+        if pc_ratio >= 2.0:
+            log.warning(
+                "  [LARGE_MOVE] %s: close %.4f is %.1f× prev_close %.4f — verify manually",
+                ticker, day_c, pc_ratio, prev_close,
+            )
+
     return {
         "prev_close": prev_close,
         "open":       day_c,      # open not separately reported in NSE daily PDF
@@ -443,6 +488,7 @@ def extract_price_rows(pdf_bytes: bytes, resolution: int = 250) -> list[tuple[st
         log.info("No tables found — switching to OCR (resolution=%d dpi)", resolution)
         seen: set[str] = set()
 
+        unmatched_lines: list[str] = []
         with pdfplumber.open(tmp_path) as pdf:
             for page in pdf.pages:
                 img = page.to_image(resolution=resolution).original
@@ -452,12 +498,17 @@ def extract_price_rows(pdf_bytes: bytes, resolution: int = 250) -> list[tuple[st
                     if not line or not _is_data_line(line):
                         continue
                     ticker = _match_line_ocr(line)
-                    if not ticker or ticker == "__ETF__":
+                    if ticker == "__ETF__":
+                        continue
+                    if not ticker:
+                        unmatched_lines.append(line)
+                        log.warning("  [UNMATCHED] %s", line[:120])
                         continue
                     if ticker in seen:
                         continue
                     fields = _parse_ocr_row(line, ticker)
                     if not fields:
+                        log.warning("  [PARSE_FAIL] %s -> %s", ticker, line[:80])
                         continue
                     seen.add(ticker)
                     results.append((ticker, fields))
@@ -465,6 +516,12 @@ def extract_price_rows(pdf_bytes: bytes, resolution: int = 250) -> list[tuple[st
                         "  %-6s H=%.2f L=%.2f C=%.2f vol=%.0f",
                         ticker, fields["high"], fields["low"], fields["close"], fields["volume"],
                     )
+
+        if unmatched_lines:
+            log.warning(
+                "%d unmatched data lines — add OCR phrase variants for these companies",
+                len(unmatched_lines),
+            )
 
         return results
     finally:

@@ -63,6 +63,15 @@ jobs:
         run: |
           python pipeline/scripts/nse_price_cleaner.py --push-rtdb 2>&1 | tee /tmp/price_cleaner.log
 
+      - name: Verify extracted prices (maker-checker)
+        continue-on-error: true
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL: ${{ secrets.FIREBASE_RTDB_URL }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python pipeline/scripts/nse_data_verifier.py 2>&1 | tee /tmp/verify.log
+
       - name: Forward-fill missing trading days
         continue-on-error: true
         env:
@@ -77,5 +86,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: price-update-log-${{ github.run_id }}
-          path: /tmp/price_update.log
+          path: |
+            /tmp/price_update.log
+            /tmp/verify.log
           retention-days: 3

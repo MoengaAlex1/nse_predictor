@@ -49,6 +49,13 @@ SPIKE_RATIO = 3.0      # flag day where Close ratio vs previous > 3× either dir
 DECIMAL_RATIO = 10.0   # ratio > 10× = OCR decimal error, always flag (no sandwich test)
 MIN_ROWS = 3           # need at least this many rows to detect spikes
 
+# V-shape detection — catches single-day reversals the spike detector misses.
+# A "V-shape" is a row whose Close deviates significantly from BOTH its solid
+# neighbors while those neighbors agree closely with each other (the row is the
+# outlier, not the surrounding data).
+V_SHAPE_RATIO = 1.25   # curr must differ from both prev AND next solid by ≥ 25%
+V_NEIGHBOR_RATIO = 1.12  # prev and next solid must agree within 12% to confirm V-shape
+
 
 @dataclass
 class Anomaly:
@@ -177,6 +184,76 @@ def detect_spikes(df: pd.DataFrame, ticker: str) -> list[Anomaly]:
     return anomalies
 
 
+def detect_v_shapes(df: pd.DataFrame, ticker: str) -> list[Anomaly]:
+    """
+    Flag Is_Stale=0 rows that form a price V (or inverted-V): Close deviates
+    significantly from BOTH solid neighbors while those neighbors agree with each
+    other — the row is the outlier, not the surrounding data.
+
+    Catches OCR glitches and scraping errors that the 3× spike detector misses:
+    e.g. BAT 567→371→569 (53% reversal), SMWF 897→300→867 (2.99× — just under
+    spike threshold), KQ/SASN/EGAD monthly V-patterns (~30-70% reversals).
+    """
+    anomalies: list[Anomaly] = []
+    active = df[df["Is_Stale"] == 0].sort_values("Date").reset_index(drop=True)
+    n = len(active)
+    if n < MIN_ROWS:
+        return anomalies
+
+    closes = [float(v) if pd.notna(v) else None for v in active["Close"].tolist()]
+    dates = active["Date"].tolist()
+    vols = [float(v) if pd.notna(v) else 0 for v in active.get("Volume", [0] * n).tolist()]
+    opens = [float(v) if pd.notna(v) else None for v in active.get("Open", [None] * n).tolist()]
+    highs = [float(v) if pd.notna(v) else None for v in active.get("High", [None] * n).tolist()]
+    lows = [float(v) if pd.notna(v) else None for v in active.get("Low", [None] * n).tolist()]
+
+    is_fwd = [
+        _is_fwd_fill_row(closes[i], vols[i], opens[i], highs[i], lows[i])
+        for i in range(n)
+    ]
+
+    def prev_solid(i: int) -> Optional[float]:
+        for j in range(i - 1, -1, -1):
+            if not is_fwd[j] and closes[j] and closes[j] > 0:
+                return closes[j]
+        return None
+
+    def next_solid(i: int) -> Optional[float]:
+        for j in range(i + 1, n):
+            if not is_fwd[j] and closes[j] and closes[j] > 0:
+                return closes[j]
+        return None
+
+    for i in range(n):
+        curr = closes[i]
+        if curr is None or curr <= 0 or is_fwd[i]:
+            continue
+
+        ps = prev_solid(i)
+        ns = next_solid(i)
+        if ps is None or ns is None:
+            continue  # need both neighbors to confirm the V-shape
+
+        ratio_cp = max(curr / ps, ps / curr)    # curr vs prev
+        ratio_cn = max(curr / ns, ns / curr)    # curr vs next
+        ratio_np = max(ns / ps, ps / ns)        # next vs prev (agreement)
+
+        if ratio_cp < V_SHAPE_RATIO or ratio_cn < V_SHAPE_RATIO:
+            continue  # curr not far enough from both neighbors
+        if ratio_np >= V_NEIGHBOR_RATIO:
+            continue  # neighbors don't agree → not a clear V-shape
+
+        direction = "jump" if curr > ps else "drop"
+        detail = (
+            f"V-shape {direction}: close {curr:.4f} is {ratio_cp:.2f}× from "
+            f"prev solid {ps:.4f} and {ratio_cn:.2f}× from next solid {ns:.4f} "
+            f"(neighbors agree within {ratio_np:.2f}×)"
+        )
+        anomalies.append(Anomaly(ticker, dates[i].date(), "v_shape", detail, old_close=curr))
+
+    return anomalies
+
+
 def detect_spikes_iterative(df: pd.DataFrame, ticker: str, max_passes: int = 5) -> list[Anomaly]:
     """
     Run detect_spikes repeatedly, marking found spikes as stale between passes.
@@ -194,14 +271,19 @@ def detect_spikes_iterative(df: pd.DataFrame, ticker: str, max_passes: int = 5) 
             )
             working_df.loc[mask, "Is_Stale"] = 1
 
-        new_anomalies = detect_spikes(working_df, ticker)
-        new_dates = {a.date for a in new_anomalies} - quarantine_dates
+        # Run both detectors; deduplicate by date (spike takes priority over v_shape)
+        combined = detect_spikes(working_df, ticker) + detect_v_shapes(working_df, ticker)
+        by_date: dict[datetime.date, Anomaly] = {}
+        for a in combined:
+            if a.date not in by_date or a.kind == "spike":
+                by_date[a.date] = a
+
+        new_dates = set(by_date) - quarantine_dates
         if not new_dates:
             break
 
-        for a in new_anomalies:
-            if a.date in new_dates:
-                all_anomalies.append(a)
+        for d in new_dates:
+            all_anomalies.append(by_date[d])
         quarantine_dates.update(new_dates)
 
     return all_anomalies
