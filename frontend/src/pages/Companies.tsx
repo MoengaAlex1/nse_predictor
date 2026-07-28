@@ -203,7 +203,7 @@ const CompanyCard: FC<{ company: CompanyDoc; showSignal?: boolean }> = ({
         <div className="mt-3 flex items-end justify-between">
           <div>
             <p className="text-sm text-sub">{company.name}</p>
-            {company.current_price !== null && (
+            {typeof company.current_price === "number" && (
               <p className="text-lg font-bold text-ink">
                 KES {company.current_price.toFixed(2)}
               </p>
@@ -214,7 +214,7 @@ const CompanyCard: FC<{ company: CompanyDoc; showSignal?: boolean }> = ({
               </p>
             )}
           </div>
-          {change !== null && (
+          {typeof change === "number" && (
             <span className={`text-sm font-medium ${change >= 0 ? "text-emerald-500" : "text-red-500"}`}>
               {change >= 0 ? "+" : ""}{change.toFixed(2)}%
             </span>

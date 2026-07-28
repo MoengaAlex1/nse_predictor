@@ -10,16 +10,32 @@ import {
 import { db } from "./firebase";
 import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, MarketOverviewDoc, EventsDoc, CorporateEvent, FinancialsDoc, MacroDoc, IntradayPoint, FundamentalsDoc, NewsItem } from "../types";
 
+// Firestore omits fields that were never written rather than storing an
+// explicit null, so raw doc data can carry `undefined` for fields CompanyDoc
+// types as `X | null`. Normalize at this boundary so every consumer can rely
+// on the type: absent means null, never undefined.
+function normalizeCompany(id: string, data: Omit<CompanyDoc, "id">): CompanyDoc {
+  return {
+    ...data,
+    id,
+    current_price: data.current_price ?? null,
+    change_pct_today: data.change_pct_today ?? null,
+    signal: data.signal ?? null,
+    price_date: data.price_date ?? null,
+    last_updated: data.last_updated ?? null,
+  };
+}
+
 export async function fetchAllCompanies(): Promise<CompanyDoc[]> {
   const snap = await getDocs(collection(db, "companies"));
-  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<CompanyDoc, "id">) }));
+  return snap.docs.map((d) => normalizeCompany(d.id, d.data() as Omit<CompanyDoc, "id">));
 }
 
 export async function fetchCompany(safeTicker: string): Promise<CompanyDoc | null> {
   const ref = doc(db, "companies", safeTicker);
   const snap = await getDoc(ref);
   if (!snap.exists()) return null;
-  return { id: snap.id, ...(snap.data() as Omit<CompanyDoc, "id">) };
+  return normalizeCompany(snap.id, snap.data() as Omit<CompanyDoc, "id">);
 }
 
 export async function fetchLatestSnapshot(safeTicker: string): Promise<SnapshotDoc | null> {
