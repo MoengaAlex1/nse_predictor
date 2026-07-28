@@ -1,0 +1,77 @@
+name: Apply Verified Prices (Local CSV Sync)
+
+# Runs the scale_guard / apply_verified_prices.py escalation chain (primary
+# OCR -> retry at higher DPI -> afx.kwayisi.org cross-check -> forward-fill)
+# against today's NSE PDF bulletin and commits the result to data/cleaned/.
+# This is separate from price_update.yml (which scrapes straight to RTDB) —
+# this workflow is what keeps the git-tracked training CSVs (and, via
+# run_daily_update.py's next run, Firestore) current and accurate.
+
+on:
+  schedule:
+    # Same cadence as price_update.yml: every 30 min, 09:00-15:00 EAT, Mon-Fri
+    - cron: "0,30 6,7,8,9,10,11 * * 1-5"  # 06:00-11:30 UTC = 09:00-14:30 EAT
+    - cron: "0 12 * * 1-5"                  # 12:00 UTC = 15:00 EAT
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Date to apply YYYY-MM-DD (blank = today)"
+        required: false
+        default: ""
+
+concurrency:
+  group: apply-verified-prices
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    name: Apply verified prices to data/cleaned
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install system dependencies
+        run: sudo apt-get install -y tesseract-ocr
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Apply verified prices
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -o pipefail
+          DATE_ARG="${{ github.event.inputs.date }}"
+          [ -z "$DATE_ARG" ] && DATE_ARG=$(date -u +%Y-%m-%d)
+          python pipeline/scripts/apply_verified_prices.py --date "$DATE_ARG" --no-next-day-check 2>&1 | tee /tmp/apply_verified.log
+
+      - name: Commit updated CSVs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/cleaned/
+          if git diff --cached --quiet; then
+            echo "No price changes to commit."
+          else
+            git commit -m "chore: automated price sync $(date -u +'%Y-%m-%d %H:%M') UTC"
+            git push
+          fi
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apply-verified-prices-log-${{ github.run_id }}
+          path: /tmp/apply_verified.log
+          retention-days: 3
