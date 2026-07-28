@@ -164,6 +164,7 @@ def fetch_afx_history(safe: str) -> pd.DataFrame | None:
             "Low": close,
             "Close": close,
             "Volume": volume,
+            "Ticker": _ticker_base(safe),
         })
 
     if not rows_data:

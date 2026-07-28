@@ -634,6 +634,7 @@ def main() -> None:
                 "Close": result["close"],
                 "Volume": result["volume"],
                 "Is_Stale": 1 if result["no_trade"] else 0,
+                "Ticker": TICKERS[safe]["short"],
             })
 
         if found_any:
