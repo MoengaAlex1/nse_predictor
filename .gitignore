@@ -37,6 +37,7 @@ frontend/.env.local
 *.pem
 service-account*.json
 firebase-adminsdk*.json
+temp_sa_key.json
 
 # OS
 .DS_Store
