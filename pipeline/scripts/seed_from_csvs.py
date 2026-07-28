@@ -129,17 +129,22 @@ def main() -> None:
             log.warning("%s: too little data — skipping", safe)
             continue
 
-        # Strip stale forward-filled rows and any future-dated rows
+        # Strip stale rows, forward-fills (Volume=0), and future-dated rows.
+        # Only real trading days (Volume > 0) appear in the price chart —
+        # filler prices from days with no trading distort charts and stats.
         today_ts = pd.Timestamp(date.today())
         df_real = df.copy()
         if "Is_Stale" in df_real.columns:
             df_real = df_real[df_real["Is_Stale"] != 1]
+        if "Volume" in df_real.columns:
+            df_real = df_real[pd.to_numeric(df_real["Volume"], errors="coerce").fillna(0) > 0]
         df_real = df_real[df_real.index <= today_ts]
 
         if len(df_real) < 5:
             log.warning("%s: too little real (non-stale) data — skipping", safe)
             continue
 
+        # Use last real close as current price (most recent day with actual trading)
         current_price = float(df_real["Close"].iloc[-1])
         change_pct = float(df_real["Close"].pct_change().iloc[-1] * 100)
 

@@ -53,7 +53,7 @@ MIN_ROWS = 3           # need at least this many rows to detect spikes
 # A "V-shape" is a row whose Close deviates significantly from BOTH its solid
 # neighbors while those neighbors agree closely with each other (the row is the
 # outlier, not the surrounding data).
-V_SHAPE_RATIO = 1.25   # curr must differ from both prev AND next solid by ≥ 25%
+V_SHAPE_RATIO = 1.20   # curr must differ from both prev AND next solid by ≥ 20%
 V_NEIGHBOR_RATIO = 1.12  # prev and next solid must agree within 12% to confirm V-shape
 
 
@@ -192,7 +192,8 @@ def detect_v_shapes(df: pd.DataFrame, ticker: str) -> list[Anomaly]:
 
     Catches OCR glitches and scraping errors that the 3× spike detector misses:
     e.g. BAT 567→371→569 (53% reversal), SMWF 897→300→867 (2.99× — just under
-    spike threshold), KQ/SASN/EGAD monthly V-patterns (~30-70% reversals).
+    spike threshold), SMER 16.80→13.55→16.30 (19-24% reversal), KQ/SASN/EGAD
+    monthly V-patterns (~30-70% reversals).
     """
     anomalies: list[Anomaly] = []
     active = df[df["Is_Stale"] == 0].sort_values("Date").reset_index(drop=True)
@@ -455,34 +456,50 @@ def apply_nse_close(df: pd.DataFrame, date: datetime.date, confirmed_close: floa
 
 
 def push_ticker_to_rtdb(root_ref, csv_path: Path) -> int:
-    """Re-push all Is_Stale=0 rows for a ticker from its CSV to RTDB."""
+    """Re-push clean rows and explicitly delete stale rows from RTDB.
+
+    Sets stale-date nodes to None (Firebase deletes them) so old bad prices
+    do not linger in RTDB after being quarantined in the CSV.
+    """
     ticker = csv_path.stem.replace("_cleaned", "")
     short = ticker.split("_")[0].upper()
 
     df = pd.read_csv(csv_path, parse_dates=["Date"])
-    if "Is_Stale" in df.columns:
-        df = df[df["Is_Stale"] == 0]
+    if "Is_Stale" not in df.columns:
+        df["Is_Stale"] = 0
     df = df.sort_values("Date").reset_index(drop=True)
+
+    # Build sets of clean and stale dates (deduplicated — keep best row per date)
+    clean_df = df[df["Is_Stale"] == 0].copy()
+    # If same date has both a real-volume row and a fwd-fill, prefer real-volume
+    clean_df["_vol"] = pd.to_numeric(clean_df.get("Volume", 0), errors="coerce").fillna(0)
+    clean_df = clean_df.sort_values(["Date", "_vol"], ascending=[True, False])
+    clean_df = clean_df.drop_duplicates(subset=["Date"], keep="first").reset_index(drop=True)
+
+    stale_dates = set(df[df["Is_Stale"] == 1]["Date"].dt.strftime("%Y-%m-%d"))
+    clean_dates = set(clean_df["Date"].dt.strftime("%Y-%m-%d"))
+    # Dates that are ONLY stale (not also present as clean) must be deleted
+    delete_dates = stale_dates - clean_dates
+
+    def _clean(v):
+        if v is None:
+            return None
+        try:
+            f = float(v)
+            return None if math.isnan(f) or math.isinf(f) else round(f, 4)
+        except (TypeError, ValueError):
+            return None
 
     batch: dict = {}
     total = 0
 
-    for i, row in df.iterrows():
+    # Write clean rows
+    for i, row in clean_df.iterrows():
         date_str = row["Date"].strftime("%Y-%m-%d")
         close = float(row["Close"]) if pd.notna(row.get("Close")) else None
-        prev_close = float(df.iloc[i - 1]["Close"]) if i > 0 and pd.notna(df.iloc[i - 1]["Close"]) else None
+        prev_close = float(clean_df.iloc[i - 1]["Close"]) if i > 0 and pd.notna(clean_df.iloc[i - 1]["Close"]) else None
         ch = round(close - prev_close, 4) if close is not None and prev_close is not None else None
         pch = round((ch / prev_close) * 100, 4) if ch is not None and prev_close else None
-
-        def _clean(v):
-            if v is None:
-                return None
-            try:
-                f = float(v)
-                return None if math.isnan(f) or math.isinf(f) else round(f, 4)
-            except (TypeError, ValueError):
-                return None
-
         node = {
             "o": _clean(row.get("Open")),
             "h": _clean(row.get("High")),
@@ -495,7 +512,15 @@ def push_ticker_to_rtdb(root_ref, csv_path: Path) -> int:
             "vv": None,
         }
         batch[f"prices/{short}/{date_str}"] = node
-        if len(batch) >= 500:
+        if len(batch) >= 450:
+            root_ref.update(batch)
+            total += len(batch)
+            batch = {}
+
+    # Delete stale-only nodes (set to None = Firebase delete)
+    for date_str in delete_dates:
+        batch[f"prices/{short}/{date_str}"] = None
+        if len(batch) >= 450:
             root_ref.update(batch)
             total += len(batch)
             batch = {}
@@ -641,6 +666,8 @@ def main() -> None:
                         help="Restrict anomaly scan to this year (e.g. 2026)")
     parser.add_argument("--push-rtdb", action="store_true",
                         help="Re-push affected tickers to RTDB after CSV changes")
+    parser.add_argument("--force-push-rtdb", action="store_true",
+                        help="Re-push ALL tickers to RTDB from their current CSVs (use after bulk cleaning)")
     args = parser.parse_args()
 
     csv_files = sorted(DATA_CLEANED.glob("*_cleaned.csv"))
@@ -654,7 +681,7 @@ def main() -> None:
     nse_prices = fetch_nse_live_prices()
 
     root_ref = None
-    if not args.dry_run and args.push_rtdb:
+    if not args.dry_run and (args.push_rtdb or args.force_push_rtdb):
         sys.path.insert(0, str(REPO_ROOT))
         from pipeline.scripts.firebase_client import get_rtdb
         root_ref = get_rtdb()
@@ -668,6 +695,9 @@ def main() -> None:
                 args.year, args.dry_run, args.push_rtdb, root_ref,
             )
             all_anomalies.extend(found)
+            if args.force_push_rtdb and root_ref is not None and not args.dry_run:
+                pushed = push_ticker_to_rtdb(root_ref, csv_path)
+                log.info("  %s: RTDB force-pushed %d nodes", csv_path.stem, pushed)
         except Exception as exc:
             log.error("  %s: FAILED — %s", csv_path.stem, exc, exc_info=True)
 

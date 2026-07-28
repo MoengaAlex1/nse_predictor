@@ -79,7 +79,7 @@ NSE_PHRASES: dict[str, str] = {
     "longhorn publishers": "LKL",
     "nairobi business ventures": "NBV",
     "nation media": "NMG",
-    "sameer africa": "SMAF",
+    "sameer africa": "SMER",
     "standard group": "SGL",
     "tps eastern africa": "TPSE",
     "uchumi supermarket": "UCHM",
