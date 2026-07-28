@@ -19,10 +19,10 @@ const SECTOR_ORDER = [
   "Exchange Traded Funds",
   "Insurance",
   "Investment",
+  "Investment Services",
   "Manufacturing and Allied",
   "Real Estate Investment Trust",
   "Telecommunication and Technology",
-  "Transport and Storage",
 ];
 
 const SIGNAL_STYLES: Record<string, { header: string; count: string; border: string }> = {

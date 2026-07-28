@@ -101,6 +101,34 @@ def test_apply_prices_writes_clean_row_and_corrects_scale_error(tmp_path, monkey
     assert cic_out.iloc[-1]["Close"] == pytest.approx(4.65)
 
 
+def test_only_tickers_scopes_writes_without_skipping_extraction(tmp_path, monkeypatch):
+    monkeypatch.setattr(avp, "DATA_CLEANED", tmp_path)
+    _write_history_csv(tmp_path / "KCB_NR_cleaned.csv", [
+        {"Date": "2026-07-24", "Open": 82.0, "High": 82.0, "Low": 82.0, "Close": 82.0, "Volume": 100, "Is_Stale": 0, "Ticker": "KCB"},
+    ])
+    _write_history_csv(tmp_path / "CGEN_NR_cleaned.csv", [
+        {"Date": "2026-07-24", "Open": 120.75, "High": 120.75, "Low": 120.75, "Close": 120.75, "Volume": 0, "Is_Stale": 0, "Ticker": "CGEN"},
+    ])
+    primary_rows = [
+        ("KCB", _fields(82.25, 82.5, 82.0, 82.25, 82.0)),
+        ("CGEN", _fields(131.5, 135.0, 125.5, 131.5, 120.75)),
+    ]
+
+    with patch.object(avp, "extract_price_rows", side_effect=_mock_extract({250: primary_rows})):
+        report = avp.apply_prices(
+            datetime.date(2026, 7, 27), pdf_bytes=b"fake", only_tickers=["CGEN"],
+        )
+
+    assert report["written"] == ["CGEN"]
+    cgen_out = pd.read_csv(tmp_path / "CGEN_NR_cleaned.csv")
+    assert cgen_out.iloc[-1]["Close"] == pytest.approx(131.5)
+    # KCB was extracted (OCR always reads the whole page) but not written, since
+    # only_tickers scoped this run to CGEN only.
+    kcb_out = pd.read_csv(tmp_path / "KCB_NR_cleaned.csv")
+    assert len(kcb_out) == 1
+    assert kcb_out.iloc[-1]["Close"] == pytest.approx(82.0)
+
+
 def test_broken_primary_row_falls_back_to_forward_fill_like_eabl(tmp_path, monkeypatch):
     monkeypatch.setattr(avp, "DATA_CLEANED", tmp_path)
     _write_history_csv(tmp_path / "EABL_NR_cleaned.csv", [
@@ -196,3 +224,71 @@ def test_next_day_corroboration_resolves_newly_listed_ticker_with_no_history(tmp
     assert report["unresolved"] == []
     out = pd.read_csv(tmp_path / "NEWCO_NR_cleaned.csv")
     assert out.iloc[-1]["Close"] == pytest.approx(1.22)
+
+
+def test_trading_days_excludes_weekends():
+    days = avp.trading_days(datetime.date(2026, 7, 24), datetime.date(2026, 7, 28))
+    assert [d.isoformat() for d in days] == ["2026-07-24", "2026-07-27", "2026-07-28"]
+
+
+def test_apply_date_range_processes_each_day_and_reuses_pdfs_for_corroboration(tmp_path, monkeypatch):
+    monkeypatch.setattr(avp, "DATA_CLEANED", tmp_path)
+    _write_history_csv(tmp_path / "CGEN_NR_cleaned.csv", [
+        {"Date": "2026-07-23", "Open": 120.0, "High": 120.0, "Low": 120.0, "Close": 120.0, "Volume": 100, "Is_Stale": 0, "Ticker": "CGEN"},
+    ])
+
+    per_date_fields = {
+        datetime.date(2026, 7, 24): _fields(121.0, 121.5, 120.5, 121.0, 120.0),
+        datetime.date(2026, 7, 27): _fields(122.0, 122.5, 121.5, 122.0, 121.0),
+        datetime.date(2026, 7, 28): _fields(123.0, 123.5, 122.5, 123.0, 122.0),
+    }
+
+    def fake_download(url):
+        for d in per_date_fields:
+            if avp.build_pdf_url(d) == url:
+                return f"pdf-{d.isoformat()}".encode()
+        raise AssertionError(f"unexpected url {url}")
+
+    def fake_extract(pdf_bytes, resolution=250):
+        d = datetime.date.fromisoformat(pdf_bytes.decode().replace("pdf-", ""))
+        return [("CGEN", per_date_fields[d])]
+
+    download_calls = []
+
+    def counting_download(url):
+        download_calls.append(url)
+        return fake_download(url)
+
+    with patch.object(avp, "download_pdf", side_effect=counting_download), \
+         patch.object(avp, "extract_price_rows", side_effect=fake_extract):
+        reports = avp.apply_date_range(
+            datetime.date(2026, 7, 24), datetime.date(2026, 7, 28), only_tickers=["CGEN"],
+        )
+
+    assert [r["date"] for r in reports] == ["2026-07-24", "2026-07-27", "2026-07-28"]
+    # Only 3 PDFs downloaded even though each day also consumes the next day's
+    # PDF for corroboration — the cache must be reused, not re-fetched.
+    assert len(download_calls) == 3
+
+    out = pd.read_csv(tmp_path / "CGEN_NR_cleaned.csv")
+    assert out["Close"].tolist()[-3:] == [pytest.approx(121.0), pytest.approx(122.0), pytest.approx(123.0)]
+
+
+def test_apply_date_range_skips_dates_with_no_pdf(tmp_path, monkeypatch):
+    monkeypatch.setattr(avp, "DATA_CLEANED", tmp_path)
+    _write_history_csv(tmp_path / "CGEN_NR_cleaned.csv", [
+        {"Date": "2026-07-23", "Open": 120.0, "High": 120.0, "Low": 120.0, "Close": 120.0, "Volume": 100, "Is_Stale": 0, "Ticker": "CGEN"},
+    ])
+
+    def flaky_download(url):
+        if "24-JUL" in url:
+            raise Exception("404 not found (holiday)")
+        return b"pdf-ok"
+
+    with patch.object(avp, "download_pdf", side_effect=flaky_download), \
+         patch.object(avp, "extract_price_rows", return_value=[("CGEN", _fields(121.0, 121.5, 120.5, 121.0, 120.0))]):
+        reports = avp.apply_date_range(
+            datetime.date(2026, 7, 24), datetime.date(2026, 7, 24), only_tickers=["CGEN"],
+        )
+
+    assert reports == []  # the only day in range had no PDF — nothing to report, no crash

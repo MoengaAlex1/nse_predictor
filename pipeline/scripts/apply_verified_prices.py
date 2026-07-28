@@ -28,6 +28,9 @@ commits.
 Usage:
   python pipeline/scripts/apply_verified_prices.py --date 2026-07-27 --pdf 27-JUL-26.pdf
   python pipeline/scripts/apply_verified_prices.py --date 2026-07-27 --pdf 27-JUL-26.pdf --dry-run
+
+  # Audit/backfill a date range (any ticker subset via --only-tickers, or all):
+  python pipeline/scripts/apply_verified_prices.py --start-date 2025-10-30 --end-date 2026-07-28 --only-tickers CGEN
 """
 from __future__ import annotations
 
@@ -231,6 +234,7 @@ def apply_prices(
     dry_run: bool = False,
     resolution: int = 250,
     next_day_pdf_bytes: bytes | None = None,
+    only_tickers: list[str] | None = None,
 ) -> dict[str, Any]:
     primary = dict(extract_price_rows(pdf_bytes, resolution=resolution))
 
@@ -239,6 +243,8 @@ def apply_prices(
         next_day_fields = dict(extract_price_rows(next_day_pdf_bytes, resolution=resolution))
 
     tickers = sorted(set(all_known_tickers()) | set(primary))
+    if only_tickers is not None:
+        tickers = [t for t in tickers if t in set(only_tickers)]
 
     # Only pay for a second full-page OCR pass if something actually needs it.
     needs_retry = False
@@ -315,16 +321,76 @@ def _next_trading_day(d: datetime.date) -> datetime.date:
     return nxt
 
 
+def trading_days(start: datetime.date, end: datetime.date) -> list[datetime.date]:
+    days = []
+    cur = start
+    while cur <= end:
+        if cur.weekday() < 5:
+            days.append(cur)
+        cur += datetime.timedelta(days=1)
+    return days
+
+
+def apply_date_range(
+    start: datetime.date,
+    end: datetime.date,
+    only_tickers: list[str] | None = None,
+    dry_run: bool = False,
+    resolution: int = 250,
+) -> list[dict[str, Any]]:
+    """Reprocess every trading day in [start, end] through the same
+    escalation chain as a single-day run. Each day's PDF is downloaded once
+    and reused as the next-day corroboration source for the day before it,
+    so a 194-day audit still only fetches 194 PDFs, not 388."""
+    days = trading_days(start, end)
+    pdf_cache: dict[datetime.date, bytes | None] = {}
+
+    def get_pdf(d: datetime.date) -> bytes | None:
+        if d not in pdf_cache:
+            try:
+                pdf_cache[d] = download_pdf(build_pdf_url(d))
+            except Exception as exc:
+                log.warning("No PDF for %s (holiday/404?) — skipping: %s", d, exc)
+                pdf_cache[d] = None
+        return pdf_cache[d]
+
+    reports: list[dict[str, Any]] = []
+    for i, d in enumerate(days):
+        pdf_bytes = get_pdf(d)
+        if pdf_bytes is None:
+            continue
+        next_pdf = get_pdf(days[i + 1]) if i + 1 < len(days) else None
+        report = apply_prices(
+            d, pdf_bytes, dry_run=dry_run, resolution=resolution,
+            next_day_pdf_bytes=next_pdf, only_tickers=only_tickers,
+        )
+        reports.append(report)
+        if i > 0:
+            pdf_cache.pop(days[i - 1], None)  # bound memory to ~2 PDFs at a time
+
+    total_corrected = sum(len(r["corrected"]) for r in reports)
+    total_forward_filled = sum(len(r["forward_filled"]) for r in reports)
+    total_unresolved = sum(len(r["unresolved"]) for r in reports)
+    log.info(
+        "=== range %s to %s: %d days processed, %d corrected, %d forward-filled, %d unresolved ===",
+        start.isoformat(), end.isoformat(), len(reports),
+        total_corrected, total_forward_filled, total_unresolved,
+    )
+    return reports
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Apply a day's verified NSE prices to data/cleaned CSVs (any ticker, no hardcoding)",
     )
-    parser.add_argument("--date", required=True, help="YYYY-MM-DD")
-    parser.add_argument("--pdf", help="Local PDF path (skip download)")
+    parser.add_argument("--date", help="YYYY-MM-DD (single-day mode)")
+    parser.add_argument("--start-date", help="YYYY-MM-DD (range mode, use with --end-date)")
+    parser.add_argument("--end-date", help="YYYY-MM-DD (range mode, use with --start-date)")
+    parser.add_argument("--pdf", help="Local PDF path (skip download, single-day mode only)")
     parser.add_argument(
         "--next-pdf",
         help="Local PDF path for the following trading day, used to cross-check "
-             "prev_close (skip auto-download)",
+             "prev_close (skip auto-download, single-day mode only)",
     )
     parser.add_argument(
         "--no-next-day-check",
@@ -333,7 +399,25 @@ def main() -> None:
     )
     parser.add_argument("--dry-run", action="store_true", help="Report only, write nothing")
     parser.add_argument("--resolution", type=int, default=250)
+    parser.add_argument(
+        "--only-tickers", nargs="+",
+        help="Restrict writes to these tickers only (e.g. --only-tickers CGEN). "
+             "The PDF is still fully OCR'd either way; this just scopes what gets written.",
+    )
     args = parser.parse_args()
+
+    if args.start_date or args.end_date:
+        if not (args.start_date and args.end_date):
+            parser.error("--start-date and --end-date must be used together")
+        apply_date_range(
+            datetime.date.fromisoformat(args.start_date),
+            datetime.date.fromisoformat(args.end_date),
+            only_tickers=args.only_tickers, dry_run=args.dry_run, resolution=args.resolution,
+        )
+        return
+
+    if not args.date:
+        parser.error("--date is required in single-day mode (or use --start-date/--end-date)")
 
     target_date = datetime.date.fromisoformat(args.date)
 
@@ -355,7 +439,7 @@ def main() -> None:
 
     apply_prices(
         target_date, pdf_bytes, dry_run=args.dry_run, resolution=args.resolution,
-        next_day_pdf_bytes=next_day_pdf_bytes,
+        next_day_pdf_bytes=next_day_pdf_bytes, only_tickers=args.only_tickers,
     )
 
 
