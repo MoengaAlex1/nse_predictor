@@ -1,10 +1,13 @@
 {
   "rules": {
+    ".read": false,
+    ".write": false,
+
     "prices": {
-      ".read": true,
-      ".write": "auth != null"
-    },
-    ".read": "auth != null",
-    ".write": "auth != null"
+      "$ticker": {
+        ".read": true,
+        ".write": false
+      }
+    }
   }
 }
