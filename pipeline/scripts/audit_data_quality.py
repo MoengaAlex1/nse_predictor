@@ -19,9 +19,13 @@ Checks, and why each matters:
                      volatility and biases models toward "no movement".
   zero_volume_price  A price printed with no volume. Often a carried-forward
                      quote rather than an actual trade.
-  calendar_gap       Long stretches of missing trading days.
+  session_gap        Missing trading sessions. Counted against the real NSE
+                     calendar (Mon-Fri minus Kenyan public holidays), never
+                     raw calendar days, which overstates gaps badly.
   future_date        Dates beyond today. Always a bug.
   weekend_row        Saturday/Sunday rows. The NSE does not trade then.
+  holiday_row        Rows dated on a Kenyan public holiday - the exchange was
+                     closed, so the row cannot be a real session.
   unknown_ticker     Present in RTDB but absent from companies.json, so nothing
                      in the app maps to it and it is silently dead weight.
 
@@ -48,8 +52,12 @@ if _REPO_ROOT not in sys.path:
 # A close repeated at least this many sessions running is treated as frozen.
 FROZEN_MIN = 15
 
-# A calendar gap longer than this many days is reported.
-GAP_MIN_DAYS = 21
+# A gap of at least this many missed TRADING SESSIONS is reported.
+# Sessions, never calendar days — the NSE trades Mon-Fri minus public holidays.
+GAP_MIN_SESSIONS = 10
+
+
+from pipeline.scripts.nse_calendar import is_trading_day as _is_trading_day
 
 
 def _rows(node: dict) -> list[tuple[str, dict]]:
@@ -74,8 +82,11 @@ def audit_ticker(ticker: str, node: dict, today: str) -> dict:
         if d > today:
             issues["future_date"].append({"date": d, "c": c})
         try:
-            if datetime.date.fromisoformat(d).weekday() >= 5:
+            dt = datetime.date.fromisoformat(d)
+            if dt.weekday() >= 5:
                 issues["weekend_row"].append({"date": d, "c": c})
+            elif not _is_trading_day(dt):
+                issues["holiday_row"].append({"date": d, "c": c})
         except ValueError:
             issues["bad_date_format"].append({"date": d})
 
@@ -95,15 +106,17 @@ def audit_ticker(ticker: str, node: dict, today: str) -> dict:
             })
         i = j + 1
 
-    # Calendar gaps.
+    # Gaps, counted in TRADING SESSIONS. Counting calendar days overstates
+    # badly: 24 Dec to 2 Jan is 9 calendar days but only 3 missed sessions once
+    # weekends, Christmas, Boxing Day and New Year are removed.
+    from pipeline.scripts.nse_calendar import sessions_missed
     for (d1, _), (d2, _) in zip(closes, closes[1:]):
         try:
-            delta = (datetime.date.fromisoformat(d2)
-                     - datetime.date.fromisoformat(d1)).days
+            missed = sessions_missed(d1, d2)
         except ValueError:
             continue
-        if delta > GAP_MIN_DAYS:
-            issues["calendar_gap"].append({"from": d1, "to": d2, "days": delta})
+        if missed >= GAP_MIN_SESSIONS:
+            issues["session_gap"].append({"from": d1, "to": d2, "days": missed})
 
     return issues
 
