@@ -1,0 +1,36 @@
+{
+  "_README": [
+    "Per-company plausible price range, taken from an accredited external",
+    "source. A close outside a company's range is corrupt by definition, which",
+    "makes it independent evidence rather than an inference from neighbouring",
+    "rows.",
+    "",
+    "This matters where the surrounding window cannot settle the question on its",
+    "own. SMER spends 355 days at ~3.00 and 200 days at ~0.30 across 2019-2021,",
+    "so a four-month median is sometimes drawn from the corrupt level and the",
+    "window-majority check has to decline those rows. A floor resolves them: any",
+    "SMER close under KES 1.00 is wrong regardless of what its neighbours say.",
+    "",
+    "The floor establishes THAT a row is corrupt. The surrounding window still",
+    "chooses the factor, because 0.15 could be a x10 or a x100 error and only",
+    "the prevailing price distinguishes 1.50 from 15.00.",
+    "",
+    "Add a company only after checking a real source, and record which one.",
+    "Companies absent from this file fall back to the window rules alone."
+  ],
+
+  "SMER": {
+    "name": "Sameer Africa Plc",
+    "source": "marketscreener.com/quote/stock/SAMEER-AFRICA-PLC-20700638",
+    "verified_on": "2026-08-08",
+    "min": 1.00,
+    "note": [
+      "The chart's y-axis bottoms at 1.5 and the series never approaches it;",
+      "the quoted range across 2003-2026 runs from roughly 2.00 to 40.00, with",
+      "the current price at 19.30. Sameer has never traded below KES 1.00.",
+      "",
+      "243 rows in RTDB sit under this floor, concentrated in 2018-2021, and",
+      "every one of them is a misplaced decimal point."
+    ]
+  }
+}
