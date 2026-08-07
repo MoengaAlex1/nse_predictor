@@ -162,19 +162,38 @@ def test_reprovisions_over_an_earlier_provisional_run(monkeypatch, price_df):
 # --------------------------------------------------------------------------
 
 def test_intraday_points_accumulate_and_stay_idempotent(monkeypatch, price_df):
-    """Re-running in the same minute replaces rather than duplicates the point."""
+    """
+    Re-running in the same minute replaces rather than duplicates the point.
+
+    TIME_EAT is pinned rather than taken from the clock. The module computes it
+    at import, so a test asserting order against a live TIME_EAT passes during
+    market hours and fails overnight — this test broke at 00:45 EAT, when
+    TIME_EAT sorts before the "09:00" fixture entry.
+    """
+    monkeypatch.setattr(pip_mod, "TIME_EAT", "13:00")
     existing = {
         "intraday_date": pip_mod.TODAY_EAT,
         "intraday_today": [
             {"time": "09:00", "price": 28.10},
-            {"time": pip_mod.TIME_EAT, "price": 28.20},
+            {"time": "13:00", "price": 28.20},
         ],
     }
     payload = _run(monkeypatch, price_df, existing)
     points = payload["intraday_today"]
-    assert [p["time"] for p in points] == ["09:00", pip_mod.TIME_EAT]
+    assert [p["time"] for p in points] == ["09:00", "13:00"]
     assert points[-1]["price"] == 28.40
     assert payload["intraday_date"] == pip_mod.TODAY_EAT
+
+
+def test_intraday_points_stay_sorted_regardless_of_run_time(monkeypatch, price_df):
+    """An early-morning run must slot in before, not after, a later snapshot."""
+    monkeypatch.setattr(pip_mod, "TIME_EAT", "09:05")
+    existing = {
+        "intraday_date": pip_mod.TODAY_EAT,
+        "intraday_today": [{"time": "14:00", "price": 28.90}],
+    }
+    payload = _run(monkeypatch, price_df, existing)
+    assert [p["time"] for p in payload["intraday_today"]] == ["09:05", "14:00"]
 
 
 def test_intraday_records_a_point_even_after_settlement(monkeypatch, price_df):
