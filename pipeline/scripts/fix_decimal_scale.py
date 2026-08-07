@@ -35,11 +35,16 @@ judged against 15.00 and corrected, while 11-14 matches the level and is left
 alone. It also removes the failure mode where a series beginning part-way
 through a corrupted run would invert the judgement entirely.
 
-WHOLE-ROW SCALING
+WHICH FIELDS MOVE
 -----------------
-When the scrape mis-reads the decimal point, every field moves together — c,
-pc, h, l all scale by the same factor. Corrections apply the same factor to all
-of them rather than patching the close alone and leaving the row inconsistent.
+The traded prices — c, o, h, l — scale together when the decimal point is
+misread, so the factor applies to all of them.
+
+pc does NOT. It is yesterday's close, and a scrape that gets today wrong often
+still carries a correct pc: SMER 2025-11-11 arrived as c=0.15 with pc=15.00.
+Scaling pc alongside c turned that correct 15.00 into 1500.00. pc, ch and pch
+are instead rebuilt from the corrected series, which also repairs the day AFTER
+a correction, whose pc would otherwise still point at the old wrong close.
 
 Read-only unless --apply is passed.
 """
@@ -68,7 +73,13 @@ FACTORS = (10, 100, 1000)
 TOLERANCE = 0.15
 
 # Fields that scale together when the decimal point is misread.
-SCALED_FIELDS = ("c", "o", "h", "l", "pc")
+#
+# pc is deliberately NOT here. It is yesterday's close, and a scrape that
+# mis-reads today's decimal point often still carries a correct pc — SMER
+# 2025-11-11 arrived as c=0.15 with pc=15.00, where only the close was wrong.
+# Scaling pc alongside c turned a correct 15.00 into 1500.00. pc is instead
+# rebuilt from the preceding corrected close by rebuild_prev_close().
+SCALED_FIELDS = ("c", "o", "h", "l")
 
 # Half-width of the window used to establish what a stock was actually trading
 # at. Four months either side is long enough that mis-scaled days are always
@@ -104,16 +115,60 @@ def scale_error(close: float, anchor: float) -> int | None:
 
 
 def correct_row(row: dict, factor: int) -> dict:
-    """Apply the inverse of `factor` to every field that scales together."""
+    """
+    Apply the inverse of `factor` to the traded prices.
+
+    pc, ch and pch are left for rebuild_prev_close, which derives them from the
+    corrected series. Scaling pc here would corrupt the rows where the scrape
+    got yesterday's close right and only today's wrong.
+    """
     out = dict(row)
     for key in SCALED_FIELDS:
         v = out.get(key)
         if isinstance(v, (int, float)) and v:
             out[key] = round(v / factor if factor > 0 else v * -factor, 4)
-    c, pc = out.get("c"), out.get("pc")
-    if isinstance(c, (int, float)) and isinstance(pc, (int, float)) and pc:
-        out["ch"] = round(c - pc, 4)
-        out["pch"] = round((c - pc) / pc * 100, 4)
+    return out
+
+
+def rebuild_prev_close(node: dict, corrections: dict[str, dict]) -> dict[str, dict]:
+    """
+    Rebuild pc, ch and pch across a ticker from the corrected closes.
+
+    Two things go stale once a close changes, and neither is fixed by scaling
+    the row in isolation:
+
+      * a corrected row may carry a pc that was always right, so it must not be
+        scaled — only re-derived;
+      * the row AFTER a correction still points at the old, wrong close, which
+        is why recovery days were left reading pch = 9900%.
+
+    Returns {date: row} for every row that needs writing, corrections included.
+    """
+    merged = {d: dict(v) for d, v in node.items()
+              if isinstance(v, dict) and isinstance(v.get("c"), (int, float))}
+    for d, row in corrections.items():
+        merged[d] = dict(row)
+
+    out: dict[str, dict] = {}
+    prev_close: float | None = None
+    for date in sorted(merged):
+        row = merged[date]
+        close = row.get("c")
+        if not isinstance(close, (int, float)) or close <= 0:
+            continue
+        if prev_close is not None:
+            new_pc = round(prev_close, 4)
+            new_ch = round(close - new_pc, 4)
+            new_pch = round((close - new_pc) / new_pc * 100, 4) if new_pc else 0.0
+            original = node.get(date, {})
+            if (date in corrections
+                    or original.get("pc") != new_pc
+                    or original.get("ch") != new_ch):
+                row = {**row, "pc": new_pc, "ch": new_ch, "pch": new_pch}
+                out[date] = row
+        elif date in corrections:
+            out[date] = row
+        prev_close = close
     return out
 
 
@@ -273,7 +328,22 @@ def scan(db: dict, tickers: list[str] | None = None,
             continue
         bad = find_bad_rows(node, floors.get(ticker))
         if bad:
-            found[ticker] = bad
+            # Rebuild pc/ch/pch across the ticker so corrected rows and the
+            # recovery days after them stay consistent with the new closes.
+            rebuilt = rebuild_prev_close(node, {b["date"]: b["after"] for b in bad})
+            by_date = {b["date"]: b for b in bad}
+            merged = []
+            for date in sorted(rebuilt):
+                b = by_date.get(date)
+                merged.append({
+                    "date": date,
+                    "before": node.get(date, {}),
+                    "after": rebuilt[date],
+                    "factor": b["factor"] if b else None,
+                    "anchor": b["anchor"] if b else None,
+                    "reason": b["reason"] if b else "prev-close rebuilt after correction",
+                })
+            found[ticker] = merged
     return found
 
 
@@ -295,6 +365,10 @@ def main() -> None:
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--backup", default="decimal_scale_backup.json")
     ap.add_argument("--restore")
+    ap.add_argument("--rebuild-derived", action="store_true",
+                    help="Only rebuild pc/ch/pch from the existing closes. Use "
+                         "after a correction run, or to repair rows whose "
+                         "prev-close no longer matches the day before.")
     args = ap.parse_args()
 
     if args.restore:
@@ -312,10 +386,27 @@ def main() -> None:
         from pipeline.scripts.firebase_client import get_rtdb
         db = get_rtdb().child("prices").get()
 
-    found = scan(db, args.ticker)
+    if args.rebuild_derived:
+        found = {}
+        for ticker in sorted(db):
+            if args.ticker and ticker not in args.ticker:
+                continue
+            node = db[ticker]
+            if not isinstance(node, dict):
+                continue
+            rebuilt = rebuild_prev_close(node, {})
+            if rebuilt:
+                found[ticker] = [{"date": d, "before": node.get(d, {}),
+                                  "after": rebuilt[d], "factor": None,
+                                  "anchor": node.get(d, {}).get("c"),
+                                  "reason": "prev-close rebuilt"}
+                                 for d in sorted(rebuilt)]
+    else:
+        found = scan(db, args.ticker)
     total = sum(len(v) for v in found.values())
 
-    print(f"\nMis-scaled rows: {total} across {len(found)} tickers\n")
+    label = "Rows with stale prev-close" if args.rebuild_derived else "Mis-scaled rows"
+    print(f"\n{label}: {total} across {len(found)} tickers\n")
     print(f"  {'tkr':<7}{'date':<12}{'anchor':>11}{'wrong':>12}{'corrected':>12}")
     flat = []
     for t, rows in found.items():

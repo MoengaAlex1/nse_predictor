@@ -172,10 +172,31 @@ def test_volume_is_not_rescaled():
     assert correct_row({"c": 0.8525, "pc": 0.8525, "v": 12345}, -100)["v"] == 12345
 
 
-def test_derived_fields_follow_the_corrected_price():
-    fixed = correct_row({"c": 0.474, "pc": 0.469, "ch": 0.005, "pch": 1.07}, -10)
-    assert fixed["c"] == pytest.approx(4.74)
-    assert fixed["ch"] == pytest.approx(0.05, abs=1e-4)
+def test_correct_row_does_not_touch_prev_close():
+    """
+    A scrape that mis-reads today's close often still carries a correct pc.
+    SMER 2025-11-11 arrived as c=0.15 with pc=15.00; scaling pc alongside c
+    turned a correct 15.00 into 1500.00 in live data. pc is rebuilt separately.
+    """
+    fixed = correct_row({"c": 0.15, "o": 0.15, "h": 0.15, "l": 0.15, "pc": 15.0}, -100)
+    assert fixed["c"] == pytest.approx(15.0)
+    assert fixed["pc"] == 15.0          # untouched, not 1500.0
+
+
+def test_rebuild_prev_close_derives_from_the_corrected_series():
+    from pipeline.scripts.fix_decimal_scale import rebuild_prev_close
+    node = {
+        "2025-11-10": {"c": 15.0, "pc": 15.0, "ch": 0.0, "pch": 0.0},
+        "2025-11-11": {"c": 0.15, "pc": 15.0, "ch": -14.85, "pch": -99.0},
+        "2025-11-12": {"c": 15.0, "pc": 0.15, "ch": 14.85, "pch": 9900.0},
+    }
+    corrections = {"2025-11-11": {"c": 15.0, "pc": 15.0}}
+    out = rebuild_prev_close(node, corrections)
+    assert out["2025-11-11"]["pc"] == pytest.approx(15.0)
+    assert out["2025-11-11"]["ch"] == pytest.approx(0.0)
+    # the recovery day no longer points at the old corrupt close
+    assert out["2025-11-12"]["pc"] == pytest.approx(15.0)
+    assert out["2025-11-12"]["pch"] == pytest.approx(0.0)
 
 
 # --------------------------------------------------------------------------

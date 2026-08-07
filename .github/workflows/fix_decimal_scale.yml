@@ -13,6 +13,12 @@ on:
         description: "Comma-separated tickers (blank = all)"
         required: false
         default: ""
+      rebuild_derived:
+        description: "true = only rebuild pc/ch/pch from existing closes"
+        type: choice
+        required: false
+        default: "false"
+        options: ["false", "true"]
       dry_run:
         description: "true = report only, write nothing"
         type: choice
@@ -70,6 +76,9 @@ jobs:
             for t in "${L[@]}"; do
               ARGS="$ARGS --ticker $(echo "$t" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
             done
+          fi
+          if [ "${{ github.event.inputs.rebuild_derived }}" = "true" ]; then
+            ARGS="$ARGS --rebuild-derived"
           fi
           if [ "${{ github.event.inputs.dry_run }}" = "false" ]; then
             ARGS="$ARGS --apply --backup decimal_scale_backup.json"
