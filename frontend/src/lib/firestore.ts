@@ -38,9 +38,17 @@ export async function fetchCompany(safeTicker: string): Promise<CompanyDoc | nul
   return normalizeCompany(snap.id, snap.data() as Omit<CompanyDoc, "id">);
 }
 
+// These collections are keyed by date, so "latest" is the highest-sorting doc.
+// Order on the date FIELD, never on __name__: Firestore auto-creates
+// single-field indexes for ordinary fields, but a descending __name__ order
+// needs an explicitly deployed index, and this repo deploys none (firebase.json
+// declares RTDB rules only). Ordering by __name__ desc therefore fails at
+// runtime with FAILED_PRECONDITION "The query requires an index".
+
 export async function fetchLatestSnapshot(safeTicker: string): Promise<SnapshotDoc | null> {
   const ref = collection(db, "companies", safeTicker, "snapshots");
-  const q = query(ref, orderBy("__name__", "desc"), limit(1));
+  // run_date is written alongside the doc id — see run_inference.py.
+  const q = query(ref, orderBy("run_date", "desc"), limit(1));
   const snap = await getDocs(q);
   if (snap.empty) return null;
   const d = snap.docs[0];
@@ -49,7 +57,8 @@ export async function fetchLatestSnapshot(safeTicker: string): Promise<SnapshotD
 
 export async function fetchLatestTechnicals(safeTicker: string): Promise<TechnicalsDoc | null> {
   const ref = collection(db, "companies", safeTicker, "technicals");
-  const q = query(ref, orderBy("__name__", "desc"), limit(1));
+  // date is embedded by build_technicals_result — see pipeline/src/analysis/technicals.py.
+  const q = query(ref, orderBy("date", "desc"), limit(1));
   const snap = await getDocs(q);
   if (snap.empty) return null;
   return snap.docs[0].data() as TechnicalsDoc;
@@ -65,7 +74,8 @@ export async function fetchCorporateEvents(safeTicker: string): Promise<Corporat
 
 export async function fetchMarketOverview(): Promise<MarketOverviewDoc | null> {
   const ref = collection(db, "market_overview");
-  const q = query(ref, orderBy("__name__", "desc"), limit(1));
+  // date mirrors the doc id — see write_market_overview in push_to_firestore.py.
+  const q = query(ref, orderBy("date", "desc"), limit(1));
   const snap = await getDocs(q);
   if (snap.empty) return null;
   return snap.docs[0].data() as MarketOverviewDoc;
