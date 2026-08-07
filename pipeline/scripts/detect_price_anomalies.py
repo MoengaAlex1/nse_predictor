@@ -202,7 +202,65 @@ def _anchored_verdict(a: Anomaly, anchor: dict) -> Anomaly:
     return a
 
 
+def analyse_anchored(ticker: str, node: dict, anchor: dict) -> list[Anomaly]:
+    """
+    Day-by-day band check for a ticker with a verified anchor.
+
+    Run detection is deliberately NOT used here. It needs a sharp step to open
+    a run, and inside a long corrupted stretch there is no step — so the tail
+    gets missed. Measured on KPLC: 30 consecutive days sat below the band floor
+    in Nov-Dec 2010 but run detection reported only the first 7.
+
+    With a verified band every day can be judged on its own, which is both
+    simpler and complete. Consecutive corrected days are grouped afterwards
+    purely for readable output.
+    """
+    series = _series(node)
+    flagged: list[tuple[str, float, int, float]] = []   # date, price, factor, fixed
+
+    for date, price in series:
+        band = band_for(anchor, date)
+        if band is None:
+            continue
+        lo, hi = band
+        if lo <= price <= hi:
+            continue                      # genuine price — never touched
+        fits = [(f if cand > price else -f, cand)
+                for f in FACTORS
+                for cand in (price * f, price / f)
+                if lo <= cand <= hi]
+        if len(fits) == 1:
+            flagged.append((date, price, fits[0][0], fits[0][1]))
+
+    # Group consecutive flagged days sharing a factor into one reported run.
+    out: list[Anomaly] = []
+    i = 0
+    while i < len(flagged):
+        j = i
+        while (j + 1 < len(flagged) and flagged[j + 1][2] == flagged[i][2]):
+            j += 1
+        chunk = flagged[i:j + 1]
+        lo_b, hi_b = band_for(anchor, chunk[0][0])
+        out.append(Anomaly(
+            ticker=ticker, start=chunk[0][0], end=chunk[-1][0], days=len(chunk),
+            run_median=round(st.median([c[1] for c in chunk]), 4),
+            flank_before=None, flank_after=None,
+            verdict="correctable",
+            factor=chunk[0][2],
+            corrected_to=round(st.median([c[3] for c in chunk]), 4),
+            reason=(f"outside verified band {lo_b}-{hi_b}; "
+                    f"{'x' if chunk[0][2] > 0 else '/'}{abs(chunk[0][2])} brings it inside"),
+            dates=[c[0] for c in chunk],
+        ))
+        i = j + 1
+    return out
+
+
 def analyse_ticker(ticker: str, node: dict, anchors: dict | None = None) -> list[Anomaly]:
+    anchor = (anchors or {}).get(ticker)
+    if anchor:
+        return analyse_anchored(ticker, node, anchor)
+
     series = _series(node)
     if len(series) < FLANK_DAYS * 2:
         return []
@@ -220,15 +278,6 @@ def analyse_ticker(ticker: str, node: dict, anchors: dict | None = None) -> list
             verdict="review",
             dates=[d for d, _ in series[lo:hi + 1]],
         )
-
-        # An anchored ticker is judged against its verified band, which is the
-        # only way to resolve alternating corruption. Unanchored tickers fall
-        # through to the conservative flank logic below and are never
-        # auto-corrected without agreeing flanks.
-        anchor = (anchors or {}).get(ticker)
-        if anchor:
-            out.append(_anchored_verdict(a, anchor))
-            continue
 
         # 1. Bounded? An unbounded move is a real regime change, not corruption.
         #    This is what keeps UCHM's genuine long decline untouched.
@@ -308,9 +357,13 @@ def main() -> None:
     print(f"  {'tkr':<7}{'start':<12}{'end':<12}{'d':>4}{'run':>9}{'->':>4}{'fixed':>9}   flanks")
     for a in sorted(correctable, key=lambda x: -x.days)[:25]:
         op = "x" if a.factor > 0 else "/"
+        # Anchored findings carry no flanks — they are judged per-day against a
+        # verified band, so show the band reason instead.
+        ctx = (f"{a.flank_before:.2f}/{a.flank_after:.2f}"
+               if a.flank_before is not None and a.flank_after is not None
+               else "anchored")
         print(f"  {a.ticker:<7}{a.start:<12}{a.end:<12}{a.days:>4}{a.run_median:>9.2f}"
-              f"{op + str(abs(a.factor)):>5}{a.corrected_to:>9.2f}   "
-              f"{a.flank_before:.2f}/{a.flank_after:.2f}")
+              f"{op + str(abs(a.factor)):>5}{a.corrected_to:>9.2f}   {ctx}")
 
     print(f"\nNEEDS REVIEW — not auto-correctable ({len(review)} runs, "
           f"{sum(a.days for a in review)} days)")

@@ -69,20 +69,84 @@
     ]
   },
 
+  "EQTY": {
+    "name": "Equity Group Holdings Plc",
+    "source": "marketscreener.com/quote/stock/EQUITY-GROUP-HOLDINGS-PLC-6500740",
+    "verified_on": "2026-08-07",
+    "note": [
+      "Clean case: no split step in the raw series (yearly medians run 13.3,",
+      "19.7, 14.3, 23.8, 24.6 ... smoothly). The only anomalies are isolated",
+      "x10 spikes against that baseline - 116.00 and 107.00 and 119.00 in 2007,",
+      "167.00 across 2008-12-31..2009-01-05 - each lasting 1-4 days and",
+      "returning exactly. Current 85.25."
+    ],
+    "bands": [
+      { "from": "2006-01-01", "to": "2007-12-31", "min": 4.0,  "max": 30.0 },
+      { "from": "2008-01-01", "to": "2012-12-31", "min": 9.0,  "max": 36.0 },
+      { "from": "2013-01-01", "to": "2020-12-31", "min": 22.0, "max": 62.0 },
+      { "from": "2021-01-01", "to": "2024-12-31", "min": 28.0, "max": 62.0 },
+      { "from": "2025-01-01", "to": "2026-12-31", "min": 32.0, "max": 105.0 }
+    ]
+  },
+
+  "KPLC": {
+    "name": "Kenya Power and Lighting Company Plc",
+    "source": "marketscreener.com/quote/stock/THE-KENYA-POWER-AND-LIGHT-6501010",
+    "verified_on": "2026-08-07",
+    "note": [
+      "SPLIT-AWARE BANDS. KPLC executed a 1:7 share split on 2010-01-07:",
+      "the raw NSE series steps 140.00 -> 19.90 that day, which is a REAL",
+      "corporate action and must never be 'corrected'. The band boundary is",
+      "placed exactly on that date so pre-split prices in the hundreds are",
+      "recognised as genuine.",
+      "",
+      "MarketScreener back-adjusts for the split, so its chart shows ~15-25",
+      "for 2007-2009 while raw NSE printed 200+. Bands below follow the RAW",
+      "series, not the adjusted chart. From 2011 onward the two agree - the",
+      "chart's Sep-2013 close of 14.35 matches the raw 2013 median of 14.95.",
+      "",
+      "The 2020-2023 trough near 1.2-2.0 is REAL and is banded as such, so it",
+      "cannot be multiplied up. Verified on the chart, which bottoms near 1.2.",
+      "",
+      "Two genuine corruptions sit inside 2010 and are caught by these bands:",
+      "  2010-04-08..04-12  17.90 -> 179.00 -> 17.90   (x10, isolated)",
+      "  2010-11-22..12-31  22.50 -> 2.80, weeks at 1.46-2.95  (/10, a run)"
+    ],
+    "bands": [
+      { "from": "2007-01-01", "to": "2010-01-06", "min": 90.0, "max": 350.0 },
+      { "from": "2010-01-07", "to": "2015-12-31", "min": 11.0, "max": 30.0 },
+      { "from": "2016-01-01", "to": "2017-12-31", "min": 5.5,  "max": 14.0 },
+      { "from": "2018-01-01", "to": "2019-12-31", "min": 2.5,  "max": 11.0 },
+      { "from": "2020-01-01", "to": "2023-12-31", "min": 1.1,  "max": 3.6 },
+      { "from": "2024-01-01", "to": "2024-12-31", "min": 1.2,  "max": 6.5 },
+      { "from": "2025-01-01", "to": "2026-12-31", "min": 4.0,  "max": 26.0 }
+    ]
+  },
+
   "_EXCLUDED": {
-    "KPLC": {
-      "name": "Kenya Power and Lighting Company Plc",
-      "source": "marketscreener.com/quote/stock/THE-KENYA-POWER-AND-LIGHT-6501010",
+    "CARB": {
+      "name": "Carbacid Investments plc",
+      "source": "marketscreener.com/quote/stock/CARBACID-INVESTMENTS-PLC-20702894",
       "verified_on": "2026-08-07",
       "reason": [
-        "DO NOT auto-correct. The 2010-2011 level changes the detector flags",
-        "(flanks 140.00 vs 17.90, then 2.25 vs 15.25) line up with KPLC's share",
-        "split, which is a real corporate action, not corruption. MarketScreener",
-        "back-adjusts for splits so its chart looks continuous while the raw NSE",
-        "series legitimately steps. 'Correcting' a split would destroy real data.",
+        "DO NOT auto-correct. CARB's anomalies are NOT decimal shifts.",
         "",
-        "Separately, KPLC genuinely traded around 1.3-2.0 during 2019-2022 - the",
-        "deep trough is visible on the chart and is real."
+        "Through 2014-2015 the raw series alternates between ~20-27 and ~75-89",
+        "dozens of times, at a consistent ratio of roughly 3.3-4.0 - never a",
+        "power of ten. The 2018 episodes behave the same way (10.90 -> 2.70 ->",
+        "11.55 -> 2.80, ratio ~4.0). No power-of-ten correction can express that,",
+        "so the band mechanism would either do nothing or do something wrong.",
+        "",
+        "The raw and adjusted series also fail to reconcile: MarketScreener's",
+        "Feb-2010 close is 13.33 while the raw 2010 median is 145.0, a ~10.9x",
+        "gap, yet 2013-2015 raw and adjusted broadly agree. That is not a clean",
+        "single split, so a split-boundary band like KPLC's cannot be derived",
+        "from the chart with confidence.",
+        "",
+        "A ~3.5x alternation is more consistent with two merged series, a bonus",
+        "or rights issue, or a mis-scaled column than with OCR losing a decimal",
+        "point. Needs someone with the corporate-action history to resolve.",
+        "Until then CARB is reported for review and never written to."
       ]
     }
   }
