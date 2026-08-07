@@ -194,3 +194,59 @@ def test_guard_allows_ordinary_movement():
 
 def test_guard_allows_the_first_ever_row():
     assert is_safe_to_write(85.25, None) is True
+
+
+# --------------------------------------------------------------------------
+# Per-company floors (tiers)
+# --------------------------------------------------------------------------
+
+SMER_FLOOR = {"min": 1.00}
+
+
+def test_floor_resolves_what_the_window_cannot():
+    """
+    SMER alternates between ~3.00 and ~0.30, so some windows are majority
+    corrupt and the window-majority check declines them. A verified floor is
+    independent evidence and settles those rows.
+    """
+    closes = [3.5, 0.35] * 40                      # deliberately 50/50
+    node = series(closes)
+    assert find_bad_rows(node) == []               # window alone: declines
+    fixed = find_bad_rows(node, SMER_FLOOR)        # with the floor: resolves
+    assert len(fixed) == 40
+    assert all(f["after"]["c"] == pytest.approx(3.5) for f in fixed)
+
+
+def test_floor_does_not_touch_values_inside_the_range():
+    node = series([3.5, 3.6, 3.4, 3.5] * 20)
+    assert find_bad_rows(node, SMER_FLOOR) == []
+
+
+def test_the_window_still_chooses_the_factor():
+    """
+    A 1.00 floor is satisfied by both x10 and x100 on a 0.15 close. Only the
+    prevailing price distinguishes 1.50 from 15.00.
+    """
+    node, bad = with_fault(15.0, 0.15, run=2)
+    fixed = find_bad_rows(node, SMER_FLOOR)
+    assert [f["date"] for f in fixed] == bad
+    assert all(f["after"]["c"] == pytest.approx(15.0) for f in fixed)
+
+
+def test_no_correction_may_land_back_outside_the_range():
+    node, _ = with_fault(15.0, 0.15, run=2)
+    for f in find_bad_rows(node, SMER_FLOOR):
+        assert f["after"]["c"] >= SMER_FLOOR["min"]
+
+
+def test_violates_floor_handles_both_bounds():
+    from pipeline.scripts.fix_decimal_scale import violates_floor
+    assert violates_floor(0.5, {"min": 1.0}) is True
+    assert violates_floor(1.5, {"min": 1.0}) is False
+    assert violates_floor(500.0, {"min": 1.0, "max": 100.0}) is True
+    assert violates_floor(5.0, None) is False
+
+
+def test_companies_without_a_floor_fall_back_to_window_rules():
+    node, bad = with_fault(15.0, 0.15, run=2)
+    assert [b["date"] for b in find_bad_rows(node, None)] == bad

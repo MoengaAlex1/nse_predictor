@@ -142,7 +142,52 @@ def local_level(rows: list[tuple[str, dict]], index: int) -> float | None:
     return window[len(window) // 2]
 
 
-def find_bad_rows(node: dict) -> list[dict]:
+def load_floors(path: str | None = None) -> dict:
+    """
+    Per-company plausible price ranges (pipeline/config/price_floors.json).
+
+    A close outside a company's verified range is corrupt by definition. That
+    is independent evidence, so it settles rows the surrounding window cannot —
+    see the note in that file on SMER's alternating 2019-2021 history.
+    """
+    p = Path(path) if path else Path(__file__).parent.parent / "config" / "price_floors.json"
+    if not p.exists():
+        return {}
+    return {k: v for k, v in json.loads(p.read_text()).items() if not k.startswith("_")}
+
+
+def violates_floor(close: float, floor: dict | None) -> bool:
+    """True when the close falls outside the company's verified range."""
+    if not floor:
+        return False
+    lo, hi = floor.get("min"), floor.get("max")
+    if lo is not None and close < lo:
+        return True
+    if hi is not None and close > hi:
+        return True
+    return False
+
+
+def factor_towards(close: float, level: float, floor: dict | None) -> int | None:
+    """
+    Choose the power of ten that moves `close` closest to `level`.
+
+    Used when a floor has already established the row is corrupt. The floor
+    alone cannot pick the factor — 0.15 satisfies a 1.00 floor at both x10 and
+    x100 — so the prevailing price decides between 1.50 and 15.00.
+    """
+    best, best_gap = None, None
+    for f in FACTORS:
+        for cand, signed in ((close * f, -f), (close / f, f)):
+            if floor and violates_floor(cand, floor):
+                continue
+            gap = abs(cand - level) / level if level else abs(cand - close)
+            if best_gap is None or gap < best_gap:
+                best, best_gap = signed, gap
+    return best
+
+
+def find_bad_rows(node: dict, floor: dict | None = None) -> list[dict]:
     """
     Judge every row against the prevailing price around it.
 
@@ -159,16 +204,28 @@ def find_bad_rows(node: dict) -> list[dict]:
 
     out: list[dict] = []
     for i, (date, row) in enumerate(rows):
+        close = row["c"]
         level = local_level(rows, i)
         if level is None:
             continue                    # too little surrounding history to judge
-        factor = scale_error(row["c"], level)
+
+        # A verified floor is independent evidence that the row is wrong, so it
+        # settles cases the window cannot. The window still picks the factor.
+        if violates_floor(close, floor):
+            factor = factor_towards(close, level, floor)
+            if factor is None:
+                continue
+            out.append({"date": date, "before": row, "after": correct_row(row, factor),
+                        "factor": factor, "anchor": level, "reason": "outside verified range"})
+            continue
+
+        factor = scale_error(close, level)
         if factor is None:
             continue
         if not _window_is_decisive(rows, i, level):
             continue                    # ambiguous — see _window_is_decisive
         out.append({"date": date, "before": row, "after": correct_row(row, factor),
-                    "factor": factor, "anchor": level})
+                    "factor": factor, "anchor": level, "reason": "power-of-ten vs window"})
     return out
 
 
@@ -204,7 +261,9 @@ def _window_is_decisive(rows: list[tuple[str, dict]], index: int, level: float) 
     return agreeing / len(window) >= WINDOW_MAJORITY
 
 
-def scan(db: dict, tickers: list[str] | None = None) -> dict[str, list[dict]]:
+def scan(db: dict, tickers: list[str] | None = None,
+         floors: dict | None = None) -> dict[str, list[dict]]:
+    floors = load_floors() if floors is None else floors
     found = {}
     for ticker in sorted(db):
         if tickers and ticker not in tickers:
@@ -212,7 +271,7 @@ def scan(db: dict, tickers: list[str] | None = None) -> dict[str, list[dict]]:
         node = db[ticker]
         if not isinstance(node, dict):
             continue
-        bad = find_bad_rows(node)
+        bad = find_bad_rows(node, floors.get(ticker))
         if bad:
             found[ticker] = bad
     return found
