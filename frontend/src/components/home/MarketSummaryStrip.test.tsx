@@ -17,6 +17,7 @@ const mockCompanies: CompanyDoc[] = Array.from({ length: 117 }, (_, i) => ({
   name: `Company ${i}`, sector: "Banking", current_price: 10, change_pct_today: 0,
   signal: "HOLD" as const, price_history: [], price_preview: [],
   price_date: null, last_updated: null, csv: "",
+  price_status: null, price_status_date: null,
 }));
 
 describe("MarketSummaryStrip", () => {

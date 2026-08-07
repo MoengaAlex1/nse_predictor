@@ -30,6 +30,7 @@ const mockCompanies: CompanyDoc[] = [
     price_history: [],
     price_preview: [],
     last_updated: "2026-07-15",
+    price_status: null, price_status_date: null,
     price_date: null,
   },
   {
@@ -47,6 +48,7 @@ const mockCompanies: CompanyDoc[] = [
     price_history: [],
     price_preview: [],
     last_updated: "2026-07-15",
+    price_status: null, price_status_date: null,
     price_date: null,
   },
 ];
