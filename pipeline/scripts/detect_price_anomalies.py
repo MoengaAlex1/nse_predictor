@@ -138,7 +138,71 @@ def _median_around(series, lo: int, hi: int) -> tuple[float | None, float | None
             st.median(after) if after else None)
 
 
-def analyse_ticker(ticker: str, node: dict) -> list[Anomaly]:
+def load_anchors(path: str | None = None) -> dict:
+    """
+    Verified plausible price bands per ticker (pipeline/config/price_anchors.json).
+
+    Needed because local continuity cannot resolve tickers whose corruption
+    alternates between two levels — SMER switches 48 times across 2019-2021, so
+    flank-relative logic proposes opposite corrections for adjacent runs. An
+    anchor states which level is real, sourced from an accredited site.
+    """
+    from pathlib import Path
+    p = Path(path) if path else Path(__file__).parent.parent / "config" / "price_anchors.json"
+    if not p.exists():
+        return {}
+    raw = json.loads(p.read_text())
+    return {k: v for k, v in raw.items() if not k.startswith("_")}
+
+
+def band_for(anchor: dict, date: str) -> tuple[float, float] | None:
+    for b in anchor.get("bands", []):
+        if b["from"] <= date <= b["to"]:
+            return b["min"], b["max"]
+    return None
+
+
+def _anchored_verdict(a: Anomaly, anchor: dict) -> Anomaly:
+    """
+    Decide using the verified band rather than the flanks.
+
+    A run is corrupt only if its median sits OUTSIDE the band for its dates and
+    exactly one power of ten brings it INSIDE. A run already inside the band is
+    real and is left alone however extreme it looks — that is what protects
+    HAFR's and NBV's genuine sub-1 trading.
+    """
+    band = band_for(anchor, a.start)
+    if band is None:
+        a.reason = f"no anchored band covers {a.start}"
+        return a
+
+    lo, hi = band
+    if lo <= a.run_median <= hi:
+        a.verdict = "real"
+        a.reason = f"within verified band {lo}-{hi}; genuine price, not corruption"
+        return a
+
+    fits = []
+    for f in FACTORS:
+        for cand, signed in ((a.run_median * f, f), (a.run_median / f, -f)):
+            if lo <= cand <= hi:
+                fits.append((signed, cand))
+    if len(fits) == 1:
+        factor, corrected = fits[0]
+        a.verdict = "correctable"
+        a.factor = factor
+        a.corrected_to = round(corrected, 4)
+        a.reason = (f"{a.run_median:.2f} is outside verified band {lo}-{hi}; "
+                    f"{'x' if factor > 0 else '/'}{abs(factor)} brings it inside")
+    elif not fits:
+        a.reason = (f"{a.run_median:.2f} is outside band {lo}-{hi} but no power "
+                    f"of ten brings it inside")
+    else:
+        a.reason = f"outside band {lo}-{hi} but {len(fits)} factors fit; ambiguous"
+    return a
+
+
+def analyse_ticker(ticker: str, node: dict, anchors: dict | None = None) -> list[Anomaly]:
     series = _series(node)
     if len(series) < FLANK_DAYS * 2:
         return []
@@ -156,6 +220,15 @@ def analyse_ticker(ticker: str, node: dict) -> list[Anomaly]:
             verdict="review",
             dates=[d for d, _ in series[lo:hi + 1]],
         )
+
+        # An anchored ticker is judged against its verified band, which is the
+        # only way to resolve alternating corruption. Unanchored tickers fall
+        # through to the conservative flank logic below and are never
+        # auto-corrected without agreeing flanks.
+        anchor = (anchors or {}).get(ticker)
+        if anchor:
+            out.append(_anchored_verdict(a, anchor))
+            continue
 
         # 1. Bounded? An unbounded move is a real regime change, not corruption.
         #    This is what keeps UCHM's genuine long decline untouched.
@@ -195,12 +268,13 @@ def analyse_ticker(ticker: str, node: dict) -> list[Anomaly]:
     return out
 
 
-def analyse_all(db: dict) -> list[Anomaly]:
+def analyse_all(db: dict, anchors: dict | None = None) -> list[Anomaly]:
+    anchors = load_anchors() if anchors is None else anchors
     found = []
     for ticker in sorted(db):
         node = db[ticker]
         if isinstance(node, dict):
-            found.extend(analyse_ticker(ticker, node))
+            found.extend(analyse_ticker(ticker, node, anchors))
     return found
 
 
@@ -225,6 +299,7 @@ def main() -> None:
         db = {args.ticker: db.get(args.ticker, {})}
 
     found = analyse_all(db)
+    real = [a for a in found if a.verdict == 'real']
     correctable = [a for a in found if a.verdict == "correctable"]
     review = [a for a in found if a.verdict == "review"]
 
@@ -246,6 +321,10 @@ def main() -> None:
         with open(args.json, "w") as fh:
             json.dump([asdict(a) for a in found], fh, indent=1)
         print(f"\nFull findings written to {args.json}")
+
+    print(f"\nCONFIRMED REAL — inside a verified band, deliberately untouched ({len(real)} runs)")
+    for a in sorted(real, key=lambda x: -x.days)[:10]:
+        print(f"  {a.ticker:<7}{a.start:<12}{a.end:<12}{a.days:>4}{a.run_median:>9.2f}   {a.reason}")
 
     print("\nNothing was modified — this tool is read-only.")
 

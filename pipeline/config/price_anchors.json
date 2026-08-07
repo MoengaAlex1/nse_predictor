@@ -1,0 +1,89 @@
+{
+  "_README": [
+    "Verified plausible price bands per ticker, read off accredited external",
+    "sources. These exist because local continuity alone cannot decide which of",
+    "two conflicting price levels is real when corruption alternates: SMER spends",
+    "355 days at ~3.00 and 200 days at ~0.30 across 2019-2021, switching 48 times,",
+    "so flank-relative logic yields contradictory corrections for adjacent runs.",
+    "",
+    "A band is the range the stock genuinely traded in during that window. A run",
+    "whose median falls OUTSIDE the band, and which a single power of ten brings",
+    "INSIDE it, is a decimal-shift correction. Everything else is left alone.",
+    "",
+    "CRITICAL: low price does NOT imply corruption. HAFR and NBV genuinely traded",
+    "below 1.00 KES for years - their bands say so explicitly, which is what stops",
+    "a fixer from multiplying real prices tenfold.",
+    "",
+    "Add a ticker here only after checking a real source. Unanchored tickers are",
+    "reported for review and never auto-corrected."
+  ],
+
+  "SMER": {
+    "name": "Sameer Africa Plc",
+    "source": "marketscreener.com/quote/stock/SAMEER-AFRICA-PLC-20700638",
+    "verified_on": "2026-08-07",
+    "note": "Chart axis floor is 1.5; never traded near 0.30. The ~0.30 series is corruption, the ~3.00 series is real.",
+    "bands": [
+      { "from": "2015-01-01", "to": "2018-12-31", "min": 1.5,  "max": 9.0 },
+      { "from": "2019-01-01", "to": "2022-12-31", "min": 1.5,  "max": 5.0 },
+      { "from": "2023-01-01", "to": "2025-12-31", "min": 1.8,  "max": 18.0 },
+      { "from": "2026-01-01", "to": "2026-12-31", "min": 8.0,  "max": 25.0 }
+    ]
+  },
+
+  "TOTL": {
+    "name": "TotalEnergies Marketing Kenya Plc",
+    "source": "marketscreener.com/quote/stock/TOTALENERGIES-MARKETING-K-16578903",
+    "verified_on": "2026-08-07",
+    "note": "Trades 20-45 KES. Never near 1.28 or 3.50 - those runs are corruption. MA(200)=23.66, current 43.40.",
+    "bands": [
+      { "from": "2015-01-01", "to": "2021-12-31", "min": 12.0, "max": 45.0 },
+      { "from": "2022-01-01", "to": "2026-12-31", "min": 15.0, "max": 60.0 }
+    ]
+  },
+
+  "HAFR": {
+    "name": "Home Afrika Limited",
+    "source": "marketscreener.com/quote/stock/HOME-AFRIKA-LIMITED-20707733",
+    "verified_on": "2026-08-07",
+    "note": "GENUINELY SUB-1 for years. Chart tooltip Oct-2021 reads O 0.40 H 0.40 L 0.36 C 0.40. The ~10-12 runs in 2017-2018 are the corruption (real level ~1.0-1.2), NOT the low prices.",
+    "bands": [
+      { "from": "2014-01-01", "to": "2015-12-31", "min": 3.0,  "max": 25.0 },
+      { "from": "2016-01-01", "to": "2016-12-31", "min": 1.2,  "max": 6.0 },
+      { "from": "2017-01-01", "to": "2018-12-31", "min": 0.7,  "max": 3.0 },
+      { "from": "2019-01-01", "to": "2024-12-31", "min": 0.2,  "max": 1.2 },
+      { "from": "2025-01-01", "to": "2026-12-31", "min": 0.5,  "max": 2.5 }
+    ]
+  },
+
+  "NBV": {
+    "name": "Nairobi Business Ventures Plc",
+    "source": "marketscreener.com/quote/stock/NAIROBI-BUSINESS-VENTURES-105524982",
+    "verified_on": "2026-08-07",
+    "note": "GENUINELY SUB-1 in 2018-2020 (~0.3-0.6), then a real spike to ~10 in 2021 and a long decline to 1.38. The sub-1 prices are REAL and must not be multiplied.",
+    "bands": [
+      { "from": "2017-01-01", "to": "2017-12-31", "min": 1.0,  "max": 12.0 },
+      { "from": "2018-01-01", "to": "2020-12-31", "min": 0.2,  "max": 1.2 },
+      { "from": "2021-01-01", "to": "2022-12-31", "min": 0.5,  "max": 14.0 },
+      { "from": "2023-01-01", "to": "2026-12-31", "min": 1.0,  "max": 7.0 }
+    ]
+  },
+
+  "_EXCLUDED": {
+    "KPLC": {
+      "name": "Kenya Power and Lighting Company Plc",
+      "source": "marketscreener.com/quote/stock/THE-KENYA-POWER-AND-LIGHT-6501010",
+      "verified_on": "2026-08-07",
+      "reason": [
+        "DO NOT auto-correct. The 2010-2011 level changes the detector flags",
+        "(flanks 140.00 vs 17.90, then 2.25 vs 15.25) line up with KPLC's share",
+        "split, which is a real corporate action, not corruption. MarketScreener",
+        "back-adjusts for splits so its chart looks continuous while the raw NSE",
+        "series legitimately steps. 'Correcting' a split would destroy real data.",
+        "",
+        "Separately, KPLC genuinely traded around 1.3-2.0 during 2019-2022 - the",
+        "deep trough is visible on the chart and is real."
+      ]
+    }
+  }
+}
