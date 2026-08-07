@@ -15,7 +15,20 @@
     "a fixer from multiplying real prices tenfold.",
     "",
     "Add a ticker here only after checking a real source. Unanchored tickers are",
-    "reported for review and never auto-corrected."
+    "reported for review and never auto-corrected.",
+    "",
+    "SUPERSEDED WHERE THE ARCHIVE COVERS. The NSE all-stocks archive",
+    "(~/Documents/archive, 2007-01-02 to 2025-10-31) gives the exchange's own",
+    "printed close per ticker per date. Where it covers a date, prefer it and",
+    "prefer apply_archive_corrections.py, which copies exact figures instead of",
+    "inferring from a band.",
+    "",
+    "These bands were read off chart axes by eye and one of them was WRONG: the",
+    "original EQTY entry said 4.0-30.0 for 2007 when the exchange printed a",
+    "median of 130.00. MarketScreener back-adjusts for share splits, so reading",
+    "it to band a RAW series understates pre-split years by the split factor.",
+    "Treat every band here as approximate, and as a fallback for dates the",
+    "archive does not reach."
   ],
 
   "SMER": {
@@ -71,21 +84,30 @@
 
   "EQTY": {
     "name": "Equity Group Holdings Plc",
-    "source": "marketscreener.com/quote/stock/EQUITY-GROUP-HOLDINGS-PLC-6500740",
-    "verified_on": "2026-08-07",
+    "source": "NSE all-stocks archive (~/Documents/archive), 2007-2025",
+    "verified_on": "2026-08-08",
     "note": [
-      "Clean case: no split step in the raw series (yearly medians run 13.3,",
-      "19.7, 14.3, 23.8, 24.6 ... smoothly). The only anomalies are isolated",
-      "x10 spikes against that baseline - 116.00 and 107.00 and 119.00 in 2007,",
-      "167.00 across 2008-12-31..2009-01-05 - each lasting 1-4 days and",
-      "returning exactly. Current 85.25."
+      "CORRECTED. The earlier band here was read off a MarketScreener chart and",
+      "was wrong: it said 4.0-30.0 for 2006-2007. The archive shows EQTY",
+      "actually traded 74.50-276.00 that year, median 130.00, then fell to a",
+      "median of 14.60 in 2009 at its 1:10 share split.",
+      "",
+      "The chart misled because MarketScreener back-adjusts for splits, so it",
+      "renders pre-2009 prices at a tenth of what the exchange printed. Reading",
+      "an adjusted chart to band a raw series is not sound, and this entry is",
+      "the proof.",
+      "",
+      "Bands below come from the archive's own yearly medians. Where the archive",
+      "covers a date it supersedes any chart-derived band."
     ],
     "bands": [
-      { "from": "2006-01-01", "to": "2007-12-31", "min": 4.0,  "max": 30.0 },
-      { "from": "2008-01-01", "to": "2012-12-31", "min": 9.0,  "max": 36.0 },
-      { "from": "2013-01-01", "to": "2020-12-31", "min": 22.0, "max": 62.0 },
-      { "from": "2021-01-01", "to": "2024-12-31", "min": 28.0, "max": 62.0 },
-      { "from": "2025-01-01", "to": "2026-12-31", "min": 32.0, "max": 105.0 }
+      { "from": "2006-01-01", "to": "2007-12-31", "min": 60.0,  "max": 300.0 },
+      { "from": "2008-01-01", "to": "2008-12-31", "min": 100.0, "max": 340.0 },
+      { "from": "2009-01-01", "to": "2009-12-31", "min": 10.0,  "max": 200.0 },
+      { "from": "2010-01-01", "to": "2012-12-31", "min": 13.0,  "max": 32.0 },
+      { "from": "2013-01-01", "to": "2020-12-31", "min": 20.0,  "max": 62.0 },
+      { "from": "2021-01-01", "to": "2024-12-31", "min": 28.0,  "max": 62.0 },
+      { "from": "2025-01-01", "to": "2026-12-31", "min": 32.0,  "max": 105.0 }
     ]
   },
 
