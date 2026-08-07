@@ -59,6 +59,3 @@ run_all_output.txt
 .vscode/
 .idea/
 *.swp
-
-# Local snapshot of the currently-live build, for manual rollback comparison
-.rollback-snapshot/

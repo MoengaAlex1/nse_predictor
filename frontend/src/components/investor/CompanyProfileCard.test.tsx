@@ -21,7 +21,6 @@ const BASE_COMPANY: CompanyDoc = {
   price_preview: [],
   price_date: "2026-07-24",
   last_updated: "2026-07-24",
-  price_status: null, price_status_date: null,
 };
 
 const SHORT_DESC_COMPANY: CompanyDoc = {

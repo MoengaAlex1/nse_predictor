@@ -17,7 +17,6 @@ import { CompanyProfileCard } from "../components/investor/CompanyProfileCard";
 import { QuoteSummaryPanel } from "../components/investor/QuoteSummaryPanel";
 import { ValuationPanel } from "../components/investor/ValuationPanel";
 import { NewsPanel } from "../components/investor/NewsPanel";
-import { PriceStatusBadge } from "../components/investor/PriceStatusBadge";
 import { FinancialsPanel } from "../components/FinancialsPanel";
 import { FinancialNarrativeCard } from "../components/FinancialNarrativeCard";
 import { DeepAnalysisPanel } from "../components/DeepAnalysisPanel";
@@ -1255,20 +1254,9 @@ export const CompanyDeepDive: FC = () => {
                         {change >= 0 ? "+" : ""}{change.toFixed(2)}% on {company.price_date ? fmtDay(company.price_date) : "prev close"}
                       </div>
                     )}
-                    <div className="mt-1.5 flex justify-end">
-                      <PriceStatusBadge
-                        status={company.price_status}
-                        statusDate={company.price_status_date}
-                        asOf={company.price_as_of}
-                      />
-                    </div>
                     {company.price_date && (
                       <p className="mt-1 text-right text-[10px] text-hint">
-                        {/* Only call it a close once the NSE daily report has settled it —
-                            mid-session this is the live last-traded price. */}
-                        {company.price_status === "provisional" ? "Last traded" : "Closing price"}
-                        {" · "}
-                        {fmtLabel(company.price_date)}
+                        Closing price · {fmtLabel(company.price_date)}
                       </p>
                     )}
                   </>

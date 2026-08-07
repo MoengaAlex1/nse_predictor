@@ -16,17 +16,8 @@ For each company:
   3. Compute current_price and change_pct_today.
   4. Push to Firestore via update_company_public (merge=True).
      Only updates: current_price, change_pct_today, price_history,
-                   price_preview, last_updated, price_status*.
+                   price_preview, last_updated.
      Leaves untouched: signal, snapshot, technicals, predictions.
-
-Prices written here are PROVISIONAL: they are the live last-traded figure, not
-the settled close. scrape_nse_pdf.py promotes the day to FINAL once the
-official NSE daily report PDF is published (~15:30 EAT).
-
-Price fields are written on every run regardless of status — after settlement
-the CSVs carry the PDF-verified close, so this push is how the corrected figure
-reaches Firestore. Only the status is guarded: a run landing after the PDF
-leaves the day FINAL rather than flipping it back to provisional.
 
 The nightly daily_update.yml handles full model retraining and signal refresh.
 """
@@ -50,7 +41,6 @@ from scripts.push_to_firestore import (
     download_model_from_storage,
 )
 from scripts.scrape_nse_prices import CSVS_TMP, _load_local_csv, _clean_df
-from scripts.price_status import is_already_final, provisional_fields
 from config import load_companies
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -98,20 +88,14 @@ def _get_csv(safe: str) -> pd.DataFrame | None:
     return df if not df.empty else None
 
 
-def _build_intraday_today(db, doc_id: str, current_price: float) -> tuple[list[dict], bool]:
+def _build_intraday_today(db, doc_id: str, current_price: float) -> list[dict]:
     """
     Read existing intraday state from Firestore, archive previous day if needed,
-    and return (updated intraday_today list, today_already_final).
-
-    The second element reuses this function's existing document read so the
-    caller can check settlement status without a second Firestore round-trip
-    per company.
+    and return the updated intraday_today list with current_price appended/replaced.
     """
     doc_ref = db.collection("companies").document(doc_id)
     doc_snap = doc_ref.get()
     existing = doc_snap.to_dict() if doc_snap.exists else {}
-
-    already_final = is_already_final(existing, TODAY_EAT)
 
     stored_date: str | None = existing.get("intraday_date")
     stored_points: list = existing.get("intraday_today") or []
@@ -129,7 +113,7 @@ def _build_intraday_today(db, doc_id: str, current_price: float) -> tuple[list[d
     updated = [p for p in stored_points if p.get("time") != TIME_EAT]
     updated.append({"time": TIME_EAT, "price": current_price})
     updated.sort(key=lambda p: p["time"])
-    return updated, already_final
+    return updated
 
 
 def push_company(company: dict, db) -> dict:
@@ -163,9 +147,9 @@ def push_company(company: dict, db) -> dict:
         change_pct = 0.0
 
     # Build intraday_today: accumulate snapshots throughout the trading day
-    intraday_today, already_final = _build_intraday_today(db, doc_id, current_price)
+    intraday_today = _build_intraday_today(db, doc_id, current_price)
 
-    payload = {
+    update_company_public(db, doc_id, {
         "current_price":    current_price,
         "change_pct_today": round(change_pct, 4),
         "price_history":    price_history,
@@ -173,24 +157,11 @@ def push_company(company: dict, db) -> dict:
         "last_updated":     TODAY,
         "intraday_today":   intraday_today,
         "intraday_date":    TODAY_EAT,
-    }
-
-    # Price fields above are written unconditionally, exactly as before: after
-    # settlement the CSVs carry the PDF-verified close, so this is how the
-    # corrected figure reaches Firestore. Only the *status* is guarded — a live
-    # scrape landing after the PDF must not flip a settled day back to
-    # provisional.
-    if already_final:
-        log.info("%-20s  today already FINAL — leaving status settled", doc_id)
-    else:
-        payload.update(provisional_fields(TODAY_EAT, as_of=TIME_EAT))
-
-    update_company_public(db, doc_id, payload)
+    })
 
     log.info(
-        "%-20s  price=%.4f  chg=%+.2f%%  pts=%d  intraday=%d  status=%s",
+        "%-20s  price=%.4f  chg=%+.2f%%  pts=%d  intraday=%d",
         doc_id, current_price, change_pct, len(price_history), len(intraday_today),
-        "final" if already_final else "provisional",
     )
     return {"ticker": doc_id, "pushed": True, "price": current_price}
 

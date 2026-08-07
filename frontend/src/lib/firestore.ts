@@ -23,8 +23,6 @@ function normalizeCompany(id: string, data: Omit<CompanyDoc, "id">): CompanyDoc 
     signal: data.signal ?? null,
     price_date: data.price_date ?? null,
     last_updated: data.last_updated ?? null,
-    price_status: data.price_status ?? null,
-    price_status_date: data.price_status_date ?? null,
   };
 }
 

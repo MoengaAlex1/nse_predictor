@@ -570,21 +570,13 @@ def extract_price_rows(pdf_bytes: bytes, resolution: int = 250) -> list[tuple[st
 # RTDB writer
 # ---------------------------------------------------------------------------
 
-def resolve_row_ticker(company_name: str) -> str | None:
-    """
-    In OCR mode the extracted value IS already a ticker; in table mode it is a
-    company name that needs resolving. Shared by write_to_rtdb and
-    mark_prices_final so both agree on which rows map to which company.
-    """
-    return company_name if len(company_name) <= 6 else resolve_ticker(company_name)
-
-
 def write_to_rtdb(root_ref, date_str: str, rows: list[tuple[str, dict]], dry_run: bool) -> int:
     from pipeline.scripts.firebase_rtdb import write_price_node
     written = 0
     unknown = []
     for company_name, fields in rows:
-        ticker = resolve_row_ticker(company_name)
+        # In OCR mode company_name IS already a ticker; in table mode resolve it
+        ticker = company_name if len(company_name) <= 6 else resolve_ticker(company_name)
         if not ticker:
             unknown.append(company_name)
             continue
@@ -606,82 +598,6 @@ def write_to_rtdb(root_ref, date_str: str, rows: list[tuple[str, dict]], dry_run
     if unknown:
         log.warning("Unknown company names: %s", unknown)
     return written
-
-
-# ---------------------------------------------------------------------------
-# Firestore settlement marker
-# ---------------------------------------------------------------------------
-
-def mark_prices_final(date_str: str, rows: list[tuple[str, dict]], dry_run: bool) -> int:
-    """
-    Promote `date_str` from PROVISIONAL to FINAL on the Firestore company docs
-    for every row extracted from the official PDF.
-
-    Called after write_to_rtdb. Once a day is marked FINAL, a later live scrape
-    leaves that status alone instead of flipping it back to provisional (see
-    push_intraday_prices.push_company).
-
-    This function never creates a Firestore document. It only ever updates docs
-    that already exist AND are listed in companies.json. Both guards matter:
-    update_company_public uses set(merge=True), which would happily create a
-    status-only doc carrying no ticker/name/sector — and the web app does
-    unguarded `c.name.toLowerCase()` on every company in the collection, so one
-    such skeleton doc would crash the companies page and global search.
-
-    This writes status fields ONLY — deliberately not prices. The close values
-    straight out of OCR are not yet trustworthy: fix_all_decimals.py,
-    nse_price_cleaner.py and nse_data_verifier.py all run after this step (see
-    .github/workflows/price_update.yml) precisely to catch misread decimals.
-    RTDB stays the system of record for OHLCV, and corrected figures reach
-    Firestore through the normal CSV sync. Writing a raw OCR close here would
-    push an unverified number straight to the web app.
-
-    Returns the number of company documents marked.
-    """
-    from pipeline.config import load_companies
-    from pipeline.scripts.firebase_rtdb import to_short_ticker
-    from pipeline.scripts.price_status import final_fields
-
-    eligible = {c["short"].upper() for c in load_companies()}
-    marked = 0
-    unlisted = []
-    absent = []
-
-    if not dry_run:
-        from pipeline.scripts.push_to_firestore import get_db, update_company_public
-        db = get_db()
-        # One listing call for the whole run — cheaper than an existence read
-        # per company, and it returns refs without document bodies.
-        existing = {d.id for d in db.collection("companies").list_documents()}
-    else:
-        existing = None
-
-    for company_name, _fields in rows:
-        ticker = resolve_row_ticker(company_name)
-        if not ticker:
-            continue
-        short = to_short_ticker(ticker)
-
-        if short not in eligible:
-            unlisted.append(short)
-            continue
-        if existing is not None and short not in existing:
-            absent.append(short)
-            continue
-
-        if not dry_run:
-            update_company_public(db, short, final_fields(date_str))
-        marked += 1
-
-    if unlisted:
-        log.warning("Not in companies.json, status not marked: %s", sorted(set(unlisted)))
-    if absent:
-        log.warning(
-            "No Firestore doc yet, status not marked (seed_companies.py creates these): %s",
-            sorted(set(absent)),
-        )
-    log.info("Marked %d companies FINAL for %s", marked, date_str)
-    return marked
 
 
 # ---------------------------------------------------------------------------
@@ -734,15 +650,6 @@ def main() -> None:
 
     written = write_to_rtdb(root_ref, date_str, rows, args.dry_run)
     log.info("Done — wrote %d company records for %s", written, date_str)
-
-    # Promote the day to FINAL now that the official PDF is in. Never let a
-    # Firestore hiccup fail the run: the OHLCV write above is the authoritative
-    # output and has already succeeded. A missed marker just leaves the day
-    # showing as provisional, which the next run re-attempts.
-    try:
-        mark_prices_final(date_str, rows, args.dry_run)
-    except Exception as exc:
-        log.warning("Could not mark %s FINAL in Firestore: %s", date_str, exc, exc_info=True)
 
 
 if __name__ == "__main__":

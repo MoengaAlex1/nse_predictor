@@ -7,7 +7,6 @@ const mkCompany = (ticker: string, signal: "BUY" | "HOLD" | "SELL", pct: number,
   id: `${ticker}.NR`, ticker, short: ticker.toLowerCase(), color: "#fff", icon: "🏢",
   name: `${ticker} Ltd`, sector: "Banking", current_price: price, change_pct_today: pct,
   signal, price_history: [], price_preview: [], price_date: null, last_updated: null, csv: "",
-  price_status: null, price_status_date: null,
 });
 
 const wrap = (ui: React.ReactElement) => render(<MemoryRouter>{ui}</MemoryRouter>);
