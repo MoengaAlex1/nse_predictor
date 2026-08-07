@@ -37,10 +37,25 @@ import csv
 import datetime
 import glob
 import os
-import re
 from functools import lru_cache
+from pathlib import Path
 
-DEFAULT_ARCHIVE = os.path.expanduser("~/Documents/archive")
+# The archive is committed to the repo so CI can reach it — GitHub Actions
+# cannot see a developer's home directory. The repo copy is preferred and the
+# home-directory copy is kept as a fallback for anyone who has it there but has
+# not pulled the data.
+_REPO_ARCHIVE = str(Path(__file__).parent.parent.parent / "data" / "archive")
+_HOME_ARCHIVE = os.path.expanduser("~/Documents/archive")
+
+
+def _default_archive() -> str:
+    for candidate in (_REPO_ARCHIVE, _HOME_ARCHIVE):
+        if glob.glob(os.path.join(candidate, "NSE_data_all_stocks_*.csv")):
+            return candidate
+    return _REPO_ARCHIVE
+
+
+DEFAULT_ARCHIVE = _default_archive()
 
 # Ordered by how common they are across the files.
 _DATE_FORMATS = ("%d-%b-%y", "%m/%d/%Y", "%d-%B-%y", "%Y-%m-%d", "%d/%m/%Y")

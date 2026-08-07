@@ -1,0 +1,180 @@
+name: Apply Archive Price Corrections
+
+# Repairs RTDB prices by copying figures from the committed NSE archive
+# (data/archive), which covers 2007-01-02 to 2025-10-31.
+#
+# Manual only. There is no schedule: this rewrites historical prices and must
+# be a deliberate act with a human reading the diff first.
+#
+# SAFETY
+#   dry_run defaults to "true", so an accidental run writes nothing.
+#   Every run uploads the diff as an artifact.
+#   A write run also uploads a backup of the original rows, which
+#   restore_from_run replays that backup to undo the change.
+#
+# SUGGESTED SEQUENCE
+#   1. dry_run=true, scope=decimal, tickers=SMER   -> read the diff artifact
+#   2. dry_run=false, scope=decimal, tickers=SMER  -> apply, keep the backup
+#   3. check the SMER chart on the site
+#   4. repeat with tickers blank to cover the rest
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "Which disagreements to correct"
+        type: choice
+        required: true
+        default: "decimal"
+        options:
+          - decimal      # ~1,130 rows: the x10/x100 corruption only
+          - minor        # ~61,148 rows: close differs by under 2x
+          - no_close     # ~51,569 rows: volume/high/low/prev-close only
+          - all          # everything the archive disagrees with
+      tickers:
+        description: "Comma-separated tickers (blank = all)"
+        required: false
+        default: "SMER"
+      dry_run:
+        description: "true = report only, write nothing"
+        type: choice
+        required: true
+        default: "true"
+        options: ["true", "false"]
+      restore_from_run:
+        description: "Run ID of an earlier write, to undo it. Leave blank to correct."
+        required: false
+        default: ""
+
+jobs:
+  correct:
+    name: Correct prices from archive
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Confirm the archive is present
+        run: |
+          set -euo pipefail
+          n=$(ls data/archive/NSE_data_all_stocks_*.csv 2>/dev/null | wc -l)
+          echo "archive files: $n"
+          test "$n" -gt 0 || { echo "::error::data/archive is empty"; exit 1; }
+
+      # The backup lives in an artifact from the write run, not in the
+      # workspace, so it has to be fetched before it can be replayed.
+      - name: Fetch the backup from the earlier run
+        if: ${{ github.event.inputs.restore_from_run != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh run download "${{ github.event.inputs.restore_from_run }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "rtdb-price-backup-${{ github.event.inputs.restore_from_run }}" \
+            --dir .
+          test -f rtdb_price_backup.json || {
+            echo "::error::No backup found for run ${{ github.event.inputs.restore_from_run }}"; exit 1; }
+          echo "rows in backup: $(python -c "import json;print(len(json.load(open('rtdb_price_backup.json'))['corrections']))")"
+
+      - name: Restore from backup
+        if: ${{ github.event.inputs.restore_from_run != '' }}
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL: ${{ secrets.FIREBASE_RTDB_URL }}
+        run: |
+          set -euo pipefail
+          python pipeline/scripts/apply_archive_corrections.py \
+            --restore rtdb_price_backup.json 2>&1 | tee /tmp/restore.log
+
+      - name: Correct prices
+        if: ${{ github.event.inputs.restore_from_run == '' }}
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL: ${{ secrets.FIREBASE_RTDB_URL }}
+        run: |
+          set -euo pipefail
+          ARGS=""
+
+          if [ "${{ github.event.inputs.scope }}" != "all" ]; then
+            ARGS="$ARGS --only ${{ github.event.inputs.scope }}"
+          fi
+
+          TICKERS="${{ github.event.inputs.tickers }}"
+          if [ -n "$TICKERS" ]; then
+            IFS=',' read -ra LIST <<< "$TICKERS"
+            for t in "${LIST[@]}"; do
+              ARGS="$ARGS --ticker $(echo "$t" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+            done
+          fi
+
+          if [ "${{ github.event.inputs.dry_run }}" = "false" ]; then
+            ARGS="$ARGS --apply --backup rtdb_price_backup.json"
+            echo "::warning::Writing to RTDB. Originals saved to the backup artifact."
+          else
+            echo "Dry run — nothing will be written."
+          fi
+
+          echo "args:$ARGS"
+          python pipeline/scripts/apply_archive_corrections.py \
+            $ARGS --diff corrections_diff.csv 2>&1 | tee /tmp/corrections.log
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "### Archive price corrections"
+            echo ""
+            echo "- scope: \`${{ github.event.inputs.scope }}\`"
+            echo "- tickers: \`${{ github.event.inputs.tickers || 'all' }}\`"
+            echo "- dry_run: \`${{ github.event.inputs.dry_run }}\`"
+            echo ""
+            if [ -f corrections_diff.csv ]; then
+              echo "Field changes: $(( $(wc -l < corrections_diff.csv) - 1 ))"
+            fi
+            echo ""
+            echo '```'
+            tail -30 /tmp/corrections.log 2>/dev/null || tail -30 /tmp/restore.log 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload diff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corrections-diff-${{ github.run_id }}
+          path: corrections_diff.csv
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Upload backup
+        if: ${{ always() && github.event.inputs.dry_run == 'false' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rtdb-price-backup-${{ github.run_id }}
+          path: rtdb_price_backup.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corrections-log-${{ github.run_id }}
+          path: |
+            /tmp/corrections.log
+            /tmp/restore.log
+          if-no-files-found: ignore
+          retention-days: 30
