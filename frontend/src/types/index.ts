@@ -8,6 +8,15 @@ export interface IntradayPoint {
   price: number;
 }
 
+/**
+ * Whether a trading day's price is settled.
+ *
+ * "provisional" — live last-traded figure scraped during the session; still moves.
+ * "final"       — settled close, from the official NSE daily report PDF
+ *                 (published ~15:30 EAT, after the market closes at 15:00).
+ */
+export type PriceStatus = "provisional" | "final";
+
 export interface CompanyDoc {
   id: string;
   ticker: string;
@@ -27,6 +36,14 @@ export interface CompanyDoc {
   last_updated: string | null;
   intraday_today?: IntradayPoint[];
   intraday_date?: string;
+  /** Settlement state of `price_status_date`. Null when the pipeline has not labelled it yet. */
+  price_status: PriceStatus | null;
+  /** Trading day (EAT, YYYY-MM-DD) that `price_status` describes. */
+  price_status_date: string | null;
+  /** HH:MM EAT the provisional snapshot was taken. Absent once final. */
+  price_as_of?: string;
+  /** ISO-8601 EAT timestamp the day was settled. Absent while provisional. */
+  price_finalized_at?: string;
 }
 
 export interface SnapshotDoc {

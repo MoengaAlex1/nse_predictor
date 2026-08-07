@@ -17,6 +17,7 @@ const defaultCompanies = [
     icon: "📱", name: "Safaricom PLC", sector: "Telecom",
     current_price: 14.5, change_pct_today: 3.2, signal: "BUY",
     price_history: [], price_preview: [], price_date: null, last_updated: null, csv: "",
+    price_status: null, price_status_date: null,
   },
 ];
 
