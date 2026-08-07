@@ -7,6 +7,7 @@ const mkCompany = (ticker: string, pct: number, signal: "BUY" | "HOLD" | "SELL" 
   id: `${ticker}.NR`, ticker, short: ticker.toLowerCase(), color: "#fff", icon: "🏢",
   name: `${ticker} Ltd`, sector: "Banking", current_price: 10, change_pct_today: pct,
   signal, price_history: [], price_preview: [], price_date: null, last_updated: null, csv: "",
+  price_status: null, price_status_date: null,
 });
 
 const mockMarket: MarketOverviewDoc = {

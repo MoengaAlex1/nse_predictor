@@ -7,6 +7,7 @@ const mockCompany = {
   icon: "📱", name: "Safaricom PLC", sector: "Telecommunication and Technology",
   current_price: 14.5, change_pct_today: 3.2, signal: "BUY" as const,
   price_history: [], price_preview: [], price_date: null, last_updated: null, csv: "",
+  price_status: null, price_status_date: null,
 };
 
 const mockNavigate = vi.fn();
