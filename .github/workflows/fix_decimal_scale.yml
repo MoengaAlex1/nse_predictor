@@ -13,6 +13,12 @@ on:
         description: "Comma-separated tickers (blank = all)"
         required: false
         default: ""
+      sync_firestore:
+        description: "true = rebuild Firestore price_history from RTDB (fixes the company page tiles)"
+        type: choice
+        required: false
+        default: "false"
+        options: ["false", "true"]
       rebuild_derived:
         description: "true = only rebuild pc/ch/pch from existing closes"
         type: choice
@@ -85,6 +91,23 @@ jobs:
             echo "::warning::Writing to RTDB. Originals saved to the backup artifact."
           fi
           python pipeline/scripts/fix_decimal_scale.py $ARGS 2>&1 | tee /tmp/run.log
+
+      - name: Sync Firestore history from RTDB
+        if: ${{ github.event.inputs.sync_firestore == 'true' && github.event.inputs.restore_from_run == '' }}
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL: ${{ secrets.FIREBASE_RTDB_URL }}
+        run: |
+          set -euo pipefail
+          ARGS=""
+          T="${{ github.event.inputs.tickers }}"
+          if [ -z "$T" ]; then echo "::error::sync_firestore needs an explicit ticker list"; exit 1; fi
+          IFS=',' read -ra L <<< "$T"
+          for t in "${L[@]}"; do
+            ARGS="$ARGS --ticker $(echo "$t" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+          done
+          if [ "${{ github.event.inputs.dry_run }}" = "false" ]; then ARGS="$ARGS --apply"; fi
+          python pipeline/scripts/sync_firestore_history.py $ARGS 2>&1 | tee -a /tmp/run.log
 
       - name: Summarise
         if: always()
