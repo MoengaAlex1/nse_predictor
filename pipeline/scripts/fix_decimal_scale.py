@@ -446,8 +446,12 @@ def main() -> None:
         for r in rows:
             flat.append((t, r))
     for t, r in sorted(flat, key=lambda x: x[1]["date"], reverse=True)[:30]:
-        print(f"  {t:<7}{r['date']:<12}{r['anchor']:>11.4f}"
-              f"{r['before']['c']:>12.4f}{r['after']['c']:>12.4f}")
+        # anchor and the original close are absent on rebuild-only rows, where
+        # nothing about the price changed and only pc/ch/pch were re-derived.
+        def _num(v):
+            return f"{v:>11.4f}" if isinstance(v, (int, float)) else f"{'-':>11}"
+        print(f"  {t:<7}{r['date']:<12}{_num(r.get('anchor'))}"
+              f"{_num(r.get('before', {}).get('c'))}{_num(r.get('after', {}).get('c'))}")
 
     if not args.apply:
         print("\nDRY RUN — nothing written. Pass --apply to write.")
