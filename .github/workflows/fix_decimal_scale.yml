@@ -25,6 +25,12 @@ on:
         required: false
         default: "false"
         options: ["false", "true"]
+      remove_nontrading:
+        description: "true = delete rows dated on weekends/Kenyan public holidays"
+        type: choice
+        required: false
+        default: "false"
+        options: ["false", "true"]
       rebuild_derived:
         description: "true = only rebuild pc/ch/pch from existing closes"
         type: choice
@@ -88,6 +94,9 @@ jobs:
             for t in "${L[@]}"; do
               ARGS="$ARGS --ticker $(echo "$t" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
             done
+          fi
+          if [ "${{ github.event.inputs.remove_nontrading }}" = "true" ]; then
+            ARGS="$ARGS --remove-nontrading"
           fi
           if [ "${{ github.event.inputs.rebuild_derived }}" = "true" ]; then
             ARGS="$ARGS --rebuild-derived"
