@@ -13,6 +13,12 @@ on:
         description: "Comma-separated tickers (blank = all)"
         required: false
         default: ""
+      archive_correct:
+        description: "true = copy exact closes from the NSE archive (fixes non power-of-ten errors)"
+        type: choice
+        required: false
+        default: "false"
+        options: ["false", "true"]
       sync_firestore:
         description: "true = rebuild Firestore price_history from RTDB (fixes the company page tiles)"
         type: choice
@@ -91,6 +97,40 @@ jobs:
             echo "::warning::Writing to RTDB. Originals saved to the backup artifact."
           fi
           python pipeline/scripts/fix_decimal_scale.py $ARGS 2>&1 | tee /tmp/run.log
+
+      # Runs before the decimal pass: where the archive covers a date it gives
+      # the exchange's own close, which also repairs faults that are not powers
+      # of ten and therefore invisible to the decimal rule. SMER 2014-09-19 is
+      # stored as 2.20 where the NSE published 6.90 - a ratio of 3.14.
+      - name: Correct from the NSE archive
+        if: ${{ github.event.inputs.archive_correct == 'true' && github.event.inputs.restore_from_run == '' }}
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL: ${{ secrets.FIREBASE_RTDB_URL }}
+        run: |
+          set -euo pipefail
+          ARGS=""
+          T="${{ github.event.inputs.tickers }}"
+          if [ -z "$T" ]; then echo "::error::archive_correct needs an explicit ticker list"; exit 1; fi
+          IFS=',' read -ra L <<< "$T"
+          for t in "${L[@]}"; do
+            ARGS="$ARGS --ticker $(echo "$t" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+          done
+          if [ "${{ github.event.inputs.dry_run }}" = "false" ]; then
+            ARGS="$ARGS --apply --backup archive_backup.json"
+          fi
+          python pipeline/scripts/apply_archive_corrections.py $ARGS --diff archive_diff.csv 2>&1 | tee -a /tmp/run.log
+
+      - name: Upload archive backup
+        if: ${{ always() && github.event.inputs.archive_correct == 'true' && github.event.inputs.dry_run == 'false' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-backup-${{ github.run_id }}
+          path: |
+            archive_backup.json
+            archive_diff.csv
+          if-no-files-found: warn
+          retention-days: 90
 
       - name: Sync Firestore history from RTDB
         if: ${{ github.event.inputs.sync_firestore == 'true' && github.event.inputs.restore_from_run == '' }}
