@@ -365,6 +365,10 @@ def main() -> None:
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--backup", default="decimal_scale_backup.json")
     ap.add_argument("--restore")
+    ap.add_argument("--remove-nontrading", action="store_true",
+                    help="Delete rows dated on days the NSE was closed. The "
+                         "exchange does not trade at weekends or on Kenyan "
+                         "public holidays, so such a row cannot be a session.")
     ap.add_argument("--rebuild-derived", action="store_true",
                     help="Only rebuild pc/ch/pch from the existing closes. Use "
                          "after a correction run, or to repair rows whose "
@@ -385,6 +389,35 @@ def main() -> None:
     else:
         from pipeline.scripts.firebase_client import get_rtdb
         db = get_rtdb().child("prices").get()
+
+    if args.remove_nontrading:
+        from pipeline.scripts.nse_calendar import is_trading_day
+        from pipeline.scripts.firebase_client import get_rtdb
+        doomed = []
+        for ticker in sorted(db):
+            if args.ticker and ticker not in args.ticker:
+                continue
+            node = db[ticker]
+            if not isinstance(node, dict):
+                continue
+            for date, row in sorted(node.items()):
+                if isinstance(row, dict) and not is_trading_day(date):
+                    doomed.append((ticker, date, row))
+        print(f"\nRows dated on days the NSE was closed: {len(doomed)}")
+        for t, d, r in doomed[:15]:
+            import datetime as _dt
+            print(f"  {t:<7}{d}  {_dt.date.fromisoformat(d).strftime('%a')}  c={r.get('c')}")
+        if not args.apply:
+            print("\nDRY RUN — nothing removed. Pass --apply to delete.")
+            return
+        Path(args.backup).write_text(json.dumps(
+            {"rows": [{"ticker": t, "date": d, "before": r} for t, d, r in doomed]}, indent=1))
+        log.info("Backup of %d rows written to %s", len(doomed), args.backup)
+        root = get_rtdb()
+        for t, d, _ in doomed:
+            root.update({f"prices/{t}/{d}": None})
+        print(f"\nRemoved {len(doomed)} non-trading rows. Undo with --restore {args.backup}")
+        return
 
     if args.rebuild_derived:
         found = {}
