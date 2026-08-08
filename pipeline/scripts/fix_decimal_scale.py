@@ -414,8 +414,13 @@ def main() -> None:
             {"rows": [{"ticker": t, "date": d, "before": r} for t, d, r in doomed]}, indent=1))
         log.info("Backup of %d rows written to %s", len(doomed), args.backup)
         root = get_rtdb()
+        batch = {}
         for t, d, _ in doomed:
-            root.update({f"prices/{t}/{d}": None})
+            batch[f"prices/{t}/{d}"] = None
+            if len(batch) >= 500:
+                root.update(batch); batch = {}
+        if batch:
+            root.update(batch)
         print(f"\nRemoved {len(doomed)} non-trading rows. Undo with --restore {args.backup}")
         return
 
@@ -464,8 +469,13 @@ def main() -> None:
     log.info("Backup of %d rows written to %s", len(flat), args.backup)
 
     root = get_rtdb()
+    batch = {}
     for t, r in flat:
-        root.update({f"prices/{t}/{r['date']}": r["after"]})
+        batch[f"prices/{t}/{r['date']}"] = r["after"]
+        if len(batch) >= 500:
+            root.update(batch); batch = {}
+    if batch:
+        root.update(batch)
     print(f"\nCorrected {len(flat)} rows. Undo with --restore {args.backup}")
 
 

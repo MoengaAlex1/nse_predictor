@@ -61,6 +61,10 @@ COPIED = {"c": "c", "pc": "pc", "l": "l", "h": "h", "v": "v"}
 # A value is treated as matching, and left alone, within this relative margin.
 MATCH_TOL = 0.005
 
+# Paths per RTDB multi-path update. Writing row by row does not complete inside
+# a CI job for a full-database run.
+WRITE_BATCH = 500
+
 
 def _close_enough(a: float | None, b: float | None) -> bool:
     if a is None or b is None:
@@ -169,11 +173,24 @@ def apply_corrections(root_ref, corrections: list[dict], backup_path: str) -> in
     log.info("Backup of %d original rows written to %s", len(corrections), backup_path)
 
     from pipeline.scripts.firebase_rtdb import to_short_ticker
+
+    # Batched multi-path updates. One call per row does not finish: a full run
+    # is ~115,000 rows and was cancelled at the 20 minute job timeout partway
+    # through. RTDB update() takes many paths at once, which turns that into a
+    # few hundred calls.
     written = 0
+    batch: dict = {}
     for c in corrections:
         short = to_short_ticker(c["ticker"])
-        root_ref.update({f"prices/{short}/{c['date']}": c["after"]})
-        written += 1
+        batch[f"prices/{short}/{c['date']}"] = c["after"]
+        if len(batch) >= WRITE_BATCH:
+            root_ref.update(batch)
+            written += len(batch)
+            log.info("  wrote %d/%d", written, len(corrections))
+            batch = {}
+    if batch:
+        root_ref.update(batch)
+        written += len(batch)
     return written
 
 
@@ -181,11 +198,14 @@ def restore(root_ref, backup_path: str) -> int:
     """Put back every original row recorded in a backup file."""
     from pipeline.scripts.firebase_rtdb import to_short_ticker
     data = json.loads(Path(backup_path).read_text())
-    n = 0
+    n, batch = 0, {}
     for c in data["corrections"]:
         short = to_short_ticker(c["ticker"])
-        root_ref.update({f"prices/{short}/{c['date']}": c["before"]})
-        n += 1
+        batch[f"prices/{short}/{c['date']}"] = c["before"]
+        if len(batch) >= WRITE_BATCH:
+            root_ref.update(batch); n += len(batch); batch = {}
+    if batch:
+        root_ref.update(batch); n += len(batch)
     return n
 
 
