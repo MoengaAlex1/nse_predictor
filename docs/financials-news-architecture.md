@@ -176,6 +176,8 @@ The sensible split: NSE API as the primary source for everything, with
 per-company IR pages considered later only for companies the NSE library
 misses.
 
+## Suggested order
+
 1. **Open the rules.** Make `financials`, `fundamentals`, `news`, `snapshots`
    and `technicals` publicly readable, matching the stated intent of a public
    site. Cheapest change, and it unblocks four sections at once. Note the live
