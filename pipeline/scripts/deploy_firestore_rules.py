@@ -77,21 +77,26 @@ def main() -> None:
         raise SystemExit(f"Ruleset create returned no name: {r.text}")
     print(f"  ← {ruleset_name}")
 
-    # Attach ruleset to the cloud.firestore release. The Firebase console
-    # creates a "cloud.firestore" release per project. PATCH requires an
-    # updateMask query param naming the exact field to change ("rulesetName"
-    # in camelCase, matching the JSON body key) — omitting it makes the
-    # Rules API reject the body with "Unknown name 'rulesetName'".
+    # Attach ruleset to the cloud.firestore release. First try to create
+    # (upsert). If it already exists we PATCH via updateRelease. The
+    # updateMask uses the proto snake_case field name (ruleset_name), not
+    # the JSON camelCase — Google's field-mask parser expects proto names.
     release_id = f"projects/{project_id}/releases/cloud.firestore"
     print(f"→ Publishing release '{release_id}'")
-    release_url = f"{base}/{release_id}?updateMask=rulesetName"
-    release_body = {"name": release_id, "rulesetName": ruleset_name}
 
-    r = requests.patch(release_url, headers=headers, json=release_body, timeout=30)
-    if r.status_code == 404:
-        # Release doesn't exist yet (fresh project) — create it.
-        create_release_url = f"{base}/projects/{project_id}/releases"
-        r = requests.post(create_release_url, headers=headers, json=release_body, timeout=30)
+    release_body = {"name": release_id, "rulesetName": ruleset_name}
+    create_url = f"{base}/projects/{project_id}/releases"
+
+    r = requests.post(create_url, headers=headers, json=release_body, timeout=30)
+    if r.status_code == 409 or (r.status_code >= 400 and "ALREADY_EXISTS" in r.text):
+        print("  ! release exists, PATCHing instead")
+        patch_url = f"{base}/{release_id}?updateMask=ruleset_name"
+        # PATCH body: proto field-mask means fields NOT in the body are
+        # unaffected; we include only ruleset_name so the release keeps
+        # its identity.
+        patch_body = {"rulesetName": ruleset_name}
+        r = requests.patch(patch_url, headers=headers, json=patch_body, timeout=30)
+
     if r.status_code >= 400:
         raise SystemExit(f"Release publish failed {r.status_code}: {r.text}")
     print(f"  ← published, ruleset now live")
