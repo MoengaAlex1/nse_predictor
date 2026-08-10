@@ -27,7 +27,7 @@ export const TopSignals: FC<Props> = ({ companies }) => {
             return (
               <li key={c.ticker}>
                 <Link
-                  to={`/company/${c.ticker}`}
+                  to={`/chart/${c.ticker}`}
                   className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-raised/60"
                 >
                   <span className="w-4 text-[10px] text-hint">{i + 1}</span>

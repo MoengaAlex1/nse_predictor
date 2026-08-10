@@ -51,11 +51,11 @@ describe("TickerTape", () => {
     expect(screen.getAllByText("NSE 20").length).toBeGreaterThan(0);
   });
 
-  it("shows a gainer ticker linked to the company page", () => {
+  it("shows a gainer ticker linked to the investor chart", () => {
     render(<MemoryRouter><TickerTape /></MemoryRouter>);
     expect(screen.getAllByText("SCOM.NR").length).toBeGreaterThan(0);
     const links = screen.getAllByRole("link", { name: /SCOM/i });
-    expect(links[0]).toHaveAttribute("href", "/company/SCOM.NR");
+    expect(links[0]).toHaveAttribute("href", "/chart/SCOM.NR");
   });
 
   it("shows a loser ticker linked to the company page", () => {

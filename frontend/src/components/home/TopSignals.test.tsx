@@ -29,9 +29,9 @@ describe("TopSignals", () => {
     expect(screen.queryByText("kcb")).not.toBeInTheDocument();
   });
 
-  it("links each row to the company page", () => {
+  it("links each row to the investor chart", () => {
     wrap(<TopSignals companies={[mkCompany("SCOM", "BUY", 3.2)]} />);
-    expect(screen.getByRole("link")).toHaveAttribute("href", "/company/SCOM");
+    expect(screen.getByRole("link")).toHaveAttribute("href", "/chart/SCOM");
   });
 
   it("limits to 5 picks", () => {

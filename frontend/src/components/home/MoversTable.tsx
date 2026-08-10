@@ -42,7 +42,7 @@ export const MoversTable: FC<Props> = ({ type, market, companies }) => {
             const pct = company.change_pct_today;
             return (
               <li key={company.ticker}>
-                <Link to={`/company/${company.ticker}`} className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-raised/60">
+                <Link to={`/chart/${company.ticker}`} className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-raised/60">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-ink">{company.short}</p>
                     <p className="font-mono text-[10px] text-muted">{company.ticker}</p>

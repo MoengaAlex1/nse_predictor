@@ -67,7 +67,7 @@ export const TickerTape: FC = () => {
         return (
           <Link
             key={`${prefix}-g-${g.ticker}`}
-            to={`/company/${g.ticker}`}
+            to={`/chart/${g.ticker}`}
             className="flex items-center gap-1 transition-opacity hover:opacity-80"
           >
             {c && <SmallLogo id={c.id} short={c.short} color={c.color} icon={c.icon} />}
@@ -84,7 +84,7 @@ export const TickerTape: FC = () => {
         return (
           <Link
             key={`${prefix}-l-${l.ticker}`}
-            to={`/company/${l.ticker}`}
+            to={`/chart/${l.ticker}`}
             className="flex items-center gap-1 transition-opacity hover:opacity-80"
           >
             {c && <SmallLogo id={c.id} short={c.short} color={c.color} icon={c.icon} />}

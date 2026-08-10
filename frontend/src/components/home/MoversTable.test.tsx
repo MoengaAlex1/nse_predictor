@@ -53,7 +53,7 @@ describe("MoversTable — active", () => {
   it("shows company rows sorted by absolute change", () => {
     wrap(<MoversTable type="active" market={mockMarket} companies={mockCompanies} />);
     const links = screen.getAllByRole("link");
-    expect(links[0]).toHaveAttribute("href", "/company/AAAA");
+    expect(links[0]).toHaveAttribute("href", "/chart/AAAA");
   });
 });
 

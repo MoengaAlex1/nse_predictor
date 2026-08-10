@@ -133,10 +133,10 @@ export const InvestorChart = () => {
                   <h1 className="truncate text-base font-bold text-ink">{displayName}</h1>
                   <span className="shrink-0 font-mono text-xs text-muted">({ticker})</span>
                   <Link
-                    to={`/dashboard/${ticker}`}
+                    to={`/company/${ticker}`}
                     className="shrink-0 text-hint transition-colors hover:text-ink"
-                    title="Open overview"
-                    aria-label="Open overview"
+                    title="Open full report"
+                    aria-label="Open full report"
                   >
                     <ExtLinkIcon />
                   </Link>

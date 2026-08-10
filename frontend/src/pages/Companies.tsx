@@ -90,7 +90,7 @@ const MarketSummary: FC<SummaryProps> = ({ companies }) => {
           <ul className="space-y-2">
             {gainers.map((c) => (
               <li key={c.id} className="flex items-center justify-between">
-                <Link to={`/company/${c.id}`} className="text-sm font-medium text-sub hover:text-accent">
+                <Link to={`/chart/${c.id}`} className="text-sm font-medium text-sub hover:text-accent">
                   {c.short}
                   <span className="ml-1.5 text-xs text-muted">{c.name}</span>
                 </Link>
@@ -113,7 +113,7 @@ const MarketSummary: FC<SummaryProps> = ({ companies }) => {
           <ul className="space-y-2">
             {losers.map((c) => (
               <li key={c.id} className="flex items-center justify-between">
-                <Link to={`/company/${c.id}`} className="text-sm font-medium text-sub hover:text-accent">
+                <Link to={`/chart/${c.id}`} className="text-sm font-medium text-sub hover:text-accent">
                   {c.short}
                   <span className="ml-1.5 text-xs text-muted">{c.name}</span>
                 </Link>
@@ -182,7 +182,7 @@ const CompanyCard: FC<{ company: CompanyDoc; showSignal?: boolean }> = ({
 }) => {
   const change = company.change_pct_today;
   return (
-    <Link to={`/company/${company.id}`}>
+    <Link to={`/chart/${company.id}`}>
       <Card className="h-full cursor-pointer transition-colors hover:border-sub/40">
         <div className="flex items-start justify-between">
           <div>
