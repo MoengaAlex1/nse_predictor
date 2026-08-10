@@ -1,11 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useRecentTickers } from "../hooks/useRecentTickers";
-import { useCompany, useLatestTechnicals, useFundamentals } from "../hooks/useCompany";
+import { useCompany, useLatestTechnicals, useLatestSnapshot, useFundamentals } from "../hooks/useCompany";
 import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
 import { PriceHeader } from "../components/investor/PriceHeader";
 import { PriceAreaChart } from "../components/investor/PriceAreaChart";
 import { QuickCompareRow } from "../components/investor/QuickCompareRow";
+import { AIInsightsPanel } from "../components/investor/AIInsightsPanel";
+import { ScoreRadarPanel } from "../components/investor/ScoreRadarPanel";
+import { AnalystGaugeCard } from "../components/investor/AnalystGaugeCard";
+import { ModelTargetCard } from "../components/investor/ModelTargetCard";
+import { EarningsForecastCard } from "../components/investor/EarningsForecastCard";
+import { FinancialsValuationCard } from "../components/investor/FinancialsValuationCard";
+import { TradingCard } from "../components/investor/TradingCard";
+import { ProfitabilityCard } from "../components/investor/ProfitabilityCard";
 import { TimeframeTabs } from "../components/ui/TimeframeTabs";
 import { RightStatsRail } from "../components/layout/RightStatsRail";
 import { LeftWatchlistRail } from "../components/layout/LeftWatchlistRail";
@@ -17,14 +25,6 @@ import {
   type TimeframeKey,
 } from "../lib/timeframe";
 import type { PricePoint } from "../types";
-
-const PlaceholderBlock = ({ label, height }: { label: string; height: string }) => (
-  <div
-    className={`flex ${height} items-center justify-center rounded-lg border border-dashed border-seam bg-surface/40 text-xs text-hint`}
-  >
-    {label}
-  </div>
-);
 
 export const InvestorDashboard = () => {
   const { ticker: rawTicker = "" } = useParams<{ ticker: string }>();
@@ -40,6 +40,7 @@ export const InvestorDashboard = () => {
 
   const { data: company } = useCompany(ticker);
   const { data: technicals } = useLatestTechnicals(ticker);
+  const { data: snapshot } = useLatestSnapshot(ticker);
   const { data: fundamentals } = useFundamentals(ticker);
   const { data: rtdbPrices = [] } = useHistoricalPrices(cleaned, FETCH_START, todayIso());
 
@@ -99,17 +100,23 @@ export const InvestorDashboard = () => {
           </div>
 
           <QuickCompareRow ticker={ticker} sector={company?.sector ?? null} />
+
           <div className="grid gap-3 md:grid-cols-2">
-            <PlaceholderBlock label="AI Insights (Phase D)" height="h-48" />
-            <PlaceholderBlock label="Score Radar (Phase D)" height="h-48" />
+            <AIInsightsPanel
+              technicals={technicals}
+              snapshot={snapshot}
+              currentPrice={currentPrice}
+            />
+            <ScoreRadarPanel />
           </div>
+
           <div className="grid gap-3 md:grid-cols-3">
-            <PlaceholderBlock label="Analyst" height="h-28" />
-            <PlaceholderBlock label="Model Target" height="h-28" />
-            <PlaceholderBlock label="Earnings" height="h-28" />
-            <PlaceholderBlock label="Financials" height="h-28" />
-            <PlaceholderBlock label="Trading" height="h-28" />
-            <PlaceholderBlock label="Profitability" height="h-28" />
+            <AnalystGaugeCard />
+            <ModelTargetCard />
+            <EarningsForecastCard />
+            <FinancialsValuationCard />
+            <TradingCard technicals={technicals} dayLow={dayLow} dayHigh={dayHigh} />
+            <ProfitabilityCard />
           </div>
         </div>
 
