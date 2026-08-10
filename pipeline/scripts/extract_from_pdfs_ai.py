@@ -160,6 +160,96 @@ def _b64_encode(pdf_path: Path) -> str:
     return base64.standard_b64encode(pdf_path.read_bytes()).decode("ascii")
 
 
+# ---------------------------------------------------------------------------
+# Regex fallback — best-effort pdfplumber+regex when Claude isn't available.
+# Accuracy is materially lower than Claude's; use only when necessary.
+# ---------------------------------------------------------------------------
+
+_KES_NUM = re.compile(r"\(?[Kk]?[Ss]?[Hh]?[Ss]?\.?\s*([\d,]+(?:\.\d+)?)\)?")
+
+REGEX_PATTERNS = {
+    "revenue_kes_mn":       [r"(?:total\s+)?(?:revenue|net\s+interest\s+income|turnover)[\s:]{0,5}", 1_000_000],
+    "net_income_kes_mn":    [r"(?:profit\s+after\s+tax|net\s+(?:profit|income|earnings?)|pat)[\s:]{0,5}", 1_000_000],
+    "eps":                  [r"(?:basic\s+)?earnings?\s+per\s+share(?:\s*\([^)]{0,20}\))?[\s:]{0,5}", 1],
+    "bvps":                 [r"(?:book\s+value\s+per\s+share|nav\s+per\s+share)[\s:]{0,5}", 1],
+    "dividend_per_share":   [r"(?:dividend\s+per\s+share|proposed\s+dividend|dps)[\s:]{0,5}", 1],
+    "shares_outstanding_mn": [r"(?:ordinary\s+shares\s+in\s+issue|number\s+of\s+shares\s+in\s+issue|weighted\s+average\s+number\s+of\s+ordinary\s+shares)[\s:]{0,15}", 1_000_000],
+}
+
+
+def _parse_num(raw: str) -> float | None:
+    try:
+        return float(raw.replace(",", "").replace(" ", ""))
+    except (ValueError, AttributeError):
+        return None
+
+
+def extract_via_regex(pdf_path: Path) -> dict:
+    """Best-effort pdfplumber+regex. Populates whatever fields match; leaves
+    the rest as None. Never fabricates."""
+    try:
+        import pdfplumber
+    except ImportError:
+        print("    ! pdfplumber missing — pip install pdfplumber")
+        return {}
+
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            texts = []
+            for page in pdf.pages[:30]:  # cap at first 30 pages
+                t = page.extract_text() or ""
+                texts.append(t)
+            full = "\n".join(texts)
+    except Exception as exc:
+        print(f"    ! pdfplumber error: {exc}")
+        return {}
+
+    out: dict = {"period": None, "period_type": "annual", "extraction_confidence": "low"}
+
+    for field, (label_re, scale) in REGEX_PATTERNS.items():
+        pat = re.compile(label_re + _KES_NUM.pattern, re.IGNORECASE)
+        m = pat.search(full)
+        if not m:
+            continue
+        val = _parse_num(m.group(1))
+        if val is None:
+            continue
+        # Sanity scaling
+        if field in ("revenue_kes_mn", "net_income_kes_mn"):
+            # Big number; scale down to millions if in absolute
+            out[field] = round(val / 1_000, 1) if val >= 1_000_000 else round(val, 1)
+        elif field == "shares_outstanding_mn":
+            out[field] = round(val / 1_000_000, 1) if val >= 1_000_000 else round(val, 1)
+        else:
+            out[field] = round(val, 2)
+
+    # Period extraction: search for "year ended DD-MM-YYYY" or similar
+    period_m = re.search(
+        r"(?:year|period)\s+ended?\s+"
+        r"(\d{1,2})[\s\-/]([A-Za-z]{3,9})[\s\-/](\d{2,4})",
+        full,
+        re.IGNORECASE,
+    )
+    if period_m:
+        day, month_str, year = period_m.group(1), period_m.group(2).lower()[:3], period_m.group(3)
+        months = {"jan": "01", "feb": "02", "mar": "03", "apr": "04", "may": "05", "jun": "06",
+                  "jul": "07", "aug": "08", "sep": "09", "oct": "10", "nov": "11", "dec": "12"}
+        if month_str in months and len(year) in (2, 4):
+            year_full = year if len(year) == 4 else f"20{year}"
+            try:
+                iso = f"{year_full}-{months[month_str]}-{int(day):02d}"
+                datetime.fromisoformat(iso)  # validate
+                out["period_end"] = iso
+                out["period"] = f"FY{year_full}"
+            except ValueError:
+                pass
+
+    # Confidence: high if we got 3+ core fields
+    got = sum(1 for k in ("revenue_kes_mn", "net_income_kes_mn", "eps") if out.get(k) is not None)
+    out["extraction_confidence"] = ["low", "low", "medium", "high"][min(got, 3)]
+    return out
+
+
 def extract_via_claude(client, pdf_path: Path, system_prompt: str, user_prompt: str) -> dict | None:
     try:
         msg = client.messages.create(
@@ -229,8 +319,12 @@ def process_ticker_annual(client, db, ticker: str, tmpdir: Path, dry_run: bool) 
     if not pdf_path:
         return False
 
-    print(f"  [{ticker}] extracting via Claude...")
-    parsed = extract_via_claude(client, pdf_path, ANNUAL_SYSTEM_PROMPT, ANNUAL_USER_PROMPT)
+    if client is not None:
+        print(f"  [{ticker}] extracting via Claude...")
+        parsed = extract_via_claude(client, pdf_path, ANNUAL_SYSTEM_PROMPT, ANNUAL_USER_PROMPT)
+    else:
+        print(f"  [{ticker}] extracting via regex fallback...")
+        parsed = extract_via_regex(pdf_path)
     if not parsed or not parsed.get("period"):
         print(f"  [{ticker}] no usable extraction")
         return False
@@ -292,6 +386,12 @@ def process_ticker_dividends(client, db, ticker: str, tmpdir: Path, dry_run: boo
     if not pending:
         return 0
 
+    if client is None:
+        # Dividend-notice PDFs vary too widely for reliable regex extraction
+        # (amount can be in a footnote, ex-date in a table, etc.). Skip
+        # gracefully rather than mangle the data.
+        return 0
+
     updated_count = 0
     for div in pending:
         url = div["url"]
@@ -329,13 +429,17 @@ def main() -> None:
     args = parser.parse_args()
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise SystemExit("ANTHROPIC_API_KEY env var required")
-
-    import anthropic
     from scripts.firebase_client import get_firestore
     db = get_firestore()
-    client = anthropic.Anthropic(api_key=api_key)
+
+    client = None
+    if api_key:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        print("Extraction engine: Claude (Sonnet 4.6)")
+    else:
+        print("Extraction engine: pdfplumber+regex (fallback — ANTHROPIC_API_KEY not set)")
+        print("  To upgrade to Claude accuracy: `gh secret set ANTHROPIC_API_KEY --repo MoengaAlex1/nse_predictor`")
 
     # Find eligible tickers — every ticker with a financials doc
     fin_docs = list(db.collection("financials").stream())
