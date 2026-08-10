@@ -77,28 +77,24 @@ def main() -> None:
         raise SystemExit(f"Ruleset create returned no name: {r.text}")
     print(f"  ← {ruleset_name}")
 
-    # Attach ruleset to the cloud.firestore release. First try to create
-    # (upsert). If it already exists we PATCH via updateRelease. The
-    # updateMask uses the proto snake_case field name (ruleset_name), not
-    # the JSON camelCase — Google's field-mask parser expects proto names.
+    # Attach ruleset to the cloud.firestore release. Since the release
+    # already exists (the console created it on project setup), we PATCH.
+    # Key details the API is picky about:
+    #  - URL uses the FULL resource name: /v1/projects/{id}/releases/cloud.firestore
+    #  - updateMask is REQUIRED (POST/upsert requires an extra IAM role
+    #    our SA doesn't have; PATCH via updateRelease only needs
+    #    firebase.rules.write)
+    #  - updateMask uses proto snake_case field name: "ruleset_name"
+    #  - Body must NOT include a "name" field — the resource name lives
+    #    entirely in the URL. Sending it in the body gets rejected
+    #    with "Unknown name" errors from the protobuf JSON parser.
     release_id = f"projects/{project_id}/releases/cloud.firestore"
     print(f"→ Publishing release '{release_id}'")
-
-    release_body = {"name": release_id, "rulesetName": ruleset_name}
-    create_url = f"{base}/projects/{project_id}/releases"
-
-    r = requests.post(create_url, headers=headers, json=release_body, timeout=30)
-    if r.status_code == 409 or (r.status_code >= 400 and "ALREADY_EXISTS" in r.text):
-        print("  ! release exists, PATCHing instead")
-        patch_url = f"{base}/{release_id}?updateMask=ruleset_name"
-        # PATCH body: proto field-mask means fields NOT in the body are
-        # unaffected; we include only ruleset_name so the release keeps
-        # its identity.
-        patch_body = {"rulesetName": ruleset_name}
-        r = requests.patch(patch_url, headers=headers, json=patch_body, timeout=30)
-
+    patch_url = f"{base}/{release_id}?updateMask=ruleset_name"
+    patch_body = {"rulesetName": ruleset_name}
+    r = requests.patch(patch_url, headers=headers, json=patch_body, timeout=30)
     if r.status_code >= 400:
-        raise SystemExit(f"Release publish failed {r.status_code}: {r.text}")
+        raise SystemExit(f"Release PATCH failed {r.status_code}: {r.text}")
     print(f"  ← published, ruleset now live")
 
     print("\n=== Firestore rules deployed ===")
