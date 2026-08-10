@@ -1,6 +1,7 @@
 import type { FC } from "react";
 import { CompanyLogo } from "../ui/CompanyLogo";
 import { useWatchlist } from "../../hooks/useWatchlist";
+import { fmtKes, fmtChangeSigned, fmtPct, arrow, trendClass, EM_DASH } from "../../lib/format";
 import type { CompanyDoc } from "../../types";
 
 const StarIcon: FC<{ filled?: boolean }> = ({ filled }) => (
@@ -79,7 +80,7 @@ export const PriceHeader: FC<PriceHeaderProps> = ({
   priceAsOf,
 }) => {
   const up = changePct != null && changePct >= 0;
-  const trendColor = changePct == null ? "text-hint" : up ? "text-emerald-500" : "text-red-500";
+  const trendColor = trendClass(changePct);
 
   const { isAuthenticated, has, add, remove, isPending } = useWatchlist();
   const isWatched = has(ticker);
@@ -97,7 +98,7 @@ export const PriceHeader: FC<PriceHeaderProps> = ({
   return (
     <div className="rounded-xl border border-rim bg-surface p-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-start gap-3">
+        <div className="flex min-w-0 items-start gap-3">
           {company && (
             <CompanyLogo
               id={ticker}
@@ -107,21 +108,21 @@ export const PriceHeader: FC<PriceHeaderProps> = ({
               size="lg"
             />
           )}
-          <div>
+          <div className="min-w-0">
             <div className="flex items-baseline gap-2">
-              <h1 className="text-lg font-bold text-ink">
+              <h1 className="truncate text-lg font-bold text-ink">
                 {company?.name ?? ticker}
               </h1>
-              <span className="font-mono text-xs font-semibold text-muted">{ticker}</span>
+              <span className="shrink-0 font-mono text-xs font-semibold text-muted">{ticker}</span>
             </div>
-            <p className="mt-0.5 text-[11px] text-hint">
-              NAIROBI SECURITIES EXCHANGE
-              {company?.sector && <> · {company.sector.toUpperCase()}</>}
+            <p className="mt-0.5 truncate text-[11px] uppercase tracking-wider text-hint">
+              Nairobi Securities Exchange
+              {company?.sector && <> · {company.sector}</>}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5">
           <HeaderButton
             label={watchlistLabel}
             icon={<StarIcon filled={isWatched} />}
@@ -135,27 +136,27 @@ export const PriceHeader: FC<PriceHeaderProps> = ({
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-baseline gap-3">
+      <div className="mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         {currentPrice != null ? (
-          <span className="font-mono text-4xl font-black leading-none text-ink">
-            {currentPrice.toFixed(2)}
+          <span className="font-mono text-4xl font-black leading-none text-ink tabular-nums">
+            {fmtKes(currentPrice)}
           </span>
         ) : (
-          <span className="text-2xl text-hint">—</span>
+          <span className="text-2xl text-hint">{EM_DASH}</span>
         )}
-        <span className="text-xs font-medium text-muted">AT CLOSE</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+          At close
+        </span>
         {changeAbs != null && changePct != null && (
-          <span className={`font-mono text-sm font-semibold ${trendColor}`}>
-            {up ? "▲" : "▼"} {up ? "+" : "−"}
-            {Math.abs(changeAbs).toFixed(2)} ({up ? "+" : "−"}
-            {Math.abs(changePct).toFixed(2)}%)
+          <span className={`font-mono text-sm font-semibold tabular-nums ${trendColor}`}>
+            {arrow(up)} {fmtChangeSigned(changeAbs)} ({fmtPct(changePct)})
           </span>
         )}
       </div>
       {priceAsOf && (
-        <p className="mt-1 text-[10px] text-hint">
-          Closing price · {priceAsOf}
-          <span className="ml-2 rounded border border-seam bg-raised px-1.5 py-0.5 font-mono uppercase tracking-wider">
+        <p className="mt-1.5 flex flex-wrap items-center gap-2 text-[10px] text-hint">
+          <span>Closing price · {priceAsOf}</span>
+          <span className="rounded border border-seam bg-raised px-1.5 py-0.5 font-mono uppercase tracking-wider">
             EOD only
           </span>
         </p>

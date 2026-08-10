@@ -1,22 +1,14 @@
 import type { FC } from "react";
+import { fmtPrice, EM_DASH } from "../../lib/format";
 
 type MiniRangeBarProps = {
   low: number | null;
   high: number | null;
   current: number | null;
   label?: string;
-  formatValue?: (v: number) => string;
 };
 
-const defaultFmt = (v: number) => v.toFixed(2);
-
-export const MiniRangeBar: FC<MiniRangeBarProps> = ({
-  low,
-  high,
-  current,
-  label,
-  formatValue = defaultFmt,
-}) => {
+export const MiniRangeBar: FC<MiniRangeBarProps> = ({ low, high, current, label }) => {
   const hasData = low != null && high != null && high > low;
   const position =
     hasData && current != null
@@ -39,9 +31,9 @@ export const MiniRangeBar: FC<MiniRangeBarProps> = ({
           />
         )}
       </div>
-      <div className="mt-1 flex justify-between font-mono text-[10px] text-hint">
-        <span>{low != null ? formatValue(low) : "—"}</span>
-        <span>{high != null ? formatValue(high) : "—"}</span>
+      <div className="mt-1 flex justify-between font-mono text-[10px] tabular-nums text-hint">
+        <span>{low != null ? fmtPrice(low) : EM_DASH}</span>
+        <span>{high != null ? fmtPrice(high) : EM_DASH}</span>
       </div>
     </div>
   );

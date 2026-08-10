@@ -4,6 +4,7 @@ import { CompanyLogo } from "../ui/CompanyLogo";
 import { useCompanies } from "../../hooks/useCompanies";
 import { useWatchlist } from "../../hooks/useWatchlist";
 import { useMarketOverview } from "../../hooks/useMarket";
+import { fmtPrice, fmtPct, trendClass, EM_DASH } from "../../lib/format";
 import type { CompanyDoc } from "../../types";
 
 // Tiny inline sparkline drawn from CompanyDoc.price_preview (7-day array
@@ -47,15 +48,13 @@ const WatchlistRow: FC<RowProps> = ({ company }) => {
         <p className="truncate font-mono text-[10px] text-hint">{company.ticker}</p>
       </div>
       <MiniSparkline points={company.price_preview ?? []} up={up} />
-      <div className="min-w-[52px] text-right">
-        {company.current_price != null && (
-          <p className="font-mono text-xs font-semibold text-ink">{company.current_price.toFixed(2)}</p>
-        )}
-        {pct != null && (
-          <p className={`font-mono text-[10px] ${up ? "text-emerald-500" : "text-red-500"}`}>
-            {up ? "+" : ""}{pct.toFixed(2)}%
-          </p>
-        )}
+      <div className="min-w-[56px] shrink-0 text-right">
+        <p className="font-mono text-xs font-semibold text-ink tabular-nums">
+          {company.current_price != null ? fmtPrice(company.current_price) : EM_DASH}
+        </p>
+        <p className={`font-mono text-[10px] tabular-nums ${trendClass(pct)}`}>
+          {pct != null ? fmtPct(pct) : EM_DASH}
+        </p>
       </div>
     </Link>
   );
@@ -91,7 +90,7 @@ export const LeftWatchlistRail: FC = () => {
             My Watchlist
           </h2>
           {isAuthenticated && watchlist.length > 0 && (
-            <span className="text-[10px] text-hint">{watchlist.length}</span>
+            <span className="font-mono text-[10px] tabular-nums text-hint">{watchlist.length}</span>
           )}
         </div>
         {!isAuthenticated ? (
