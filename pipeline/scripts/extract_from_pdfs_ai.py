@@ -41,10 +41,16 @@ PIPELINE_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PIPELINE_ROOT.parent))
 sys.path.insert(0, str(PIPELINE_ROOT))
 
-MODEL = "claude-sonnet-4-6"
+CLAUDE_MODEL = "claude-sonnet-4-6"
+NVIDIA_MODEL = "meta/muse-glimmer-30b"
+NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 MAX_ANNUAL_PDF_MB = 30  # Claude limit is ~32 MB
 MAX_TOKENS = 1200
 RATE_LIMIT_SECONDS = 1.0
+# Text-mode extraction cap. Muse Glimmer 30B has 131K context; NSE annual
+# reports are usually 30-80 pages / 40-80K tokens. Truncate at 400K chars
+# (~100K tokens conservatively) so we never overshoot.
+MAX_TEXT_CHARS = 400_000
 
 # The extraction is only useful if we can trust the numbers. Give Claude
 # tight schema + explicit "prefer null over guessing" rule.
@@ -101,6 +107,57 @@ Extract this exact JSON schema from the attached NSE dividend notice PDF:
 
 Return only that JSON object. No fences.
 """
+
+# ── Function-calling schemas for NVIDIA path ──────────────────────────────
+# Muse Glimmer doesn't support Structured Output (per the model card) but
+# does support Function Calling — we use it to force schema compliance.
+
+ANNUAL_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "record_extracted_financials",
+        "description": "Record structured financial data pulled from a Nairobi Securities Exchange audited annual result PDF.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "period":                {"type": "string", "description": "e.g. FY2024 or H1 2025"},
+                "period_end":            {"type": "string", "description": "YYYY-MM-DD"},
+                "period_type":           {"type": "string", "enum": ["annual", "interim"]},
+                "announcement_date":     {"type": "string", "description": "YYYY-MM-DD"},
+                "revenue_kes_mn":        {"type": ["number", "null"], "description": "KES millions"},
+                "net_income_kes_mn":     {"type": ["number", "null"], "description": "KES millions"},
+                "eps":                   {"type": ["number", "null"], "description": "basic EPS in KES per share"},
+                "bvps":                  {"type": ["number", "null"], "description": "book value per share in KES"},
+                "shares_outstanding_mn": {"type": ["number", "null"], "description": "ordinary shares in issue, millions"},
+                "dividend_per_share":    {"type": ["number", "null"], "description": "full-year DPS in KES"},
+                "dividend_type":         {"type": "string", "enum": ["interim", "final", "total", "none"]},
+                "extraction_confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                "notes":                 {"type": "string"},
+            },
+            "required": ["period", "extraction_confidence"],
+        },
+    },
+}
+
+DIVIDEND_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "record_extracted_dividend",
+        "description": "Record dividend details pulled from a Nairobi Securities Exchange dividend notice PDF.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "amount_kes":            {"type": ["number", "null"], "description": "per-share amount in KES"},
+                "ex_date":               {"type": ["string", "null"], "description": "YYYY-MM-DD"},
+                "payment_date":          {"type": ["string", "null"], "description": "YYYY-MM-DD"},
+                "type":                  {"type": "string", "enum": ["interim", "final", "special", "scrip", "bonus"]},
+                "period_end":            {"type": ["string", "null"], "description": "YYYY-MM-DD"},
+                "extraction_confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+            },
+            "required": ["extraction_confidence"],
+        },
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -250,10 +307,77 @@ def extract_via_regex(pdf_path: Path) -> dict:
     return out
 
 
+def _pdf_to_text(pdf_path: Path, max_pages: int = 100) -> str:
+    """Extract text from a PDF via pdfplumber. Returns "" if not extractable
+    (scanned image PDF, corrupt, etc.). Caller decides how to handle empty."""
+    try:
+        import pdfplumber
+    except ImportError:
+        return ""
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            parts = []
+            for page in pdf.pages[:max_pages]:
+                t = page.extract_text() or ""
+                parts.append(t)
+            return "\n".join(parts).strip()
+    except Exception:
+        return ""
+
+
+def extract_via_nvidia(client, pdf_path: Path, system_prompt: str, user_prompt: str, tool: dict) -> dict | None:
+    """Text-mode extraction via NVIDIA-hosted model (Muse Glimmer 30B) using
+    OpenAI-compat function calling. Muse Glimmer accepts images too, but
+    for typed NSE reports pdfplumber gets clean text — image mode would
+    just add token cost with no accuracy gain."""
+    pdf_text = _pdf_to_text(pdf_path)
+    if not pdf_text or len(pdf_text) < 200:
+        print(f"    ! PDF text too short ({len(pdf_text)} chars) — likely scanned; skip")
+        return None
+    if len(pdf_text) > MAX_TEXT_CHARS:
+        pdf_text = pdf_text[:MAX_TEXT_CHARS] + "\n[...truncated...]"
+
+    fn_name = tool["function"]["name"]
+    try:
+        response = client.chat.completions.create(
+            model=NVIDIA_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"{user_prompt}\n\n=== PDF TEXT ===\n{pdf_text}"},
+            ],
+            tools=[tool],
+            tool_choice={"type": "function", "function": {"name": fn_name}},
+            temperature=0.1,
+            max_tokens=MAX_TOKENS,
+        )
+    except Exception as exc:
+        print(f"    ! NVIDIA API error: {exc}")
+        return None
+
+    msg = response.choices[0].message
+    tool_calls = getattr(msg, "tool_calls", None)
+    if not tool_calls:
+        # Some models forget the tool call when the tool_choice hint is
+        # weak; try to salvage from the text content as JSON fallback.
+        raw = (msg.content or "").strip()
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            print(f"    ! no tool call and text not JSON: {raw[:150]}")
+            return None
+    try:
+        return json.loads(tool_calls[0].function.arguments)
+    except json.JSONDecodeError as exc:
+        print(f"    ! tool call args not JSON: {exc}")
+        return None
+
+
 def extract_via_claude(client, pdf_path: Path, system_prompt: str, user_prompt: str) -> dict | None:
     try:
         msg = client.messages.create(
-            model=MODEL,
+            model=CLAUDE_MODEL,
             max_tokens=MAX_TOKENS,
             system=system_prompt,
             messages=[
@@ -302,7 +426,7 @@ def merge_annual(existing_annual: list[dict], new_row: dict) -> list[dict]:
 # Main pipeline
 # ---------------------------------------------------------------------------
 
-def process_ticker_annual(client, db, ticker: str, tmpdir: Path, dry_run: bool) -> bool:
+def process_ticker_annual(client, db, ticker: str, tmpdir: Path, dry_run: bool, engine: str = "regex") -> bool:
     doc_ref = db.collection("financials").document(ticker)
     snap = doc_ref.get()
     existing = snap.to_dict() if snap.exists else {}
@@ -319,7 +443,10 @@ def process_ticker_annual(client, db, ticker: str, tmpdir: Path, dry_run: bool) 
     if not pdf_path:
         return False
 
-    if client is not None:
+    if engine == "nvidia":
+        print(f"  [{ticker}] extracting via NVIDIA...")
+        parsed = extract_via_nvidia(client, pdf_path, ANNUAL_SYSTEM_PROMPT, ANNUAL_USER_PROMPT, ANNUAL_TOOL)
+    elif engine == "claude":
         print(f"  [{ticker}] extracting via Claude...")
         parsed = extract_via_claude(client, pdf_path, ANNUAL_SYSTEM_PROMPT, ANNUAL_USER_PROMPT)
     else:
@@ -370,7 +497,7 @@ def process_ticker_annual(client, db, ticker: str, tmpdir: Path, dry_run: bool) 
     return True
 
 
-def process_ticker_dividends(client, db, ticker: str, tmpdir: Path, dry_run: bool) -> int:
+def process_ticker_dividends(client, db, ticker: str, tmpdir: Path, dry_run: bool, engine: str = "regex") -> int:
     """Fill in amount_kes + ex_date + payment_date for dividend records that
     only have URL + title. Returns count of records updated."""
     doc_ref = db.collection("financials").document(ticker)
@@ -386,10 +513,10 @@ def process_ticker_dividends(client, db, ticker: str, tmpdir: Path, dry_run: boo
     if not pending:
         return 0
 
-    if client is None:
+    if engine == "regex" or client is None:
         # Dividend-notice PDFs vary too widely for reliable regex extraction
         # (amount can be in a footnote, ex-date in a table, etc.). Skip
-        # gracefully rather than mangle the data.
+        # gracefully rather than mangle the record.
         return 0
 
     updated_count = 0
@@ -399,7 +526,10 @@ def process_ticker_dividends(client, db, ticker: str, tmpdir: Path, dry_run: boo
         pdf_path = download_pdf(url, tmpdir)
         if not pdf_path:
             continue
-        parsed = extract_via_claude(client, pdf_path, DIVIDEND_SYSTEM_PROMPT, DIVIDEND_USER_PROMPT)
+        if engine == "nvidia":
+            parsed = extract_via_nvidia(client, pdf_path, DIVIDEND_SYSTEM_PROMPT, DIVIDEND_USER_PROMPT, DIVIDEND_TOOL)
+        else:
+            parsed = extract_via_claude(client, pdf_path, DIVIDEND_SYSTEM_PROMPT, DIVIDEND_USER_PROMPT)
         if not parsed:
             continue
         # Only apply fields that were parsed; keep title/url/source intact
@@ -428,18 +558,29 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None, help="Cap on ticker count")
     args = parser.parse_args()
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
     from scripts.firebase_client import get_firestore
     db = get_firestore()
 
+    # Engine priority: NVIDIA (function calling, high accuracy on text) →
+    # Claude (native PDF, high accuracy) → regex (pdfplumber patterns, low).
+    # Whichever key is set first in that order wins. Both keys set → NVIDIA.
+    nvidia_key = os.environ.get("NVIDIA_API_KEY")
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    engine = None
     client = None
-    if api_key:
+    if nvidia_key:
+        from openai import OpenAI
+        client = OpenAI(base_url=NVIDIA_BASE_URL, api_key=nvidia_key)
+        engine = "nvidia"
+        print(f"Extraction engine: NVIDIA {NVIDIA_MODEL}")
+    elif anthropic_key:
         import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
-        print("Extraction engine: Claude (Sonnet 4.6)")
+        client = anthropic.Anthropic(api_key=anthropic_key)
+        engine = "claude"
+        print(f"Extraction engine: Claude ({CLAUDE_MODEL})")
     else:
-        print("Extraction engine: pdfplumber+regex (fallback — ANTHROPIC_API_KEY not set)")
-        print("  To upgrade to Claude accuracy: `gh secret set ANTHROPIC_API_KEY --repo MoengaAlex1/nse_predictor`")
+        engine = "regex"
+        print("Extraction engine: pdfplumber+regex (no NVIDIA_API_KEY or ANTHROPIC_API_KEY set)")
 
     # Find eligible tickers — every ticker with a financials doc
     fin_docs = list(db.collection("financials").stream())
@@ -463,12 +604,12 @@ def main() -> None:
         print(f"\n=== {tkr} ===")
 
         if not args.dividends_only:
-            if process_ticker_annual(client, db, tkr, tmpdir, args.dry_run):
+            if process_ticker_annual(client, db, tkr, tmpdir, args.dry_run, engine=engine):
                 annual_hits += 1
             time.sleep(RATE_LIMIT_SECONDS)
 
         if not args.annual_only:
-            dividend_hits += process_ticker_dividends(client, db, tkr, tmpdir, args.dry_run)
+            dividend_hits += process_ticker_dividends(client, db, tkr, tmpdir, args.dry_run, engine=engine)
 
     print(f"\n=== Done === annual: {annual_hits}/{len(tickers)}, dividend records: {dividend_hits}")
 
