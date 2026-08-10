@@ -1,0 +1,373 @@
+"""
+Extract structured financials from NSE PDF disclosures using Claude.
+
+For each ticker in Firestore's financials/{ticker} doc:
+ 1. Find the most recent audited-annual-result PDF from the .announcements
+    array (populated by refresh_nse_disclosures.py).
+ 2. Download the PDF from NSE's WordPress media host.
+ 3. Send it to Claude's PDF endpoint with a strict JSON-schema prompt.
+ 4. Write extracted results to:
+      financials/{ticker}.annual  — array merged by period, most recent first
+      fundamentals/{ticker}       — shares_outstanding, updated_at
+
+Optionally: for each pending dividend record (amount_kes == None) in the
+same financials doc, fetch the dividend-notice PDF and extract
+amount_kes + ex_date + payment_date.
+
+Cost: ~5-8K input tokens per PDF at Sonnet pricing (~$0.02/PDF), so a
+full 60-ticker run is ~$1.20 in API tokens. Rate-limited to 1 req/sec.
+
+Usage:
+    python pipeline/scripts/extract_from_pdfs_ai.py [--tickers SCOM KCB] [--dry-run]
+                                                    [--annual-only] [--dividends-only]
+Env: ANTHROPIC_API_KEY, FIREBASE_SERVICE_ACCOUNT_JSON
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import json
+import os
+import re
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+import requests
+
+PIPELINE_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PIPELINE_ROOT.parent))
+sys.path.insert(0, str(PIPELINE_ROOT))
+
+MODEL = "claude-sonnet-4-6"
+MAX_ANNUAL_PDF_MB = 30  # Claude limit is ~32 MB
+MAX_TOKENS = 1200
+RATE_LIMIT_SECONDS = 1.0
+
+# The extraction is only useful if we can trust the numbers. Give Claude
+# tight schema + explicit "prefer null over guessing" rule.
+ANNUAL_SYSTEM_PROMPT = (
+    "You are a forensic accountant extracting audited financial data from "
+    "Nairobi Securities Exchange annual report PDFs. Rules: only return "
+    "numbers you can directly read from the document. Prefer null over "
+    "guessing. Convert all currency to KES. Numbers in KES millions unless "
+    "noted otherwise. Return ONLY valid JSON — no prose, no markdown fences."
+)
+
+ANNUAL_USER_PROMPT = """
+Extract this exact JSON schema from the attached NSE annual report PDF:
+
+{
+  "period":              "<FY2024 / FY2025 / H1 2025 / etc.>",
+  "period_end":          "<YYYY-MM-DD ending date of the reporting period>",
+  "period_type":         "<annual | interim>",
+  "announcement_date":   "<YYYY-MM-DD date the results were announced, if in PDF>",
+  "revenue_kes_mn":      <number in KES millions or null>,
+  "net_income_kes_mn":   <number in KES millions or null>,
+  "eps":                 <basic EPS in KES per share or null>,
+  "bvps":                <book value per share in KES or null>,
+  "shares_outstanding_mn": <ordinary shares in issue, in millions, or null>,
+  "dividend_per_share":  <full-year DPS in KES per share or null>,
+  "dividend_type":       "<interim | final | total | none>",
+  "extraction_confidence": "<high | medium | low — how legible was the source>",
+  "notes":               "<optional 1-line comment on any anomalies>"
+}
+
+Return only that JSON object. No fences. If the PDF is not an audited or
+half-year financial result (e.g. it's a dividend notice or corporate
+action), return {"period": null, "extraction_confidence": "low",
+"notes": "not a financial result PDF"}.
+"""
+
+DIVIDEND_SYSTEM_PROMPT = (
+    "You are a data extractor pulling dividend details from NSE dividend "
+    "notice PDFs. Only return numbers you can read directly. Prefer null "
+    "over guessing. Return ONLY valid JSON — no prose."
+)
+
+DIVIDEND_USER_PROMPT = """
+Extract this exact JSON schema from the attached NSE dividend notice PDF:
+
+{
+  "amount_kes":       <per-share dividend amount in KES or null>,
+  "ex_date":          "<YYYY-MM-DD book closure / ex-dividend date or null>",
+  "payment_date":     "<YYYY-MM-DD payment date or null>",
+  "type":             "<interim | final | special | scrip | bonus>",
+  "period_end":       "<YYYY-MM-DD reporting-period ending date or null>",
+  "extraction_confidence": "<high | medium | low>"
+}
+
+Return only that JSON object. No fences.
+"""
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def find_latest_annual_url(announcements: list[dict]) -> dict | None:
+    """Pick the most-recent PDF whose title/URL looks like an audited annual
+    (or half-year) result. Skips interim quarterly reports."""
+    if not announcements:
+        return None
+    scored = []
+    for a in announcements:
+        title = (a.get("title") or "").lower()
+        url = (a.get("url") or "").lower()
+        text = title + " " + url
+        if not text.strip():
+            continue
+        score = 0
+        if "audited" in text or "annual report" in text or "integrated report" in text:
+            score = 3
+        elif "half year" in text or "half-year" in text or "h1" in text or "interim result" in text:
+            score = 2
+        elif "financial result" in text or "financial statement" in text:
+            score = 1
+        if score == 0:
+            continue
+        scored.append((score, a.get("date") or "", a))
+    if not scored:
+        return None
+    scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    return scored[0][2]
+
+
+def download_pdf(url: str, tmpdir: Path) -> Path | None:
+    tmpdir.mkdir(parents=True, exist_ok=True)
+    fname = url.rsplit("/", 1)[-1] or "download.pdf"
+    fname = re.sub(r"[^A-Za-z0-9_.-]", "_", fname)[:100]
+    dest = tmpdir / fname
+    try:
+        r = requests.get(url, timeout=45, headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code != 200:
+            print(f"    ! download HTTP {r.status_code}")
+            return None
+        size_mb = len(r.content) / 1_000_000
+        if size_mb > MAX_ANNUAL_PDF_MB:
+            print(f"    ! PDF too large ({size_mb:.1f} MB > {MAX_ANNUAL_PDF_MB} MB)")
+            return None
+        dest.write_bytes(r.content)
+        return dest
+    except requests.RequestException as exc:
+        print(f"    ! download error: {exc}")
+        return None
+
+
+def _b64_encode(pdf_path: Path) -> str:
+    return base64.standard_b64encode(pdf_path.read_bytes()).decode("ascii")
+
+
+def extract_via_claude(client, pdf_path: Path, system_prompt: str, user_prompt: str) -> dict | None:
+    try:
+        msg = client.messages.create(
+            model=MODEL,
+            max_tokens=MAX_TOKENS,
+            system=system_prompt,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "document",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "application/pdf",
+                                "data": _b64_encode(pdf_path),
+                            },
+                        },
+                        {"type": "text", "text": user_prompt},
+                    ],
+                }
+            ],
+        )
+    except Exception as exc:
+        print(f"    ! Claude API error: {exc}")
+        return None
+
+    raw = msg.content[0].text.strip()
+    # Strip common markdown-fence noise even though we asked not to.
+    raw = re.sub(r"^```(?:json)?\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        print(f"    ! non-JSON response: {raw[:200]}")
+        return None
+
+
+def merge_annual(existing_annual: list[dict], new_row: dict) -> list[dict]:
+    """Insert/replace by period key, sort by period_end desc."""
+    period = new_row.get("period")
+    if not period:
+        return existing_annual
+    merged = [r for r in existing_annual if r.get("period") != period]
+    merged.append(new_row)
+    return sorted(merged, key=lambda r: r.get("period_end") or "", reverse=True)
+
+
+# ---------------------------------------------------------------------------
+# Main pipeline
+# ---------------------------------------------------------------------------
+
+def process_ticker_annual(client, db, ticker: str, tmpdir: Path, dry_run: bool) -> bool:
+    doc_ref = db.collection("financials").document(ticker)
+    snap = doc_ref.get()
+    existing = snap.to_dict() if snap.exists else {}
+    announcements = existing.get("announcements", [])
+
+    latest = find_latest_annual_url(announcements)
+    if not latest:
+        print(f"  [{ticker}] no annual result URL — skip")
+        return False
+
+    url = latest.get("url")
+    print(f"  [{ticker}] downloading {url.rsplit('/', 1)[-1][:60]}")
+    pdf_path = download_pdf(url, tmpdir)
+    if not pdf_path:
+        return False
+
+    print(f"  [{ticker}] extracting via Claude...")
+    parsed = extract_via_claude(client, pdf_path, ANNUAL_SYSTEM_PROMPT, ANNUAL_USER_PROMPT)
+    if not parsed or not parsed.get("period"):
+        print(f"  [{ticker}] no usable extraction")
+        return False
+
+    print(
+        f"  [{ticker}] {parsed.get('period')}  eps={parsed.get('eps')}  "
+        f"rev={parsed.get('revenue_kes_mn')}  shares={parsed.get('shares_outstanding_mn')}"
+    )
+
+    if dry_run:
+        return True
+
+    # Financials annual merge
+    annual_row = {
+        "period":            parsed.get("period"),
+        "period_end":        parsed.get("period_end"),
+        "period_type":       parsed.get("period_type") or "annual",
+        "announcement_date": parsed.get("announcement_date"),
+        "revenue_kes_mn":    parsed.get("revenue_kes_mn"),
+        "net_income_kes_mn": parsed.get("net_income_kes_mn"),
+        "eps":               parsed.get("eps"),
+        "bvps":              parsed.get("bvps"),
+        "source":            "claude-extraction",
+    }
+    merged_annual = merge_annual(existing.get("annual", []), annual_row)
+    doc_ref.set({"annual": merged_annual}, merge=True)
+    print(f"  [{ticker}] wrote financials/{ticker}.annual (total {len(merged_annual)})")
+
+    # Fundamentals: shares_outstanding, DPS
+    fund_ref = db.collection("fundamentals").document(ticker)
+    fund_snap = fund_ref.get()
+    fund_existing = fund_snap.to_dict() if fund_snap.exists else {}
+    fund_updates = {"ticker": ticker, "updated_at": datetime.now(timezone.utc).isoformat()}
+    if parsed.get("shares_outstanding_mn") is not None:
+        fund_updates["shares_outstanding_mn"] = parsed["shares_outstanding_mn"]
+    # Preserve fields already there
+    for k in ("enterprise_value_kes_bn", "employees", "estimates"):
+        if k in fund_existing and k not in fund_updates:
+            fund_updates[k] = fund_existing[k]
+    fund_ref.set(fund_updates, merge=True)
+    print(f"  [{ticker}] wrote fundamentals/{ticker}")
+
+    return True
+
+
+def process_ticker_dividends(client, db, ticker: str, tmpdir: Path, dry_run: bool) -> int:
+    """Fill in amount_kes + ex_date + payment_date for dividend records that
+    only have URL + title. Returns count of records updated."""
+    doc_ref = db.collection("financials").document(ticker)
+    snap = doc_ref.get()
+    if not snap.exists:
+        return 0
+    existing = snap.to_dict()
+    dividends = existing.get("dividends", [])
+    pending = [d for d in dividends if d.get("amount_kes") is None and d.get("url")]
+    # Only process the 3 most recent to keep cost bounded
+    pending = pending[:3]
+
+    if not pending:
+        return 0
+
+    updated_count = 0
+    for div in pending:
+        url = div["url"]
+        print(f"  [{ticker}] dividend PDF: {url.rsplit('/', 1)[-1][:60]}")
+        pdf_path = download_pdf(url, tmpdir)
+        if not pdf_path:
+            continue
+        parsed = extract_via_claude(client, pdf_path, DIVIDEND_SYSTEM_PROMPT, DIVIDEND_USER_PROMPT)
+        if not parsed:
+            continue
+        # Only apply fields that were parsed; keep title/url/source intact
+        for k in ("amount_kes", "ex_date", "payment_date", "type", "period_end"):
+            v = parsed.get(k)
+            if v is not None:
+                div[k] = v
+        div["extraction_confidence"] = parsed.get("extraction_confidence", "low")
+        updated_count += 1
+        print(f"    -> amount={div.get('amount_kes')} ex_date={div.get('ex_date')}")
+        time.sleep(RATE_LIMIT_SECONDS)
+
+    if updated_count and not dry_run:
+        doc_ref.set({"dividends": dividends}, merge=True)
+        print(f"  [{ticker}] wrote {updated_count} enriched dividend records")
+
+    return updated_count
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tickers", nargs="*", help="Bare tickers to process (default: all)")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--annual-only", action="store_true")
+    parser.add_argument("--dividends-only", action="store_true")
+    parser.add_argument("--limit", type=int, default=None, help="Cap on ticker count")
+    args = parser.parse_args()
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise SystemExit("ANTHROPIC_API_KEY env var required")
+
+    import anthropic
+    from scripts.firebase_client import get_firestore
+    db = get_firestore()
+    client = anthropic.Anthropic(api_key=api_key)
+
+    # Find eligible tickers — every ticker with a financials doc
+    fin_docs = list(db.collection("financials").stream())
+    all_tickers = sorted(d.id for d in fin_docs)
+    if args.tickers:
+        want = {t.upper() for t in args.tickers}
+        tickers = [t for t in all_tickers if t.upper() in want]
+    else:
+        tickers = all_tickers
+    if args.limit:
+        tickers = tickers[: args.limit]
+
+    print(f"Processing {len(tickers)} tickers: {tickers[:10]}{'...' if len(tickers) > 10 else ''}\n")
+
+    tmpdir = Path("/tmp/nse-pdfs") if os.name != "nt" else Path.home() / "AppData" / "Local" / "Temp" / "nse-pdfs"
+
+    annual_hits = 0
+    dividend_hits = 0
+
+    for tkr in tickers:
+        print(f"\n=== {tkr} ===")
+
+        if not args.dividends_only:
+            if process_ticker_annual(client, db, tkr, tmpdir, args.dry_run):
+                annual_hits += 1
+            time.sleep(RATE_LIMIT_SECONDS)
+
+        if not args.annual_only:
+            dividend_hits += process_ticker_dividends(client, db, tkr, tmpdir, args.dry_run)
+
+    print(f"\n=== Done === annual: {annual_hits}/{len(tickers)}, dividend records: {dividend_hits}")
+
+
+if __name__ == "__main__":
+    main()
