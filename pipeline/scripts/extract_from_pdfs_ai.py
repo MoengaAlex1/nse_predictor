@@ -578,8 +578,21 @@ def main() -> None:
     # Engine priority: NVIDIA (function calling, high accuracy on text) →
     # Claude (native PDF, high accuracy) → regex (pdfplumber patterns, low).
     # Whichever key is set first in that order wins. Both keys set → NVIDIA.
-    nvidia_key = os.environ.get("NVIDIA_API_KEY")
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    #
+    # Strip whitespace defensively — a common paste-into-`gh secret set`
+    # failure mode is a trailing newline that turns into an "Illegal header
+    # value" error deep inside httpx.
+    nvidia_key = (os.environ.get("NVIDIA_API_KEY") or "").strip()
+    anthropic_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+
+    if nvidia_key and not nvidia_key.startswith("nvapi-"):
+        print(f"WARNING: NVIDIA_API_KEY doesn't start with 'nvapi-' (got '{nvidia_key[:10]}...'). "
+              f"Ignoring — probably pasted the wrong value into the secret.")
+        nvidia_key = ""
+    if nvidia_key and ("\n" in nvidia_key or "\r" in nvidia_key or " " in nvidia_key):
+        print(f"WARNING: NVIDIA_API_KEY contains whitespace after strip. Ignoring.")
+        nvidia_key = ""
+
     engine = None
     client = None
     if nvidia_key:
