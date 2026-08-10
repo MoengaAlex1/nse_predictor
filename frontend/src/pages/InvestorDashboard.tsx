@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useRecentTickers } from "../hooks/useRecentTickers";
-import { useCompany, useLatestTechnicals, useLatestSnapshot, useFundamentals } from "../hooks/useCompany";
+import { useCompany, useLatestTechnicals, useLatestSnapshot, useFundamentals, useFinancials } from "../hooks/useCompany";
 import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
 import { PriceHeader } from "../components/investor/PriceHeader";
 import { PriceAreaChart } from "../components/investor/PriceAreaChart";
@@ -38,10 +38,16 @@ export const InvestorDashboard = () => {
     if (ticker) pushRecent(ticker);
   }, [ticker, pushRecent]);
 
-  const { data: company } = useCompany(ticker);
-  const { data: technicals } = useLatestTechnicals(ticker);
-  const { data: snapshot } = useLatestSnapshot(ticker);
-  const { data: fundamentals } = useFundamentals(ticker);
+  // Firestore doc ids are the "safe" ticker form — without .NR/.KE suffix
+  // (paths can be edge-case fragile with dots). RTDB uses the same clean
+  // form. Some entry points navigate here with the display ticker (SCOM.NR)
+  // and some with the doc id (SCOM), so we normalize once and use the
+  // cleaned form for every Firestore + RTDB fetch.
+  const { data: company } = useCompany(cleaned);
+  const { data: technicals } = useLatestTechnicals(cleaned);
+  const { data: snapshot } = useLatestSnapshot(cleaned);
+  const { data: fundamentals } = useFundamentals(cleaned);
+  const { data: financials } = useFinancials(cleaned);
   const { data: rtdbPrices = [] } = useHistoricalPrices(cleaned, FETCH_START, todayIso());
 
   const history: PricePoint[] = useMemo(
@@ -124,6 +130,7 @@ export const InvestorDashboard = () => {
           company={company}
           technicals={technicals}
           fundamentals={fundamentals}
+          financials={financials}
           dayLow={dayLow}
           dayHigh={dayHigh}
           previousClose={previousClose}

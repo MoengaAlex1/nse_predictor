@@ -98,6 +98,7 @@ function parseCompareParam(raw: string | null, primary: string): string[] {
 export const InvestorChart = () => {
   const { ticker: rawTicker = "" } = useParams<{ ticker: string }>();
   const ticker = rawTicker.toUpperCase();
+  const cleaned = cleanTicker(ticker);
   const pushRecent = useRecentTickers((s) => s.push);
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -113,10 +114,13 @@ export const InvestorChart = () => {
     if (ticker) pushRecent(ticker);
   }, [ticker, pushRecent]);
 
-  const { data: company } = useCompany(ticker);
-  const { data: technicals } = useLatestTechnicals(ticker);
+  // Some entry points send us the display ticker (SCOM.NR), others send
+  // the doc id (SCOM). Normalise once and use the cleaned form for every
+  // Firestore + RTDB fetch — the doc id is the canonical key.
+  const { data: company } = useCompany(cleaned);
+  const { data: technicals } = useLatestTechnicals(cleaned);
   const { data: allCompanies = [] } = useCompanies();
-  const { data: rtdbPrimary = [] } = useHistoricalPrices(cleanTicker(ticker), FETCH_START, todayIso());
+  const { data: rtdbPrimary = [] } = useHistoricalPrices(cleaned, FETCH_START, todayIso());
   const compareResults = useCompareSeries(compareTickers, FETCH_START, todayIso());
   const peers = usePeers(ticker, company?.sector ?? null, 6);
 
