@@ -370,21 +370,30 @@ def extract_via_nvidia(client, pdf_path: Path, system_prompt: str, user_prompt: 
 
     msg = response.choices[0].message
     tool_calls = getattr(msg, "tool_calls", None)
+    finish_reason = response.choices[0].finish_reason
+    print(f"    · finish_reason={finish_reason}, tool_calls={bool(tool_calls)}")
     if not tool_calls:
         # Some models forget the tool call when the tool_choice hint is
         # weak; try to salvage from the text content as JSON fallback.
         raw = (msg.content or "").strip()
+        print(f"    · text content ({len(raw)} chars): {raw[:400]}")
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
         try:
-            return json.loads(raw)
+            parsed = json.loads(raw)
+            print(f"    · parsed keys: {list(parsed.keys()) if isinstance(parsed, dict) else 'not-a-dict'}")
+            return parsed
         except json.JSONDecodeError:
-            print(f"    ! no tool call and text not JSON: {raw[:150]}")
+            print(f"    ! no tool call and text not JSON: {raw[:200]}")
             return None
     try:
-        return json.loads(tool_calls[0].function.arguments)
+        args_raw = tool_calls[0].function.arguments
+        print(f"    · tool call arg length: {len(args_raw)}")
+        parsed = json.loads(args_raw)
+        print(f"    · parsed keys: {list(parsed.keys())}")
+        return parsed
     except json.JSONDecodeError as exc:
-        print(f"    ! tool call args not JSON: {exc}")
+        print(f"    ! tool call args not JSON: {exc}. Raw: {args_raw[:300]}")
         return None
 
 
