@@ -77,21 +77,21 @@ def main() -> None:
         raise SystemExit(f"Ruleset create returned no name: {r.text}")
     print(f"  ← {ruleset_name}")
 
-    # Attach ruleset to the cloud.firestore release. Since the release
-    # already exists (the console created it on project setup), we PATCH.
-    # Key details the API is picky about:
-    #  - URL uses the FULL resource name: /v1/projects/{id}/releases/cloud.firestore
-    #  - updateMask is REQUIRED (POST/upsert requires an extra IAM role
-    #    our SA doesn't have; PATCH via updateRelease only needs
-    #    firebase.rules.write)
-    #  - updateMask uses proto snake_case field name: "ruleset_name"
-    #  - Body must NOT include a "name" field — the resource name lives
-    #    entirely in the URL. Sending it in the body gets rejected
-    #    with "Unknown name" errors from the protobuf JSON parser.
+    # Attach ruleset to the cloud.firestore release. The PATCH endpoint's
+    # request type is UpdateReleaseRequest (per the discovery doc), NOT a
+    # bare Release — the body must wrap the Release under a "release" key
+    # and include updateMask INSIDE the body:
+    #   { "release": { name, rulesetName }, "updateMask": "ruleset_name" }
+    # Earlier attempts with a bare Release body were rejected because
+    # protobuf JSON parsing on the server looked for top-level fields
+    # named "release"/"updateMask" and reported "rulesetName" as unknown.
     release_id = f"projects/{project_id}/releases/cloud.firestore"
     print(f"→ Publishing release '{release_id}'")
-    patch_url = f"{base}/{release_id}?updateMask=ruleset_name"
-    patch_body = {"rulesetName": ruleset_name}
+    patch_url = f"{base}/{release_id}"
+    patch_body = {
+        "release": {"name": release_id, "rulesetName": ruleset_name},
+        "updateMask": "ruleset_name",
+    }
     r = requests.patch(patch_url, headers=headers, json=patch_body, timeout=30)
     if r.status_code >= 400:
         raise SystemExit(f"Release PATCH failed {r.status_code}: {r.text}")
