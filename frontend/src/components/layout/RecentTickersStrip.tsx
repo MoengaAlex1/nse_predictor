@@ -15,7 +15,7 @@ const Chip: FC<ChipProps> = ({ ticker, meta, pct }) => {
   const up = pct != null && pct >= 0;
   return (
     <Link
-      to={`/dashboard/${ticker}`}
+      to={`/chart/${ticker}`}
       className="flex h-7 items-center gap-1.5 rounded-full border border-seam bg-raised/50 px-2.5 text-xs transition-colors hover:border-rim hover:bg-raised"
     >
       <span className="font-semibold text-ink">{ticker}</span>

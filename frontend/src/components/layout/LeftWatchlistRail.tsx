@@ -38,7 +38,7 @@ const WatchlistRow: FC<RowProps> = ({ company }) => {
   const up = pct != null && pct >= 0;
   return (
     <Link
-      to={`/dashboard/${company.ticker}`}
+      to={`/chart/${company.ticker}`}
       className="flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-raised/60"
     >
       <CompanyLogo id={company.id} short={company.short} color={company.color} icon={company.icon} size="sm" />

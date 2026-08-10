@@ -6,6 +6,7 @@ import { Home } from "./pages/Home";
 import { Companies } from "./pages/Companies";
 import { CompanyDeepDive } from "./pages/CompanyDeepDive";
 import { InvestorDashboard } from "./pages/InvestorDashboard";
+import { InvestorChart } from "./pages/InvestorChart";
 
 export default function App() {
   useEffect(() => {
@@ -35,6 +36,7 @@ export default function App() {
         }
       >
         <Route path="/dashboard/:ticker" element={<InvestorDashboard />} />
+        <Route path="/chart/:ticker" element={<InvestorChart />} />
       </Route>
     </Routes>
   );

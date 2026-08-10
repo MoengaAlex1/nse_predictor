@@ -13,7 +13,7 @@ export const PeerChip: FC<PeerChipProps> = ({ peer }) => {
 
   return (
     <Link
-      to={`/dashboard/${peer.ticker}`}
+      to={`/chart/${peer.ticker}`}
       className="flex min-w-[152px] items-center gap-2 rounded-lg border border-seam bg-raised/50 px-2.5 py-1.5 transition-colors hover:border-rim hover:bg-raised"
     >
       <CompanyLogo id={peer.id} short={peer.short} color={peer.color} icon={peer.icon} size="sm" />
