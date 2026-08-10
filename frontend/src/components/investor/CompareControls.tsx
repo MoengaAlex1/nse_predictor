@@ -146,31 +146,37 @@ export const CompareControls: FC<CompareControlsProps> = ({
   };
 
   return (
-    <div className="flex items-center gap-2 overflow-x-auto scrollbar-none border-b border-seam px-4 py-2">
+    // NOTE: this outer row deliberately has NO overflow rule. Setting
+    // overflow-x-auto (or scrollbar-none via overflow-x) here would
+    // implicitly clip Y — the "Add" dropdown pops down inside this row
+    // and would be sliced off. Only the inner chip strip scrolls.
+    <div className="flex items-center gap-2 border-b border-seam px-4 py-2">
       <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-hint">
         Compare to
       </span>
 
-      <Chip
-        label={primary.short}
-        color={primary.color}
-        changePct={primary.changePct}
-        removable={false}
-      />
+      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto scrollbar-none">
+        <Chip
+          label={primary.short}
+          color={primary.color}
+          changePct={primary.changePct}
+          removable={false}
+        />
 
-      {compareTickers.map((t) => {
-        const meta = compareMeta.get(t) ?? { short: t, color: "#94a3b8", changePct: null };
-        return (
-          <Chip
-            key={t}
-            label={meta.short}
-            color={meta.color}
-            changePct={meta.changePct}
-            removable
-            onRemove={() => onRemove(t)}
-          />
-        );
-      })}
+        {compareTickers.map((t) => {
+          const meta = compareMeta.get(t) ?? { short: t, color: "#94a3b8", changePct: null };
+          return (
+            <Chip
+              key={t}
+              label={meta.short}
+              color={meta.color}
+              changePct={meta.changePct}
+              removable
+              onRemove={() => onRemove(t)}
+            />
+          );
+        })}
+      </div>
 
       <div ref={containerRef} className="relative shrink-0">
         <button
@@ -191,7 +197,7 @@ export const CompareControls: FC<CompareControlsProps> = ({
         </button>
 
         {open && (
-          <div className="absolute left-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-xl border border-rim bg-surface shadow-xl">
+          <div className="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-xl border border-rim bg-surface shadow-xl">
             <div className="border-b border-seam px-3 py-2">
               <input
                 ref={inputRef}

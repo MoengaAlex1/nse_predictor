@@ -293,7 +293,11 @@ export const InvestorChart = () => {
           </div>
 
           {/* ── Chart card ───────────────────────────────────────────────── */}
-          <div className="overflow-hidden rounded-xl border border-rim bg-surface">
+          {/* No overflow-hidden here — CompareControls' Add-dropdown pops
+              down from inside this card and would be clipped otherwise.
+              Recharts' ResponsiveContainer keeps the chart within bounds
+              on its own, so nothing bleeds. */}
+          <div className="rounded-xl border border-rim bg-surface">
             {/* Timeframe + chart-type toolbar */}
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-seam px-4 py-2.5">
               <TimeframeTabs value={timeframe} onChange={setTimeframe} />
