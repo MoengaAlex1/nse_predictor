@@ -78,17 +78,18 @@ def main() -> None:
     print(f"  ← {ruleset_name}")
 
     # Attach ruleset to the cloud.firestore release. The Firebase console
-    # creates a "cloud.firestore" release per project; PATCH via
-    # updateRelease binds our new ruleset to it.
+    # creates a "cloud.firestore" release per project. PATCH requires an
+    # updateMask query param naming the exact field to change ("rulesetName"
+    # in camelCase, matching the JSON body key) — omitting it makes the
+    # Rules API reject the body with "Unknown name 'rulesetName'".
     release_id = f"projects/{project_id}/releases/cloud.firestore"
     print(f"→ Publishing release '{release_id}'")
-    release_url = f"{base}/{release_id}"
+    release_url = f"{base}/{release_id}?updateMask=rulesetName"
     release_body = {"name": release_id, "rulesetName": ruleset_name}
 
-    # Try PATCH (update existing release); if it doesn't exist yet (very
-    # unlikely for an existing project), create it.
     r = requests.patch(release_url, headers=headers, json=release_body, timeout=30)
     if r.status_code == 404:
+        # Release doesn't exist yet (fresh project) — create it.
         create_release_url = f"{base}/projects/{project_id}/releases"
         r = requests.post(create_release_url, headers=headers, json=release_body, timeout=30)
     if r.status_code >= 400:
