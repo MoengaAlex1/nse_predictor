@@ -169,32 +169,40 @@ DIVIDEND_TOOL = {
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _score_annual_pdf(a: dict) -> int:
+    """Score an announcement record on how "audited-result-like" it looks.
+    3 = audited/annual, 2 = interim/H1, 1 = generic financial result, 0 = skip."""
+    title = (a.get("title") or "").lower()
+    url = (a.get("url") or "").lower()
+    text = title + " " + url
+    if not text.strip():
+        return 0
+    if "audited" in text or "annual report" in text or "integrated report" in text:
+        return 3
+    if "half year" in text or "half-year" in text or "h1" in text or "interim result" in text:
+        return 2
+    if "financial result" in text or "financial statement" in text:
+        return 1
+    return 0
+
+
 def find_latest_annual_url(announcements: list[dict]) -> dict | None:
-    """Pick the most-recent PDF whose title/URL looks like an audited annual
-    (or half-year) result. Skips interim quarterly reports."""
-    if not announcements:
-        return None
-    scored = []
-    for a in announcements:
-        title = (a.get("title") or "").lower()
-        url = (a.get("url") or "").lower()
-        text = title + " " + url
-        if not text.strip():
-            continue
-        score = 0
-        if "audited" in text or "annual report" in text or "integrated report" in text:
-            score = 3
-        elif "half year" in text or "half-year" in text or "h1" in text or "interim result" in text:
-            score = 2
-        elif "financial result" in text or "financial statement" in text:
-            score = 1
-        if score == 0:
-            continue
-        scored.append((score, a.get("date") or "", a))
+    """Pick the single most-relevant PDF (used by --latest-only mode)."""
+    scored = [(_score_annual_pdf(a), a.get("date") or "", a) for a in (announcements or [])]
+    scored = [t for t in scored if t[0] > 0]
     if not scored:
         return None
     scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
     return scored[0][2]
+
+
+def find_all_annual_urls(announcements: list[dict]) -> list[dict]:
+    """Return every financial-result-like PDF sorted newest-first. Used by
+    --all-annuals mode for historical backfill."""
+    scored = [(_score_annual_pdf(a), a.get("date") or "", a) for a in (announcements or [])]
+    scored = [t for t in scored if t[0] > 0]
+    scored.sort(key=lambda t: t[1], reverse=True)  # newest first
+    return [t[2] for t in scored]
 
 
 def download_pdf(url: str, tmpdir: Path) -> Path | None:
@@ -454,45 +462,16 @@ def merge_annual(existing_annual: list[dict], new_row: dict) -> list[dict]:
 # Main pipeline
 # ---------------------------------------------------------------------------
 
-def process_ticker_annual(client, db, ticker: str, tmpdir: Path, dry_run: bool, engine: str = "regex") -> bool:
-    doc_ref = db.collection("financials").document(ticker)
-    snap = doc_ref.get()
-    existing = snap.to_dict() if snap.exists else {}
-    announcements = existing.get("announcements", [])
-
-    latest = find_latest_annual_url(announcements)
-    if not latest:
-        print(f"  [{ticker}] no annual result URL — skip")
-        return False
-
-    url = latest.get("url")
-    print(f"  [{ticker}] downloading {url.rsplit('/', 1)[-1][:60]}")
-    pdf_path = download_pdf(url, tmpdir)
-    if not pdf_path:
-        return False
-
+def _extract_one(client, engine: str, pdf_path: Path) -> dict | None:
     if engine == "nvidia":
-        print(f"  [{ticker}] extracting via NVIDIA...")
-        parsed = extract_via_nvidia(client, pdf_path, ANNUAL_SYSTEM_PROMPT, ANNUAL_USER_PROMPT, ANNUAL_TOOL)
-    elif engine == "claude":
-        print(f"  [{ticker}] extracting via Claude...")
-        parsed = extract_via_claude(client, pdf_path, ANNUAL_SYSTEM_PROMPT, ANNUAL_USER_PROMPT)
-    else:
-        print(f"  [{ticker}] extracting via regex fallback...")
-        parsed = extract_via_regex(pdf_path)
-    if not parsed or not parsed.get("period"):
-        print(f"  [{ticker}] no usable extraction")
-        return False
+        return extract_via_nvidia(client, pdf_path, ANNUAL_SYSTEM_PROMPT, ANNUAL_USER_PROMPT, ANNUAL_TOOL)
+    if engine == "claude":
+        return extract_via_claude(client, pdf_path, ANNUAL_SYSTEM_PROMPT, ANNUAL_USER_PROMPT)
+    return extract_via_regex(pdf_path)
 
-    print(
-        f"  [{ticker}] {parsed.get('period')}  eps={parsed.get('eps')}  "
-        f"rev={parsed.get('revenue_kes_mn')}  shares={parsed.get('shares_outstanding_mn')}"
-    )
 
-    if dry_run:
-        return True
-
-    # Financials annual merge
+def _write_annual_and_fundamentals(db, ticker: str, existing: dict, parsed: dict) -> None:
+    doc_ref = db.collection("financials").document(ticker)
     annual_row = {
         "period":            parsed.get("period"),
         "period_end":        parsed.get("period_end"),
@@ -502,27 +481,92 @@ def process_ticker_annual(client, db, ticker: str, tmpdir: Path, dry_run: bool, 
         "net_income_kes_mn": parsed.get("net_income_kes_mn"),
         "eps":               parsed.get("eps"),
         "bvps":              parsed.get("bvps"),
-        "source":            "claude-extraction",
+        "source":            "ai-extraction",
+        "extraction_confidence": parsed.get("extraction_confidence"),
     }
     merged_annual = merge_annual(existing.get("annual", []), annual_row)
     doc_ref.set({"annual": merged_annual}, merge=True)
-    print(f"  [{ticker}] wrote financials/{ticker}.annual (total {len(merged_annual)})")
+    existing["annual"] = merged_annual  # keep in-memory copy fresh for the loop
 
-    # Fundamentals: shares_outstanding, DPS
-    fund_ref = db.collection("fundamentals").document(ticker)
-    fund_snap = fund_ref.get()
-    fund_existing = fund_snap.to_dict() if fund_snap.exists else {}
-    fund_updates = {"ticker": ticker, "updated_at": datetime.now(timezone.utc).isoformat()}
     if parsed.get("shares_outstanding_mn") is not None:
-        fund_updates["shares_outstanding_mn"] = parsed["shares_outstanding_mn"]
-    # Preserve fields already there
-    for k in ("enterprise_value_kes_bn", "employees", "estimates"):
-        if k in fund_existing and k not in fund_updates:
-            fund_updates[k] = fund_existing[k]
-    fund_ref.set(fund_updates, merge=True)
-    print(f"  [{ticker}] wrote fundamentals/{ticker}")
+        fund_ref = db.collection("fundamentals").document(ticker)
+        fund_snap = fund_ref.get()
+        fund_existing = fund_snap.to_dict() if fund_snap.exists else {}
+        # Only overwrite shares_outstanding if incoming is from a HIGHER-
+        # confidence source, or the existing was never curated. Curated
+        # values from pipeline/config/fundamentals.json always win.
+        curated_ok = fund_existing.get("method") == "curated" and fund_existing.get("confidence") == "high"
+        incoming_conf = parsed.get("extraction_confidence")
+        if not curated_ok or incoming_conf == "high":
+            fund_ref.set({
+                "ticker": ticker,
+                "shares_outstanding_mn": parsed["shares_outstanding_mn"],
+                "as_of": parsed.get("period_end"),
+                "source": f"ai-extracted from {parsed.get('period')}",
+                "method": "extracted",
+                "confidence": incoming_conf or "medium",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }, merge=True)
 
-    return True
+
+def process_ticker_annual(
+    client, db, ticker: str, tmpdir: Path, dry_run: bool,
+    engine: str = "regex", all_annuals: bool = False, max_per_ticker: int = 20,
+) -> int:
+    """Process either the single most-recent annual PDF (default) or every
+    financial-result PDF the scraper has seen for this ticker. Returns the
+    number of PDFs successfully extracted."""
+    doc_ref = db.collection("financials").document(ticker)
+    snap = doc_ref.get()
+    existing = snap.to_dict() if snap.exists else {}
+    announcements = existing.get("announcements", [])
+
+    if all_annuals:
+        pdfs = find_all_annual_urls(announcements)[:max_per_ticker]
+    else:
+        latest = find_latest_annual_url(announcements)
+        pdfs = [latest] if latest else []
+
+    if not pdfs:
+        print(f"  [{ticker}] no annual result URL — skip")
+        return 0
+
+    # Skip PDFs already extracted (dedupe by URL against existing annual rows'
+    # source_url). This makes --all-annuals re-runs idempotent.
+    already_urls = {r.get("source_url") for r in existing.get("annual", []) if isinstance(r, dict)}
+
+    hits = 0
+    for pdf in pdfs:
+        url = pdf.get("url")
+        if url in already_urls:
+            print(f"  [{ticker}] {url.rsplit('/', 1)[-1][:60]} already extracted, skip")
+            continue
+
+        print(f"  [{ticker}] downloading {url.rsplit('/', 1)[-1][:60]}")
+        pdf_path = download_pdf(url, tmpdir)
+        if not pdf_path:
+            continue
+
+        parsed = _extract_one(client, engine, pdf_path)
+        if not parsed or not parsed.get("period"):
+            print(f"  [{ticker}] no usable extraction")
+            continue
+
+        parsed["source_url"] = url  # persist so we can dedupe next run
+        print(
+            f"  [{ticker}] {parsed.get('period')}  eps={parsed.get('eps')}  "
+            f"rev={parsed.get('revenue_kes_mn')}  shares={parsed.get('shares_outstanding_mn')}"
+        )
+
+        if not dry_run:
+            _write_annual_and_fundamentals(db, ticker, existing, parsed)
+        hits += 1
+        time.sleep(RATE_LIMIT_SECONDS)
+
+    if hits and not dry_run:
+        print(f"  [{ticker}] {hits} new annual rows written, total {len(existing.get('annual', []))}")
+
+    return hits
 
 
 def process_ticker_dividends(client, db, ticker: str, tmpdir: Path, dry_run: bool, engine: str = "regex") -> int:
@@ -583,6 +627,11 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--annual-only", action="store_true")
     parser.add_argument("--dividends-only", action="store_true")
+    parser.add_argument("--all-annuals", action="store_true",
+                        help="Process every annual/interim PDF per ticker, not just the latest. "
+                             "Used for historical backfill.")
+    parser.add_argument("--max-per-ticker", type=int, default=20,
+                        help="With --all-annuals, cap PDFs processed per ticker.")
     parser.add_argument("--limit", type=int, default=None, help="Cap on ticker count")
     args = parser.parse_args()
 
@@ -639,20 +688,29 @@ def main() -> None:
     tmpdir = Path("/tmp/nse-pdfs") if os.name != "nt" else Path.home() / "AppData" / "Local" / "Temp" / "nse-pdfs"
 
     annual_hits = 0
+    tickers_with_annuals = 0
     dividend_hits = 0
 
     for tkr in tickers:
         print(f"\n=== {tkr} ===")
 
         if not args.dividends_only:
-            if process_ticker_annual(client, db, tkr, tmpdir, args.dry_run, engine=engine):
-                annual_hits += 1
+            n = process_ticker_annual(
+                client, db, tkr, tmpdir, args.dry_run,
+                engine=engine,
+                all_annuals=args.all_annuals,
+                max_per_ticker=args.max_per_ticker,
+            )
+            annual_hits += n
+            if n > 0:
+                tickers_with_annuals += 1
             time.sleep(RATE_LIMIT_SECONDS)
 
         if not args.annual_only:
             dividend_hits += process_ticker_dividends(client, db, tkr, tmpdir, args.dry_run, engine=engine)
 
-    print(f"\n=== Done === annual: {annual_hits}/{len(tickers)}, dividend records: {dividend_hits}")
+    print(f"\n=== Done === {annual_hits} annual rows across {tickers_with_annuals}/{len(tickers)} tickers, "
+          f"dividend records: {dividend_hits}")
 
 
 if __name__ == "__main__":

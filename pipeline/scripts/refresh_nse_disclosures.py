@@ -297,9 +297,14 @@ def parse_period(text: str) -> tuple[str | None, str | None]:
 # NSE WordPress media fetch
 # ---------------------------------------------------------------------------
 
-def fetch_all_media(session: requests.Session, max_pages: int = 40) -> list[dict]:
+def fetch_all_media(session: requests.Session, max_pages: int = 200, since_year: int | None = 2015) -> list[dict]:
+    """Sweep NSE's WordPress media API for PDFs. Default cap of 200 pages
+    (100 items/page → 20K PDFs) covers 2015-present for the aggregate NSE
+    feed. Stops early if a page returns items older than `since_year`.
+    """
     results: list[dict] = []
     page = 1
+    stopped_early = False
     while page <= max_pages:
         url = (
             f"{NSE_MEDIA_API}?media_type=application&per_page=100"
@@ -317,7 +322,18 @@ def fetch_all_media(session: requests.Session, max_pages: int = 40) -> list[dict
             if not items:
                 break
             results.extend(items)
-            print(f"  [API] page {page}: {len(items)} items, {len(results)} total")
+            # Log the newest+oldest date on this page so we can see how far
+            # back the sweep is reaching.
+            newest = items[0].get("date", "")[:10] if items else ""
+            oldest = items[-1].get("date", "")[:10] if items else ""
+            print(f"  [API] page {page}: {len(items)} items ({newest} → {oldest}), {len(results)} total")
+
+            # Stop when we cross the since_year cutoff so we don't burn API
+            # quota fetching pre-2015 PDFs we don't care about.
+            if since_year and oldest and oldest[:4].isdigit() and int(oldest[:4]) < since_year:
+                stopped_early = True
+                break
+
             if len(items) < 100:
                 break
             page += 1
@@ -325,6 +341,9 @@ def fetch_all_media(session: requests.Session, max_pages: int = 40) -> list[dict
         except Exception as exc:
             print(f"  [API] Error page {page}: {exc}")
             break
+
+    if stopped_early:
+        print(f"  [API] stopped at page {page} — reached items older than {since_year}")
     return results
 
 
@@ -450,7 +469,12 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Connect to Firestore but skip writes")
     parser.add_argument("--offline", action="store_true", help="Skip Firestore entirely — print classification only")
     parser.add_argument("--tickers", nargs="*", help="Filter to specific bare tickers (e.g. SCOM KCB)")
-    parser.add_argument("--max-pages", type=int, default=40, help="Cap on WP media API pages to fetch")
+    parser.add_argument("--max-pages", type=int, default=200,
+                        help="Cap on WP media API pages to fetch (100 items/page). "
+                             "Default 200 covers 2015-present.")
+    parser.add_argument("--since-year", type=int, default=2015,
+                        help="Stop paging when items older than this year appear. "
+                             "Set to 0 or blank to disable cutoff.")
     args = parser.parse_args()
 
     ticker_map = load_ticker_map()
@@ -465,7 +489,8 @@ def main() -> None:
     session.headers.update(HTTP_HEADERS)
 
     print("\nFetching PDFs from NSE WordPress media API...")
-    all_pdfs = fetch_all_media(session, max_pages=args.max_pages)
+    since = args.since_year if args.since_year and args.since_year > 0 else None
+    all_pdfs = fetch_all_media(session, max_pages=args.max_pages, since_year=since)
     print(f"Total PDFs fetched: {len(all_pdfs)}\n")
 
     grouped, stats = build_records(all_pdfs, ticker_map)
