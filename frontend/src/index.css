@@ -30,6 +30,15 @@
   --muted:   128 134 139;   /* #80868b  label / muted text    */
   --hint:    154 160 166;   /* #9aa0a6  very faint text       */
   --accent:  26  115 232;   /* #1a73e8  Google Blue           */
+
+  /* ── Investor-shell density tokens ─────────────────────────
+     Used by AppShell variant="investor" for the MSN-Money-style
+     condensed stack (header + sub-nav + recents strip).
+     Kept as CSS custom properties so future phases can tune
+     density without touching component code. */
+  --investor-header-h: 48px;
+  --investor-subnav-h: 40px;
+  --investor-recents-h: 36px;
 }
 
 .dark {

@@ -6,6 +6,9 @@ import { GlobalSearch } from "./GlobalSearch";
 import { ThemeToggle } from "./ThemeToggle";
 import { TickerTape } from "./TickerTape";
 import { MobileNav, MobileMenuButton } from "./MobileNav";
+import { InvestorHeader } from "./InvestorHeader";
+import { SubNav } from "./SubNav";
+import { RecentTickersStrip } from "./RecentTickersStrip";
 
 const NAV_LINKS = [
   { label: "Markets",  to: "/companies",  disabled: false },
@@ -19,8 +22,27 @@ const navLinkCls = ({ isActive }: { isActive: boolean }) =>
     isActive ? "border-b-2 border-accent text-ink" : "text-sub hover:text-ink"
   }`;
 
-export const AppShell: FC<{ children: ReactNode }> = ({ children }) => {
+export type AppShellVariant = "default" | "investor";
+
+type AppShellProps = {
+  children: ReactNode;
+  variant?: AppShellVariant;
+};
+
+export const AppShell: FC<AppShellProps> = ({ children, variant = "default" }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  if (variant === "investor") {
+    return (
+      <div className="min-h-screen bg-canvas text-ink">
+        <InvestorHeader onMobileMenuOpen={() => setMobileOpen(true)} />
+        <SubNav />
+        <RecentTickersStrip />
+        <main>{children}</main>
+        <MobileNav isOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
