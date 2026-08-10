@@ -30,7 +30,14 @@ function filterCompanies(companies: CompanyDoc[], query: string): CompanyDoc[] {
     .slice(0, 6);
 }
 
-export const GlobalSearch: FC = () => {
+type GlobalSearchProps = {
+  // Which route to navigate to on selection. Default preserves the legacy
+  // AppShell behaviour (/company/:ticker); the investor variant passes
+  // "dashboard" so results open the MSN-style page instead.
+  targetRoute?: "company" | "dashboard";
+};
+
+export const GlobalSearch: FC<GlobalSearchProps> = ({ targetRoute = "company" }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(-1);
@@ -49,10 +56,11 @@ export const GlobalSearch: FC = () => {
 
   const selectCompany = useCallback(
     (ticker: string) => {
-      navigate(`/company/${ticker}`);
+      const path = targetRoute === "dashboard" ? `/dashboard/${ticker}` : `/company/${ticker}`;
+      navigate(path);
       close();
     },
-    [navigate, close],
+    [navigate, close, targetRoute],
   );
 
   // Click-outside to close

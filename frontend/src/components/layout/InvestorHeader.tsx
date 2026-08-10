@@ -67,7 +67,7 @@ export const InvestorHeader: FC<InvestorHeaderProps> = ({ onMobileMenuOpen }) =>
 
       <div className="flex justify-center">
         <div className="w-full max-w-2xl">
-          <GlobalSearch />
+          <GlobalSearch targetRoute="dashboard" />
         </div>
       </div>
 

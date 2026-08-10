@@ -5,8 +5,10 @@ import { useCompany, useLatestTechnicals, useFundamentals } from "../hooks/useCo
 import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
 import { PriceHeader } from "../components/investor/PriceHeader";
 import { PriceAreaChart } from "../components/investor/PriceAreaChart";
+import { QuickCompareRow } from "../components/investor/QuickCompareRow";
 import { TimeframeTabs } from "../components/ui/TimeframeTabs";
 import { RightStatsRail } from "../components/layout/RightStatsRail";
+import { LeftWatchlistRail } from "../components/layout/LeftWatchlistRail";
 import {
   cleanTicker,
   filterByTimeframe,
@@ -64,7 +66,7 @@ export const InvestorDashboard = () => {
   return (
     <div className="mx-auto max-w-[1600px] px-4 py-4 sm:px-6 lg:px-8">
       <div className="grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)_320px]">
-        <PlaceholderBlock label="Left rail — Watchlist + Suggested (Phase C)" height="h-[560px]" />
+        <LeftWatchlistRail />
 
         <div className="flex flex-col gap-3">
           <PriceHeader
@@ -96,7 +98,7 @@ export const InvestorDashboard = () => {
             </div>
           </div>
 
-          <PlaceholderBlock label="Quick Compare row (Phase C)" height="h-16" />
+          <QuickCompareRow ticker={ticker} sector={company?.sector ?? null} />
           <div className="grid gap-3 md:grid-cols-2">
             <PlaceholderBlock label="AI Insights (Phase D)" height="h-48" />
             <PlaceholderBlock label="Score Radar (Phase D)" height="h-48" />

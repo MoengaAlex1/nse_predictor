@@ -1,9 +1,10 @@
 import type { FC } from "react";
 import { CompanyLogo } from "../ui/CompanyLogo";
+import { useWatchlist } from "../../hooks/useWatchlist";
 import type { CompanyDoc } from "../../types";
 
-const StarIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+const StarIcon: FC<{ filled?: boolean }> = ({ filled }) => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
   </svg>
 );
@@ -25,18 +26,32 @@ const CompareIcon = () => (
   </svg>
 );
 
-const HeaderButton: FC<{ label: string; icon: React.ReactNode; disabled?: boolean; title?: string }> = ({
+type HeaderButtonProps = {
+  label: string;
+  icon: React.ReactNode;
+  disabled?: boolean;
+  title?: string;
+  onClick?: () => void;
+  active?: boolean;
+};
+
+const HeaderButton: FC<HeaderButtonProps> = ({
   label,
   icon,
   disabled,
   title,
+  onClick,
+  active,
 }) => (
   <button
     type="button"
     disabled={disabled}
+    onClick={onClick}
     title={title ?? (disabled ? "Coming soon" : undefined)}
     className={`flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors ${
-      disabled
+      active
+        ? "border-accent bg-accent/10 text-accent"
+        : disabled
         ? "cursor-not-allowed border-seam bg-raised/50 text-hint"
         : "border-rim bg-raised text-ink hover:bg-raised/70"
     }`}
@@ -66,6 +81,19 @@ export const PriceHeader: FC<PriceHeaderProps> = ({
   const up = changePct != null && changePct >= 0;
   const trendColor = changePct == null ? "text-hint" : up ? "text-emerald-500" : "text-red-500";
 
+  const { isAuthenticated, has, add, remove, isPending } = useWatchlist();
+  const isWatched = has(ticker);
+  const watchlistLabel = !isAuthenticated
+    ? "Watchlist"
+    : isWatched
+    ? "Watching"
+    : "Watchlist";
+  const watchlistTitle = !isAuthenticated
+    ? "Sign in to add to watchlist"
+    : isWatched
+    ? `Remove ${ticker} from watchlist`
+    : `Add ${ticker} to watchlist`;
+
   return (
     <div className="rounded-xl border border-rim bg-surface p-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -94,9 +122,16 @@ export const PriceHeader: FC<PriceHeaderProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5">
-          <HeaderButton label="Watchlist" icon={<StarIcon />} disabled title="Watchlist — Phase C" />
+          <HeaderButton
+            label={watchlistLabel}
+            icon={<StarIcon filled={isWatched} />}
+            title={watchlistTitle}
+            disabled={!isAuthenticated || isPending}
+            active={isAuthenticated && isWatched}
+            onClick={() => (isWatched ? remove(ticker) : add(ticker))}
+          />
           <HeaderButton label="Share" icon={<ShareIcon />} disabled title="Share — coming soon" />
-          <HeaderButton label="Compare" icon={<CompareIcon />} disabled title="Compare — Phase C" />
+          <HeaderButton label="Compare" icon={<CompareIcon />} disabled title="Compare — coming soon" />
         </div>
       </div>
 
