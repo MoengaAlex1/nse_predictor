@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useRecentTickers } from "../hooks/useRecentTickers";
 import { useCompany, useLatestTechnicals } from "../hooks/useCompany";
 import { useCompanies } from "../hooks/useCompanies";
 import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
+import { useCompareSeries } from "../hooks/useCompareSeries";
 import { useWatchlist } from "../hooks/useWatchlist";
 import { usePeers } from "../hooks/usePeers";
 import { CompanyLogo } from "../components/ui/CompanyLogo";
 import { LeftWatchlistRail } from "../components/layout/LeftWatchlistRail";
 import { TimeframeTabs } from "../components/ui/TimeframeTabs";
 import { FocusedPriceChart } from "../components/investor/FocusedPriceChart";
+import { CompareChart, type CompareLine } from "../components/investor/CompareChart";
+import { CompareControls } from "../components/investor/CompareControls";
 import {
   cleanTicker,
   FETCH_START,
@@ -21,7 +24,6 @@ import {
   fmtChangeSigned,
   fmtPct,
   fmtCompact,
-  fmtPrice,
   arrow,
   trendClass,
   EM_DASH,
@@ -41,6 +43,12 @@ const ExtLinkIcon = () => (
     <line x1="10" y1="14" x2="21" y2="3" />
   </svg>
 );
+
+// Colour cycle for non-primary compare lines. Chosen to be distinguishable
+// on both light and dark canvases, and to avoid the red/green semantics
+// reserved for up/down indicators.
+const COMPARE_PALETTE = ["#38bdf8", "#a78bfa", "#f472b6", "#fbbf24"];
+const MAX_COMPARE = 4;
 
 function filterByTimeframeRtdb(points: RtdbPricePoint[], tf: TimeframeKey): RtdbPricePoint[] {
   if (!points.length) return points;
@@ -68,11 +76,26 @@ function filterByTimeframeRtdb(points: RtdbPricePoint[], tf: TimeframeKey): Rtdb
   return points.filter((p) => p.date >= iso);
 }
 
+function parseCompareParam(raw: string | null, primary: string): string[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((t) => t.trim().toUpperCase())
+    .filter((t) => t.length > 0 && t !== primary.toUpperCase())
+    .filter((t, i, arr) => arr.indexOf(t) === i)
+    .slice(0, MAX_COMPARE);
+}
+
 export const InvestorChart = () => {
   const { ticker: rawTicker = "" } = useParams<{ ticker: string }>();
   const ticker = rawTicker.toUpperCase();
-  const cleaned = cleanTicker(ticker);
   const pushRecent = useRecentTickers((s) => s.push);
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const compareTickers = useMemo(
+    () => parseCompareParam(searchParams.get("compare"), ticker),
+    [searchParams, ticker],
+  );
 
   const [timeframe, setTimeframe] = useState<TimeframeKey>("1M");
   const [chartType, setChartType] = useState<"area" | "candles" | "indicators">("area");
@@ -84,15 +107,16 @@ export const InvestorChart = () => {
   const { data: company } = useCompany(ticker);
   const { data: technicals } = useLatestTechnicals(ticker);
   const { data: allCompanies = [] } = useCompanies();
-  const { data: rtdbPrices = [] } = useHistoricalPrices(cleaned, FETCH_START, todayIso());
-  const peers = usePeers(ticker, company?.sector ?? null, 4);
+  const { data: rtdbPrimary = [] } = useHistoricalPrices(cleanTicker(ticker), FETCH_START, todayIso());
+  const compareResults = useCompareSeries(compareTickers, FETCH_START, todayIso());
+  const peers = usePeers(ticker, company?.sector ?? null, 6);
 
-  const visible = useMemo(
-    () => filterByTimeframeRtdb(rtdbPrices, timeframe),
-    [rtdbPrices, timeframe],
+  const visiblePrimary = useMemo(
+    () => filterByTimeframeRtdb(rtdbPrimary, timeframe),
+    [rtdbPrimary, timeframe],
   );
 
-  const latestRow = rtdbPrices.length > 0 ? rtdbPrices[rtdbPrices.length - 1] : null;
+  const latestRow = rtdbPrimary.length > 0 ? rtdbPrimary[rtdbPrimary.length - 1] : null;
   const previousClose = latestRow?.pc ?? null;
   const currentPrice = company?.current_price ?? latestRow?.c ?? null;
   const changePct = company?.change_pct_today ?? latestRow?.pch ?? null;
@@ -104,11 +128,83 @@ export const InvestorChart = () => {
   const { isAuthenticated, has, add, remove, isPending } = useWatchlist();
   const isWatched = has(ticker);
 
-  // Guard against silent stat mismatches: if the same ticker exists in the
-  // companies collection, its short name and sector are the source of truth.
   const canonical = allCompanies.find((c) => c.ticker.toUpperCase() === ticker);
   const displayName = company?.name ?? canonical?.name ?? ticker;
   const displaySector = company?.sector ?? canonical?.sector ?? null;
+  const primaryColor = company?.color ?? canonical?.color ?? "rgb(var(--accent))";
+  const primaryShort = company?.short ?? canonical?.short ?? ticker;
+
+  // Compare-mode metadata: per-ticker short + color + today's Δ, keyed by
+  // ticker so CompareControls chips can render coloured swatches + deltas
+  // without re-doing the lookup.
+  const compareMeta = useMemo(() => {
+    const m = new Map<string, { short: string; color: string; changePct: number | null }>();
+    compareTickers.forEach((t, i) => {
+      const meta = allCompanies.find((c) => c.ticker.toUpperCase() === t);
+      m.set(t, {
+        short: meta?.short ?? t,
+        color: COMPARE_PALETTE[i % COMPARE_PALETTE.length],
+        changePct: meta?.change_pct_today ?? null,
+      });
+    });
+    return m;
+  }, [compareTickers, allCompanies]);
+
+  const inCompareMode = compareTickers.length > 0;
+
+  // Build the CompareChart series list — primary first, then comparisons
+  // in the same order they appear in the URL param.
+  const compareLines: CompareLine[] = useMemo(() => {
+    if (!inCompareMode) return [];
+    const primaryLine: CompareLine = {
+      ticker: ticker,
+      short: primaryShort,
+      color: primaryColor,
+      points: visiblePrimary
+        .filter((p) => p.c != null)
+        .map((p) => ({ date: p.date, price: p.c as number })),
+    };
+    const compareLinesArr = compareResults.map((r, i) => {
+      const meta = compareMeta.get(r.ticker) ?? { short: r.ticker, color: COMPARE_PALETTE[i % COMPARE_PALETTE.length], changePct: null };
+      return {
+        ticker: r.ticker,
+        short: meta.short,
+        color: meta.color,
+        points: filterByTimeframeRtdb(r.points, timeframe)
+          .filter((p) => p.c != null)
+          .map((p) => ({ date: p.date, price: p.c as number })),
+      };
+    });
+    return [primaryLine, ...compareLinesArr];
+  }, [inCompareMode, ticker, primaryShort, primaryColor, visiblePrimary, compareResults, compareMeta, timeframe]);
+
+  const setCompareParam = useCallback(
+    (next: string[]) => {
+      const params = new URLSearchParams(searchParams);
+      if (next.length === 0) params.delete("compare");
+      else params.set("compare", next.join(","));
+      setSearchParams(params, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+
+  const addCompare = useCallback(
+    (t: string) => {
+      const upper = t.toUpperCase();
+      if (compareTickers.includes(upper) || upper === ticker) return;
+      if (compareTickers.length >= MAX_COMPARE) return;
+      setCompareParam([...compareTickers, upper]);
+    },
+    [compareTickers, ticker, setCompareParam],
+  );
+
+  const removeCompare = useCallback(
+    (t: string) => {
+      const upper = t.toUpperCase();
+      setCompareParam(compareTickers.filter((x) => x !== upper));
+    },
+    [compareTickers, setCompareParam],
+  );
 
   return (
     <div className="mx-auto max-w-[1600px] px-4 py-4 sm:px-6 lg:px-8">
@@ -227,53 +323,47 @@ export const InvestorChart = () => {
               </div>
             </div>
 
-            {/* Compare-to inline strip */}
-            {peers.length > 0 && (
-              <div className="flex items-center gap-2 border-b border-seam px-4 py-2 overflow-x-auto scrollbar-none">
-                <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-hint">
-                  Compare to
-                </span>
-                {peers.map((p) => {
-                  const pct = p.change_pct_today;
-                  const puUp = pct != null && pct >= 0;
-                  return (
-                    <Link
-                      key={p.ticker}
-                      to={`/chart/${p.ticker}`}
-                      className="flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-seam bg-raised/50 px-2.5 text-[11px] transition-colors hover:border-rim hover:bg-raised"
-                    >
-                      <span className="font-semibold text-ink">{p.short}</span>
-                      {p.current_price != null && (
-                        <span className="font-mono tabular-nums text-hint">
-                          {fmtPrice(p.current_price)}
-                        </span>
-                      )}
-                      {pct != null && (
-                        <span className={`font-mono tabular-nums ${trendClass(pct)}`}>
-                          {arrow(puUp)} {fmtPct(pct)}
-                        </span>
-                      )}
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
+            {/* Compare controls */}
+            <CompareControls
+              primary={{
+                ticker,
+                short: primaryShort,
+                color: primaryColor,
+                changePct,
+              }}
+              compareTickers={compareTickers}
+              compareMeta={compareMeta}
+              onAdd={addCompare}
+              onRemove={removeCompare}
+              suggested={peers}
+              maxCompare={MAX_COMPARE}
+            />
 
-            {/* Main chart */}
+            {/* Main chart — single-line + volume when solo, normalized % lines when comparing */}
             <div className="px-2 py-2">
-              <FocusedPriceChart
-                data={visible}
-                color={company?.color ?? "rgb(var(--accent))"}
-                height={620}
-              />
-              {visible.length > 0 && (
+              {inCompareMode ? (
+                <CompareChart series={compareLines} height={620} />
+              ) : (
+                <FocusedPriceChart
+                  data={visiblePrimary}
+                  color={primaryColor}
+                  height={620}
+                />
+              )}
+              {visiblePrimary.length > 0 && (
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 px-2 text-[10px] text-hint">
                   <span className="font-mono tabular-nums">
-                    {visible[0].date} → {visible[visible.length - 1].date} · {visible.length}{" "}
-                    trading {visible.length === 1 ? "day" : "days"}
+                    {visiblePrimary[0].date} → {visiblePrimary[visiblePrimary.length - 1].date} ·{" "}
+                    {visiblePrimary.length} trading{" "}
+                    {visiblePrimary.length === 1 ? "day" : "days"}
+                    {inCompareMode && (
+                      <span className="ml-2 text-hint">
+                        · showing % change from timeframe start
+                      </span>
+                    )}
                   </span>
                   <span className="flex items-center gap-3">
-                    {technicals?.avg_volume_30d != null && (
+                    {technicals?.avg_volume_30d != null && !inCompareMode && (
                       <span>
                         Avg Vol 30d:{" "}
                         <span className="font-mono tabular-nums text-muted">
