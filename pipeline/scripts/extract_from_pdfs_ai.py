@@ -338,6 +338,10 @@ def extract_via_nvidia(client, pdf_path: Path, system_prompt: str, user_prompt: 
         pdf_text = pdf_text[:MAX_TEXT_CHARS] + "\n[...truncated...]"
 
     fn_name = tool["function"]["name"]
+    # Muse Glimmer's /chat/completions endpoint tolerates ~100K prompt tokens.
+    # If the OpenAI SDK's outer "Connection error" wraps a real HTTP status
+    # (413 payload too large, 400 bad request, 429 rate limit, 401 auth), the
+    # inner __cause__ carries the actual response — surface it so we can act.
     try:
         response = client.chat.completions.create(
             model=NVIDIA_MODEL,
@@ -349,9 +353,19 @@ def extract_via_nvidia(client, pdf_path: Path, system_prompt: str, user_prompt: 
             tool_choice={"type": "function", "function": {"name": fn_name}},
             temperature=0.1,
             max_tokens=MAX_TOKENS,
+            timeout=120.0,  # explicit — SDK default is 60s and this is a big prompt
         )
     except Exception as exc:
-        print(f"    ! NVIDIA API error: {exc}")
+        cause = getattr(exc, "__cause__", None)
+        detail = f" (cause: {type(cause).__name__}: {cause})" if cause else ""
+        # OpenAI APIError carries .status_code + .response, if present
+        status = getattr(exc, "status_code", None)
+        body = getattr(getattr(exc, "response", None), "text", None)
+        extra = f" [status={status}]" if status else ""
+        if body:
+            extra += f" body={body[:300]}"
+        print(f"    ! NVIDIA API error: {type(exc).__name__}: {exc}{extra}{detail}")
+        print(f"    ! prompt size: {len(pdf_text)} chars")
         return None
 
     msg = response.choices[0].message
