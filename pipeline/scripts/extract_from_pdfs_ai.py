@@ -45,7 +45,12 @@ CLAUDE_MODEL = "claude-sonnet-4-6"
 NVIDIA_MODEL = "meta/muse-glimmer-30b"
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 MAX_ANNUAL_PDF_MB = 30  # Claude limit is ~32 MB
-MAX_TOKENS = 1200
+# Claude only needs enough tokens for the JSON response (~500 tokens).
+# Muse Glimmer is a REASONING model — it burns max_tokens on internal
+# thinking before emitting the visible output. NVIDIA's own code sample
+# uses 8192; anything smaller returns empty content with finish_reason=length.
+MAX_TOKENS_CLAUDE = 1200
+MAX_TOKENS_NVIDIA = 8192
 RATE_LIMIT_SECONDS = 1.0
 # Text-mode extraction cap. Muse Glimmer 30B has 131K context; NSE annual
 # reports are usually 30-80 pages / 40-80K tokens. Truncate at 400K chars
@@ -352,8 +357,8 @@ def extract_via_nvidia(client, pdf_path: Path, system_prompt: str, user_prompt: 
             tools=[tool],
             tool_choice={"type": "function", "function": {"name": fn_name}},
             temperature=0.1,
-            max_tokens=MAX_TOKENS,
-            timeout=120.0,  # explicit — SDK default is 60s and this is a big prompt
+            max_tokens=MAX_TOKENS_NVIDIA,
+            timeout=180.0,  # bigger budget — Muse Glimmer reasoning can take a minute
         )
     except Exception as exc:
         cause = getattr(exc, "__cause__", None)
@@ -401,7 +406,7 @@ def extract_via_claude(client, pdf_path: Path, system_prompt: str, user_prompt: 
     try:
         msg = client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=MAX_TOKENS,
+            max_tokens=MAX_TOKENS_CLAUDE,
             system=system_prompt,
             messages=[
                 {
