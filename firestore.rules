@@ -8,15 +8,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Snapshots (ML predictions) — must be logged in
+    // Snapshots (ML predictions) — public read; already-derived signals
+    // are surfaced on the public dashboard, so gating them adds no value.
+    // Writes still restricted to the pipeline's service account.
     match /companies/{ticker}/snapshots/{date} {
-      allow read: if request.auth != null;
+      allow read: if true;
       allow write: if false;
     }
 
-    // Technical indicators — must be logged in
+    // Technical indicators — public read; RSI/MACD/SMA are computed from
+    // publicly-available NSE prices.
     match /companies/{ticker}/technicals/{date} {
-      allow read: if request.auth != null;
+      allow read: if true;
       allow write: if false;
     }
 
@@ -32,15 +35,30 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Financial results, dividends, corporate actions — must be logged in
+    // Financial results, dividends, corporate actions — public read;
+    // sourced from NSE's own public announcements.
     match /financials/{ticker} {
-      allow read: if request.auth != null;
+      allow read: if true;
       allow write: if false;
     }
 
-    // Macro data (CBK rates, inflation) — must be logged in
+    // Macro data (CBK rates, inflation) — public read; sourced from
+    // Central Bank of Kenya + KNBS public publications.
     match /macro/{doc} {
-      allow read: if request.auth != null;
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Fundamentals (shares outstanding, EV, employees, estimates) —
+    // public read; sourced from company IR pages / public filings.
+    match /fundamentals/{ticker} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // News items collection under a company — public read.
+    match /companies/{ticker}/news/{item} {
+      allow read: if true;
       allow write: if false;
     }
 
