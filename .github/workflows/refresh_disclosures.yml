@@ -38,7 +38,18 @@ jobs:
           FIREBASE_STORAGE_BUCKET:       ${{ secrets.FIREBASE_STORAGE_BUCKET }}
         run: python pipeline/scripts/seed_companies.py
 
-      # 2. Scrape NSE announcements + dividends + corporate actions.
+      # 2. Seed curated financials + fundamentals to bare-ticker doc IDs.
+      # Merges into existing docs (preserves .announcements array from the
+      # disclosure scraper below). Legacy JSON uses _NR-suffixed keys; the
+      # seed script strips the suffix so docs land at financials/SCOM etc.
+      - name: Seed curated financials + fundamentals
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL:             ${{ secrets.FIREBASE_RTDB_URL }}
+          FIREBASE_STORAGE_BUCKET:       ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: python pipeline/scripts/seed_curated_data.py
+
+      # 3. Scrape NSE announcements + dividends + corporate actions.
       # Merges by URL, so re-running is safe.
       - name: Refresh NSE disclosures
         env:

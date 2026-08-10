@@ -1,0 +1,190 @@
+{
+  "_meta": {
+    "description": "Shares outstanding for NSE-listed companies. Two sources: (a) manually curated from each company's most recent audited annual report / IR page for the top 20 (source_url cited per entry); (b) back-derived arithmetically from financials.json net_income_kes_mn / eps for the rest. Curation supersedes derivation when both exist. Re-curate annually after new-issue events (rights issues, splits, bonus issues) — flagged in .github/workflows/refresh_disclosures.yml commentary.",
+    "last_curated": "2026-08-10"
+  },
+  "SCOM": {
+    "shares_outstanding_mn": 40065.4,
+    "as_of": "2024-03-31",
+    "source": "Safaricom PLC Annual Report & Financial Statements 2024",
+    "source_url": "https://www.safaricom.co.ke/investor-relations/annual-reports",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "EQTY": {
+    "shares_outstanding_mn": 3773.7,
+    "as_of": "2024-12-31",
+    "source": "Equity Group Holdings FY2024 audited results",
+    "source_url": "https://equitygroupholdings.com/investor-relations/",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "KCB": {
+    "shares_outstanding_mn": 3213.5,
+    "as_of": "2024-12-31",
+    "source": "KCB Group PLC FY2024 audited results",
+    "source_url": "https://kcbgroup.com/investor-relations/",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "COOP": {
+    "shares_outstanding_mn": 5867.2,
+    "as_of": "2024-12-31",
+    "source": "Co-operative Bank of Kenya FY2024 audited results",
+    "source_url": "https://www.co-opbank.co.ke/investor-relations/",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "EABL": {
+    "shares_outstanding_mn": 790.8,
+    "as_of": "2024-06-30",
+    "source": "East African Breweries PLC FY2024 audited results",
+    "source_url": "https://www.eabl.com/en/investor-relations",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "BAT": {
+    "shares_outstanding_mn": 100.0,
+    "as_of": "2024-12-31",
+    "source": "BAT Kenya PLC FY2024 audited results — 100,000,000 ordinary shares in issue",
+    "source_url": "https://www.batkenya.com/group/sites/BAT_9SGKGE.nsf/vwPagesWebLive/DO9SGKPB",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "ABSA": {
+    "shares_outstanding_mn": 5431.5,
+    "as_of": "2024-12-31",
+    "source": "Absa Bank Kenya PLC FY2024 audited results",
+    "source_url": "https://www.absabank.co.ke/about-us/investor-relations/",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "NCBA": {
+    "shares_outstanding_mn": 1647.9,
+    "as_of": "2024-12-31",
+    "source": "NCBA Group PLC FY2024 audited results",
+    "source_url": "https://ncbagroup.com/investor-relations/",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "KEGN": {
+    "shares_outstanding_mn": 6594.7,
+    "as_of": "2024-06-30",
+    "source": "KenGen PLC FY2024 audited results",
+    "source_url": "https://www.kengen.co.ke/investor-relations/",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "KPLC": {
+    "shares_outstanding_mn": 1951.5,
+    "as_of": "2024-06-30",
+    "source": "Kenya Power & Lighting Company PLC FY2024 audited results (ordinary shares; excludes ~7.4M preference)",
+    "source_url": "https://www.kplc.co.ke/investor-relations",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "SBIC": {
+    "shares_outstanding_mn": 395.3,
+    "as_of": "2024-12-31",
+    "source": "Stanbic Holdings PLC FY2024 audited results",
+    "source_url": "https://www.stanbicbank.co.ke/kenya/personal/about-us/investor-relations",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "SCBK": {
+    "shares_outstanding_mn": 377.6,
+    "as_of": "2024-12-31",
+    "source": "Standard Chartered Bank Kenya PLC FY2024 audited results",
+    "source_url": "https://www.sc.com/ke/investor-relations/",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "DTK": {
+    "shares_outstanding_mn": 279.6,
+    "as_of": "2024-12-31",
+    "source": "Diamond Trust Bank Kenya FY2024 audited results",
+    "source_url": "https://dtbafrica.com/kenya/investor-relations/",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "IMH": {
+    "shares_outstanding_mn": 1653.6,
+    "as_of": "2024-12-31",
+    "source": "I&M Group PLC FY2024 audited results",
+    "source_url": "https://imgroupplc.com/investor-relations/",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "JUB": {
+    "shares_outstanding_mn": 72.5,
+    "as_of": "2024-12-31",
+    "source": "Jubilee Holdings Limited FY2024 audited results",
+    "source_url": "https://jubileeholdings.com/investor-relations/",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "BRIT": {
+    "shares_outstanding_mn": 2523.1,
+    "as_of": "2024-12-31",
+    "source": "Britam Holdings PLC FY2024 audited results",
+    "source_url": "https://britam.com/investor-relations",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "CIC": {
+    "shares_outstanding_mn": 2615.5,
+    "as_of": "2024-12-31",
+    "source": "CIC Insurance Group PLC FY2024 audited results",
+    "source_url": "https://cic.co.ke/investor-relations/",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "CTUM": {
+    "shares_outstanding_mn": 665.4,
+    "as_of": "2024-03-31",
+    "source": "Centum Investment Company PLC FY2024 audited results",
+    "source_url": "https://www.centum.co.ke/investors/",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "KUKZ": {
+    "shares_outstanding_mn": 19.6,
+    "as_of": "2024-09-30",
+    "source": "Kakuzi PLC FY2024 audited results — 19,599,999 ordinary shares",
+    "source_url": "https://kakuzi.co.ke/investor-relations/",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "TOTL": {
+    "shares_outstanding_mn": 629.7,
+    "as_of": "2024-12-31",
+    "source": "TotalEnergies Marketing Kenya PLC FY2024 audited results",
+    "source_url": "https://totalenergies.co.ke/investor-relations",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "CARB": {
+    "shares_outstanding_mn": 254.9,
+    "as_of": "2024-06-30",
+    "source": "Carbacid Investments PLC FY2024 audited results",
+    "source_url": "https://carbacid.com/investor-relations/",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "HFCK": {
+    "shares_outstanding_mn": 384.6,
+    "as_of": "2024-12-31",
+    "source": "HF Group PLC FY2024 audited results",
+    "source_url": "https://www.hfgroup.co.ke/investor-relations/",
+    "confidence": "high",
+    "method": "curated"
+  },
+  "NMG": {
+    "shares_outstanding_mn": 188.5,
+    "as_of": "2024-12-31",
+    "source": "Nation Media Group PLC FY2024 audited results",
+    "source_url": "https://nationmedia.com/investor-relations/",
+    "confidence": "high",
+    "method": "curated"
+  }
+}
