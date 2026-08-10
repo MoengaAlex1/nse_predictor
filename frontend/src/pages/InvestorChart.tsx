@@ -44,10 +44,19 @@ const ExtLinkIcon = () => (
   </svg>
 );
 
-// Colour cycle for non-primary compare lines. Chosen to be distinguishable
-// on both light and dark canvases, and to avoid the red/green semantics
-// reserved for up/down indicators.
-const COMPARE_PALETTE = ["#38bdf8", "#a78bfa", "#f472b6", "#fbbf24"];
+// Compare-mode palette. Five hues spaced ~70° apart on the wheel so any
+// three consecutive lines stay visually distinct on both dark and light
+// canvases. Primary gets index 0 in compare mode (overriding the brand
+// colour that may accidentally collide with a compare hue); comparisons
+// get 1..4. Avoids pure green/red so the "up/down" colour semantics
+// stay reserved for delta indicators.
+const COMPARE_PALETTE = [
+  "#3b82f6", // blue-500   — primary in compare mode
+  "#f97316", // orange-500
+  "#a855f7", // purple-500
+  "#eab308", // yellow-500
+  "#14b8a6", // teal-500
+];
 const MAX_COMPARE = 4;
 
 function filterByTimeframeRtdb(points: RtdbPricePoint[], tf: TimeframeKey): RtdbPricePoint[] {
@@ -131,26 +140,34 @@ export const InvestorChart = () => {
   const canonical = allCompanies.find((c) => c.ticker.toUpperCase() === ticker);
   const displayName = company?.name ?? canonical?.name ?? ticker;
   const displaySector = company?.sector ?? canonical?.sector ?? null;
-  const primaryColor = company?.color ?? canonical?.color ?? "rgb(var(--accent))";
+  const brandColor = company?.color ?? canonical?.color ?? "rgb(var(--accent))";
   const primaryShort = company?.short ?? canonical?.short ?? ticker;
+
+  const inCompareMode = compareTickers.length > 0;
+
+  // In compare mode, override the brand colour with the palette's first
+  // slot so the primary line stays distinct from every compare line —
+  // otherwise a Firestore brand colour could collide with a palette hue
+  // and the two lines would be hard to tell apart. Solo mode keeps
+  // company.color so brand identity survives on the single-line view.
+  const primaryLineColor = inCompareMode ? COMPARE_PALETTE[0] : brandColor;
 
   // Compare-mode metadata: per-ticker short + color + today's Δ, keyed by
   // ticker so CompareControls chips can render coloured swatches + deltas
-  // without re-doing the lookup.
+  // without re-doing the lookup. Compare tickers get palette slots 1..4
+  // (0 is reserved for the primary).
   const compareMeta = useMemo(() => {
     const m = new Map<string, { short: string; color: string; changePct: number | null }>();
     compareTickers.forEach((t, i) => {
       const meta = allCompanies.find((c) => c.ticker.toUpperCase() === t);
       m.set(t, {
         short: meta?.short ?? t,
-        color: COMPARE_PALETTE[i % COMPARE_PALETTE.length],
+        color: COMPARE_PALETTE[(i + 1) % COMPARE_PALETTE.length],
         changePct: meta?.change_pct_today ?? null,
       });
     });
     return m;
   }, [compareTickers, allCompanies]);
-
-  const inCompareMode = compareTickers.length > 0;
 
   // Build the CompareChart series list — primary first, then comparisons
   // in the same order they appear in the URL param.
@@ -159,13 +176,17 @@ export const InvestorChart = () => {
     const primaryLine: CompareLine = {
       ticker: ticker,
       short: primaryShort,
-      color: primaryColor,
+      color: primaryLineColor,
       points: visiblePrimary
         .filter((p) => p.c != null)
         .map((p) => ({ date: p.date, price: p.c as number })),
     };
     const compareLinesArr = compareResults.map((r, i) => {
-      const meta = compareMeta.get(r.ticker) ?? { short: r.ticker, color: COMPARE_PALETTE[i % COMPARE_PALETTE.length], changePct: null };
+      const meta = compareMeta.get(r.ticker) ?? {
+        short: r.ticker,
+        color: COMPARE_PALETTE[(i + 1) % COMPARE_PALETTE.length],
+        changePct: null,
+      };
       return {
         ticker: r.ticker,
         short: meta.short,
@@ -176,7 +197,7 @@ export const InvestorChart = () => {
       };
     });
     return [primaryLine, ...compareLinesArr];
-  }, [inCompareMode, ticker, primaryShort, primaryColor, visiblePrimary, compareResults, compareMeta, timeframe]);
+  }, [inCompareMode, ticker, primaryShort, primaryLineColor, visiblePrimary, compareResults, compareMeta, timeframe]);
 
   const setCompareParam = useCallback(
     (next: string[]) => {
@@ -327,12 +348,14 @@ export const InvestorChart = () => {
               </div>
             </div>
 
-            {/* Compare controls */}
+            {/* Compare controls — primary swatch matches the chart line
+                colour (brand colour in solo mode, palette[0] in compare
+                mode) so the chip legend always mirrors the chart. */}
             <CompareControls
               primary={{
                 ticker,
                 short: primaryShort,
-                color: primaryColor,
+                color: primaryLineColor,
                 changePct,
               }}
               compareTickers={compareTickers}
@@ -350,7 +373,7 @@ export const InvestorChart = () => {
               ) : (
                 <FocusedPriceChart
                   data={visiblePrimary}
-                  color={primaryColor}
+                  color={primaryLineColor}
                   height={620}
                 />
               )}
