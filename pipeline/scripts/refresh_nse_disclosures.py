@@ -326,7 +326,18 @@ def fetch_all_media(session: requests.Session, max_pages: int = 200, since_year:
             # back the sweep is reaching.
             newest = items[0].get("date", "")[:10] if items else ""
             oldest = items[-1].get("date", "")[:10] if items else ""
-            print(f"  [API] page {page}: {len(items)} items ({newest} → {oldest}), {len(results)} total")
+            # WordPress exposes total-pages / total-items via response headers;
+            # trust that instead of guessing from item count. A page returning
+            # 99 instead of 100 items just means the filter dropped one — not
+            # that we've hit the end.
+            total_pages_header = resp.headers.get("X-WP-TotalPages")
+            try:
+                total_pages = int(total_pages_header) if total_pages_header else None
+            except ValueError:
+                total_pages = None
+            total_items = resp.headers.get("X-WP-Total") or "?"
+            print(f"  [API] page {page}/{total_pages or '?'}: {len(items)} items "
+                  f"({newest} → {oldest}), {len(results)} of {total_items} total")
 
             # Stop when we cross the since_year cutoff so we don't burn API
             # quota fetching pre-2015 PDFs we don't care about.
@@ -334,7 +345,11 @@ def fetch_all_media(session: requests.Session, max_pages: int = 200, since_year:
                 stopped_early = True
                 break
 
-            if len(items) < 100:
+            # Only stop when the server tells us this was the last page
+            # (either via X-WP-TotalPages or by returning zero items).
+            if not items:
+                break
+            if total_pages and page >= total_pages:
                 break
             page += 1
             time.sleep(0.3)
