@@ -43,10 +43,22 @@ function ttmDividendYield(
 
 function lastExDivDate(financials: FinancialsDoc | null | undefined): string | null {
   if (!financials?.dividends?.length) return null;
-  const withEx = financials.dividends
-    .filter((d) => d.ex_date && d.type !== "none")
-    .sort((a, b) => (b.ex_date ?? "").localeCompare(a.ex_date ?? ""));
-  return withEx[0]?.ex_date ?? null;
+  // Preference order: real ex_date (from PDF extraction, most accurate) →
+  // period_end (rough anchor parsed from title, e.g. "Year Ended 31-03-2025") →
+  // announcement_date (when NSE posted the dividend notice, always present).
+  // The scraper only populates ex_date when it truly parses one; guessing
+  // ex_date from period_end would mislead users about the actual book
+  // closure date.
+  const withDate = financials.dividends
+    .filter((d) => d.type !== "none" && (d.ex_date || d.period_end || d.announcement_date))
+    .sort((a, b) => {
+      const av = a.ex_date ?? a.period_end ?? a.announcement_date ?? "";
+      const bv = b.ex_date ?? b.period_end ?? b.announcement_date ?? "";
+      return bv.localeCompare(av);
+    });
+  const d = withDate[0];
+  if (!d) return null;
+  return d.ex_date ?? d.period_end ?? d.announcement_date ?? null;
 }
 
 export const RightStatsRail: FC<RightStatsRailProps> = ({

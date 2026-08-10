@@ -180,13 +180,14 @@ function buildTimeline(
       const date = div.announcement_date;
       if (date >= rangeStart && date <= rangeEnd && div.type !== "none") {
         const exDate = div.ex_date ? `, ex-date ${fmtDate(div.ex_date)}` : "";
-        items.push({
-          date,
-          category: "dividend",
-          driverTag: "(event)",
-          label: `Dividend (${div.type}) — KES ${div.amount_kes.toFixed(2)}/share`,
-          detail: `Dividend of KES ${div.amount_kes.toFixed(2)} per share${exDate}${div.notes ? `. ${div.notes}` : ""}`,
-        });
+        const amt = div.amount_kes;
+        const label = amt != null
+          ? `Dividend (${div.type}) — KES ${amt.toFixed(2)}/share`
+          : `Dividend (${div.type}) — amount pending`;
+        const detail = amt != null
+          ? `Dividend of KES ${amt.toFixed(2)} per share${exDate}${div.notes ? `. ${div.notes}` : ""}`
+          : `Dividend notice (${div.type})${exDate}${div.notes ? `. ${div.notes}` : ""}`;
+        items.push({ date, category: "dividend", driverTag: "(event)", label, detail });
       }
     }
   }

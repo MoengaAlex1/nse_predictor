@@ -146,7 +146,7 @@ export const QuoteSummaryPanel: FC<Props> = ({ company, technicals, financials, 
             accent="text-emerald-400"
           />
         )}
-        {nextDiv && (
+        {nextDiv && nextDiv.amount_kes != null && (
           <MetricChip label="Next Div" value={`KES ${nextDiv.amount_kes.toFixed(2)}`} />
         )}
         {sectorMedianPe !== null && pe !== null && (

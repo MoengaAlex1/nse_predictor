@@ -106,8 +106,16 @@ export interface DividendEvent {
   announcement_date: string;
   ex_date: string | null;
   payment_date: string | null;
-  amount_kes: number;
-  type: "final" | "interim" | "total" | "special" | "none";
+  amount_kes: number | null;
+  type: "final" | "interim" | "total" | "special" | "scrip" | "bonus" | "none";
+  // Set by refresh_nse_disclosures.py when the title references a fiscal
+  // period (FY2024, H1 2025, etc.). Used as an ex-date fallback for
+  // display when a PDF-derived ex_date isn't yet available.
+  period?: string | null;
+  period_end?: string | null;
+  title?: string;
+  url?: string;
+  source?: string;
   notes?: string;
 }
 

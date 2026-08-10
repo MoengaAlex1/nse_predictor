@@ -196,11 +196,12 @@ export const ValuationPanel: FC<Props> = ({ company, financials, fundamentals })
                 </thead>
                 <tbody className="divide-y divide-seam/50">
                   {financials.dividends.slice(0, 8).map((d, i) => {
-                    const yld = price > 0 ? ((d.amount_kes / price) * 100).toFixed(1) : null;
+                    const amt = d.amount_kes;
+                    const yld = amt != null && price > 0 ? ((amt / price) * 100).toFixed(1) : null;
                     return (
                       <tr key={i} className={`hover:bg-raised/20 transition-colors ${i === 0 ? "bg-emerald-950/10" : ""}`}>
                         <td className="px-3 py-2.5 font-medium text-sub capitalize">{d.type}</td>
-                        <td className="px-3 py-2.5 text-right font-mono font-semibold text-emerald-400">{d.amount_kes.toFixed(2)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono font-semibold text-emerald-400">{amt != null ? amt.toFixed(2) : "—"}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-sub">{yld ? `${yld}%` : "—"}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-hint">{d.ex_date ?? "—"}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-hint">{d.payment_date ?? "—"}</td>
