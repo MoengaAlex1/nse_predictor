@@ -7,7 +7,7 @@
     "shares_outstanding_mn": 40065.4,
     "as_of": "2024-03-31",
     "source": "Safaricom PLC Annual Report & Financial Statements 2024",
-    "source_url": "https://www.safaricom.co.ke/investor-relations/annual-reports",
+    "source_url": "https://www.safaricom.co.ke/investor-relations",
     "confidence": "high",
     "method": "curated"
   },
@@ -39,7 +39,7 @@
     "shares_outstanding_mn": 790.8,
     "as_of": "2024-06-30",
     "source": "East African Breweries PLC FY2024 audited results",
-    "source_url": "https://www.eabl.com/en/investor-relations",
+    "source_url": "https://www.eabl.com/en/investors",
     "confidence": "high",
     "method": "curated"
   },
@@ -55,7 +55,7 @@
     "shares_outstanding_mn": 5431.5,
     "as_of": "2024-12-31",
     "source": "Absa Bank Kenya PLC FY2024 audited results",
-    "source_url": "https://www.absabank.co.ke/about-us/investor-relations/",
+    "source_url": "https://www.absabank.co.ke/investor-relations",
     "confidence": "high",
     "method": "curated"
   },
@@ -111,7 +111,7 @@
     "shares_outstanding_mn": 1653.6,
     "as_of": "2024-12-31",
     "source": "I&M Group PLC FY2024 audited results",
-    "source_url": "https://imgroupplc.com/investor-relations/",
+    "source_url": "https://www.imbank.com/investor-relations",
     "confidence": "high",
     "method": "curated"
   },
@@ -135,7 +135,7 @@
     "shares_outstanding_mn": 2615.5,
     "as_of": "2024-12-31",
     "source": "CIC Insurance Group PLC FY2024 audited results",
-    "source_url": "https://cic.co.ke/investor-relations/",
+    "source_url": "https://www.cicinsurancegroup.com/investor-relations",
     "confidence": "high",
     "method": "curated"
   },
@@ -143,7 +143,7 @@
     "shares_outstanding_mn": 665.4,
     "as_of": "2024-03-31",
     "source": "Centum Investment Company PLC FY2024 audited results",
-    "source_url": "https://www.centum.co.ke/investors/",
+    "source_url": "https://www.centum.co.ke/investor-relations",
     "confidence": "high",
     "method": "curated"
   },
