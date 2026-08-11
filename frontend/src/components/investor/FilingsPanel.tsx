@@ -1,20 +1,30 @@
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { FC } from "react";
 import type { FinancialsDoc } from "../../types";
 
-// External link icon
+// External link + download icons
 const ExtIcon = () => (
-  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
     <polyline points="15 3 21 3 21 9" />
     <line x1="10" y1="14" x2="21" y2="3" />
   </svg>
 );
+const SearchIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="11" cy="11" r="7" />
+    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+  </svg>
+);
+const ChevronIcon: FC<{ dir: "asc" | "desc" | null }> = ({ dir }) => (
+  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+    className={`inline-block transition-transform ${dir === "asc" ? "rotate-180" : ""} ${dir == null ? "opacity-30" : "opacity-100"}`}>
+    <polyline points="6 9 12 15 18 9" />
+  </svg>
+);
 
-type Tab = "results" | "actions" | "dividends";
+type Tab = "all" | "results" | "actions" | "dividends";
 
-// Decode HTML entities that NSE's WordPress feed embeds in titles
-// (e.g. "&#8211;" → "–"). Kept minimal — full DOMParser would be overkill.
 function decode(s: string): string {
   return s
     .replace(/&#8211;/g, "–")
@@ -25,6 +35,212 @@ function decode(s: string): string {
     .replace(/&#8221;/g, "”")
     .replace(/&quot;/g, "\"");
 }
+
+type FilingRow = {
+  date: string;
+  title: string;
+  url: string;
+  category: "results" | "actions" | "dividends";
+  type: string;
+  source: string;      // "NSE" or "bulletin"
+  amountKes?: number | null;
+};
+
+type SortKey = "date" | "title" | "type";
+type SortDir = "asc" | "desc";
+
+type Props = {
+  financials: FinancialsDoc | null | undefined;
+};
+
+export const FilingsPanel: FC<Props> = ({ financials }) => {
+  const [tab, setTab] = useState<Tab>("all");
+  const [query, setQuery] = useState("");
+  const [year, setYear] = useState<string>("all");
+  const [source, setSource] = useState<"all" | "NSE" | "bulletin">("all");
+  const [sortKey, setSortKey] = useState<SortKey>("date");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  // ── Normalise all three arrays into one uniform FilingRow[] ────────────
+  const allRows = useMemo<FilingRow[]>(() => {
+    const rows: FilingRow[] = [];
+
+    for (const a of financials?.announcements ?? []) {
+      if (!a.url || !a.title) continue;
+      // Map announcement.type to our three UI buckets
+      const cat: FilingRow["category"] =
+        a.type === "dividend" ? "dividends" :
+        a.type === "corporate_action" || a.type === "agm" ? "actions" :
+        "results";
+      rows.push({
+        date: a.date,
+        title: decode(a.title),
+        url: a.url,
+        category: cat,
+        type: a.type,
+        source: "NSE",
+      });
+    }
+    for (const a of financials?.corporate_actions ?? []) {
+      const t = (a as { title?: string; details?: string }).title
+              ?? (a as { title?: string; details?: string }).details
+              ?? "";
+      const url = (a as { url?: string }).url;
+      if (!t || !url) continue;
+      rows.push({
+        date: (a as { date?: string }).date ?? "",
+        title: decode(t),
+        url,
+        category: "actions",
+        type: a.type ?? "corporate_action",
+        source: "NSE",
+      });
+    }
+    for (const d of financials?.dividends ?? []) {
+      const url = (d as { url?: string }).url;
+      if (!url) continue;
+      const titleFromRec = (d as { title?: string }).title;
+      const title = titleFromRec
+        ? decode(titleFromRec)
+        : d.amount_kes != null
+          ? `${d.type ?? "Dividend"} — KES ${d.amount_kes.toFixed(2)}/share`
+          : `${d.type ?? "Dividend"} notice`;
+      rows.push({
+        date: d.announcement_date,
+        title,
+        url,
+        category: "dividends",
+        type: d.type ?? "dividend",
+        source: (d as { source?: string }).source === "nse-daily-bulletin" ? "bulletin" : "NSE",
+        amountKes: d.amount_kes,
+      });
+    }
+    return rows;
+  }, [financials]);
+
+  const years = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of allRows) {
+      if (r.date && r.date.length >= 4) s.add(r.date.slice(0, 4));
+    }
+    return Array.from(s).sort().reverse();
+  }, [allRows]);
+
+  // ── Apply filters ──────────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let rs = allRows;
+    if (tab !== "all") rs = rs.filter((r) => r.category === tab);
+    if (year !== "all") rs = rs.filter((r) => r.date.startsWith(year));
+    if (source !== "all") rs = rs.filter((r) => r.source === source);
+    if (q) rs = rs.filter((r) =>
+      r.title.toLowerCase().includes(q) || r.type.toLowerCase().includes(q)
+    );
+    const dir = sortDir === "asc" ? 1 : -1;
+    rs = [...rs].sort((a, b) => {
+      const av = a[sortKey] ?? "";
+      const bv = b[sortKey] ?? "";
+      return String(av).localeCompare(String(bv)) * dir;
+    });
+    return rs;
+  }, [allRows, tab, year, source, query, sortKey, sortDir]);
+
+  const counts = useMemo(() => ({
+    all:       allRows.length,
+    results:   allRows.filter((r) => r.category === "results").length,
+    actions:   allRows.filter((r) => r.category === "actions").length,
+    dividends: allRows.filter((r) => r.category === "dividends").length,
+  }), [allRows]);
+
+  if (allRows.length === 0) return null;
+
+  const toggleSort = (k: SortKey) => {
+    if (sortKey === k) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(k);
+      setSortDir("desc");
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-rim bg-surface">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-seam px-4 py-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted">
+          Filings & Corporate Filings Library
+        </p>
+        <div className="flex flex-wrap gap-1">
+          <TabBtn label="All" count={counts.all} active={tab === "all"} onClick={() => setTab("all")} />
+          <TabBtn label="Financial Results" count={counts.results} active={tab === "results"} onClick={() => setTab("results")} />
+          <TabBtn label="Corporate Actions" count={counts.actions} active={tab === "actions"} onClick={() => setTab("actions")} />
+          <TabBtn label="Dividends" count={counts.dividends} active={tab === "dividends"} onClick={() => setTab("dividends")} />
+        </div>
+      </div>
+
+      {/* Filter row */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-seam px-4 py-2.5">
+        <div className="flex flex-1 items-center gap-2 rounded-md border border-seam bg-canvas px-2 py-1.5">
+          <span className="text-hint"><SearchIcon /></span>
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search title or type..."
+            className="flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-hint"
+            style={{ minWidth: 120 }}
+          />
+        </div>
+        <select
+          value={year}
+          onChange={(e) => setYear(e.target.value)}
+          className="rounded-md border border-seam bg-canvas px-2 py-1.5 text-xs text-ink outline-none"
+        >
+          <option value="all">All years</option>
+          {years.map((y) => <option key={y} value={y}>{y}</option>)}
+        </select>
+        <select
+          value={source}
+          onChange={(e) => setSource(e.target.value as "all" | "NSE" | "bulletin")}
+          className="rounded-md border border-seam bg-canvas px-2 py-1.5 text-xs text-ink outline-none"
+        >
+          <option value="all">All sources</option>
+          <option value="NSE">NSE announcement</option>
+          <option value="bulletin">Daily bulletin</option>
+        </select>
+        <span className="ml-auto text-[10px] text-hint">
+          {filtered.length.toLocaleString()} / {allRows.length.toLocaleString()}
+        </span>
+      </div>
+
+      {/* Header row */}
+      <div className="grid grid-cols-[92px_1fr_112px_78px_28px] items-center gap-2 border-b border-seam px-4 py-2 text-[10px] uppercase tracking-wider text-hint">
+        <button type="button" onClick={() => toggleSort("date")} className="flex items-center gap-1 text-left font-semibold hover:text-ink">
+          Date <ChevronIcon dir={sortKey === "date" ? sortDir : null} />
+        </button>
+        <button type="button" onClick={() => toggleSort("title")} className="flex items-center gap-1 text-left font-semibold hover:text-ink">
+          Title <ChevronIcon dir={sortKey === "title" ? sortDir : null} />
+        </button>
+        <button type="button" onClick={() => toggleSort("type")} className="flex items-center gap-1 text-left font-semibold hover:text-ink">
+          Type <ChevronIcon dir={sortKey === "type" ? sortDir : null} />
+        </button>
+        <span className="font-semibold">Source</span>
+        <span />
+      </div>
+
+      <div className="max-h-[520px] overflow-y-auto py-1">
+        {filtered.length === 0 ? (
+          <p className="px-4 py-8 text-center text-xs text-hint">
+            No filings match these filters.
+          </p>
+        ) : (
+          <div>
+            {filtered.map((row, i) => <RowLine key={`${row.url}-${i}`} row={row} />)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const TabBtn: FC<{ label: string; count: number; active: boolean; onClick: () => void }> = ({
   label, count, active, onClick,
@@ -39,155 +255,54 @@ const TabBtn: FC<{ label: string; count: number; active: boolean; onClick: () =>
     }`}
   >
     {label}
-    <span
-      className={`rounded-full px-1.5 text-[10px] tabular-nums leading-none ${
-        active ? "bg-accent/20 text-accent" : "bg-surface text-hint"
-      }`}
-    >
+    <span className={`rounded-full px-1.5 text-[10px] tabular-nums leading-none ${
+      active ? "bg-accent/20 text-accent" : "bg-surface text-hint"
+    }`}>
       {count}
     </span>
   </button>
 );
 
-type FilingRow = { date: string; title: string; url: string; type?: string };
-
-const Row: FC<{ row: FilingRow; badge?: string; badgeColor?: string }> = ({ row, badge, badgeColor }) => (
-  <a
-    href={row.url}
-    target="_blank"
-    rel="noopener noreferrer"
-    className="group flex items-start gap-3 rounded-md px-3 py-2 transition-colors hover:bg-raised/60"
-  >
-    <span className="w-20 shrink-0 pt-0.5 font-mono text-[10px] tabular-nums text-hint">
-      {row.date || "—"}
-    </span>
-    {badge && (
-      <span
-        className={`shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${badgeColor ?? "border-seam bg-raised text-hint"}`}
-      >
-        {badge}
-      </span>
-    )}
-    <span className="flex-1 text-xs leading-snug text-sub group-hover:text-ink">
-      {decode(row.title)}
-    </span>
-    <span className="shrink-0 pt-0.5 text-[10px] text-hint group-hover:text-accent">
-      <ExtIcon />
-    </span>
-  </a>
-);
-
-type FilingsPanelProps = {
-  financials: FinancialsDoc | null | undefined;
-};
-
-export const FilingsPanel: FC<FilingsPanelProps> = ({ financials }) => {
-  const [tab, setTab] = useState<Tab>("results");
-
-  const announcements = useMemo<FilingRow[]>(() => {
-    return (financials?.announcements ?? [])
-      .map((a) => ({ date: a.date, title: a.title, url: a.url, type: a.type }))
-      .filter((a) => a.url)
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }, [financials?.announcements]);
-
-  const actions = useMemo<FilingRow[]>(() => {
-    return (financials?.corporate_actions ?? [])
-      .map((a) => ({
-        date: (a as { date?: string }).date ?? "",
-        title: (a as { title?: string }).title ?? "",
-        url: (a as { url?: string }).url ?? "",
-        type: (a as { type?: string }).type,
-      }))
-      .filter((a) => a.url && a.title)
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }, [financials?.corporate_actions]);
-
-  const dividends = useMemo<FilingRow[]>(() => {
-    return (financials?.dividends ?? [])
-      .map((d) => {
-        const url = (d as { url?: string }).url ?? "";
-        const title = (d as { title?: string }).title ?? "";
-        const type = d.type;
-        const amount = d.amount_kes;
-        const derivedTitle =
-          title ||
-          (amount != null
-            ? `${type ?? "Dividend"} — KES ${amount.toFixed(2)}/share`
-            : `${type ?? "Dividend"} notice`);
-        return { date: d.announcement_date, title: derivedTitle, url, type: type ?? undefined };
-      })
-      .filter((d) => d.url)
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }, [financials?.dividends]);
-
-  const totalCount = announcements.length + actions.length + dividends.length;
-  if (totalCount === 0) {
-    return null;
+function typeBadgeStyle(category: FilingRow["category"], type: string): { label: string; cls: string } {
+  const t = type.toLowerCase();
+  if (category === "results") {
+    if (t.includes("audited") || t.includes("annual")) {
+      return { label: "AUDITED",   cls: "border-emerald-600/50 bg-emerald-500/10 text-emerald-500" };
+    }
+    return { label: "RESULT", cls: "border-sky-600/50 bg-sky-500/10 text-sky-500" };
   }
+  if (category === "actions") {
+    return { label: t.slice(0, 12).toUpperCase() || "ACTION", cls: "border-violet-600/50 bg-violet-500/10 text-violet-500" };
+  }
+  return { label: t.toUpperCase() || "DIV", cls: "border-amber-600/50 bg-amber-500/10 text-amber-500" };
+}
 
-  const active =
-    tab === "results" ? announcements : tab === "actions" ? actions : dividends;
-
+const RowLine: FC<{ row: FilingRow }> = ({ row }) => {
+  const badge = typeBadgeStyle(row.category, row.type);
   return (
-    <div className="rounded-xl border border-rim bg-surface">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-seam px-4 py-3">
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted">
-          Filings & Reports
-        </p>
-        <div className="flex flex-wrap gap-1">
-          <TabBtn
-            label="Financial Results"
-            count={announcements.length}
-            active={tab === "results"}
-            onClick={() => setTab("results")}
-          />
-          <TabBtn
-            label="Corporate Actions"
-            count={actions.length}
-            active={tab === "actions"}
-            onClick={() => setTab("actions")}
-          />
-          <TabBtn
-            label="Dividends"
-            count={dividends.length}
-            active={tab === "dividends"}
-            onClick={() => setTab("dividends")}
-          />
-        </div>
-      </div>
-      <div className="max-h-[420px] overflow-y-auto py-2">
-        {active.length === 0 ? (
-          <p className="px-4 py-8 text-center text-xs text-hint">
-            No records in this category.
-          </p>
-        ) : (
-          <div className="space-y-0.5">
-            {active.map((row, i) => {
-              // Badge coloring per type
-              let badge: string | undefined;
-              let badgeColor: string | undefined;
-              const t = (row.type ?? "").toLowerCase();
-              if (tab === "results") {
-                if (t.includes("audited") || t.includes("annual")) {
-                  badge = "AUDITED";
-                  badgeColor = "border-emerald-600/50 bg-emerald-500/10 text-emerald-500";
-                } else if (t.includes("financial")) {
-                  badge = "RESULT";
-                  badgeColor = "border-sky-600/50 bg-sky-500/10 text-sky-500";
-                }
-              } else if (tab === "actions") {
-                badge = "ACTION";
-                badgeColor = "border-violet-600/50 bg-violet-500/10 text-violet-500";
-              } else {
-                badge = (row.type ?? "DIV").toUpperCase();
-                badgeColor = "border-amber-600/50 bg-amber-500/10 text-amber-500";
-              }
-              return <Row key={i} row={row} badge={badge} badgeColor={badgeColor} />;
-            })}
-          </div>
-        )}
-      </div>
-    </div>
+    <a
+      href={row.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="grid grid-cols-[92px_1fr_112px_78px_28px] items-center gap-2 px-4 py-2 text-xs transition-colors hover:bg-raised/60"
+    >
+      <span className="font-mono text-[10px] tabular-nums text-hint">
+        {row.date || "—"}
+      </span>
+      <span className="min-w-0 truncate text-sub group-hover:text-ink" title={row.title}>
+        {row.title}
+      </span>
+      <span>
+        <span className={`inline-block max-w-[104px] truncate rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${badge.cls}`}>
+          {badge.label}
+        </span>
+      </span>
+      <span className="text-[10px] uppercase tracking-wider text-hint">
+        {row.source === "bulletin" ? "BULLETIN" : "NSE"}
+      </span>
+      <span className="justify-self-end text-hint hover:text-accent" title="Open PDF">
+        <ExtIcon />
+      </span>
+    </a>
   );
 };

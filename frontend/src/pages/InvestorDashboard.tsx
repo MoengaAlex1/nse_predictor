@@ -15,6 +15,13 @@ import { FinancialsValuationCard } from "../components/investor/FinancialsValuat
 import { TradingCard } from "../components/investor/TradingCard";
 import { ProfitabilityCard } from "../components/investor/ProfitabilityCard";
 import { FilingsPanel } from "../components/investor/FilingsPanel";
+import { AnnualFinancialsTable } from "../components/investor/AnnualFinancialsTable";
+import { DividendHistoryChart } from "../components/investor/DividendHistoryChart";
+import { DividendYieldTimeline } from "../components/investor/DividendYieldTimeline";
+import { CorporateActionsTimeline } from "../components/investor/CorporateActionsTimeline";
+import { ExDateCalendarStrip } from "../components/investor/ExDateCalendarStrip";
+import { DividendSummaryCard } from "../components/investor/DividendSummaryCard";
+import { UpcomingEventsCard } from "../components/investor/UpcomingEventsCard";
 import { TimeframeTabs } from "../components/ui/TimeframeTabs";
 import { RightStatsRail } from "../components/layout/RightStatsRail";
 import { LeftWatchlistRail } from "../components/layout/LeftWatchlistRail";
@@ -126,7 +133,38 @@ export const InvestorDashboard = () => {
             <ProfitabilityCard />
           </div>
 
-          <FilingsPanel financials={financials} />
+          {/* ── Financials & Corporate Actions ─────────────────────────────
+              Populated by pipeline/scripts/extract_from_pdfs_ai.py,
+              scrape_nse_daily_bulletins.py, and refresh_nse_disclosures.py.
+              All three write into financials/{ticker} — this section is where
+              that data becomes user-facing (previously locked behind
+              FilingsPanel + a tiny slice of ValuationPanel).
+          */}
+          <div id="financials" className="pt-1">
+            <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+              Financials & Corporate Actions
+            </h2>
+            <div className="flex flex-col gap-3">
+              <AnnualFinancialsTable financials={financials} />
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <DividendHistoryChart financials={financials} />
+                <DividendYieldTimeline financials={financials} priceHistory={history} />
+              </div>
+
+              <ExDateCalendarStrip financials={financials} />
+
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+                <CorporateActionsTimeline financials={financials} />
+                <div className="flex flex-col gap-3">
+                  <DividendSummaryCard financials={financials} currentPrice={currentPrice} />
+                  <UpcomingEventsCard financials={financials} />
+                </div>
+              </div>
+
+              <FilingsPanel financials={financials} />
+            </div>
+          </div>
         </div>
 
         <RightStatsRail
