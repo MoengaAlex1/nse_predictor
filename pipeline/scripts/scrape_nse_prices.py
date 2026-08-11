@@ -397,21 +397,23 @@ def _parse_ks_volume(text: str) -> int:
 def _fetch_kenyanstocks_all() -> dict[str, dict]:
     """
     Scrape https://kenyanstocks.com/stock — one HTTP request returns the whole
-    NSE board (~64 tickers).  Live during trading; mirrors NSE Market Statistics.
+    NSE board (~57 tickers).  Live during trading; mirrors NSE Market Statistics.
 
     Used as Tier 2 fallback when NSE AJAX (Tier 1) fails, before falling
     through to EOD sources.  Returns {TICKER_BASE: {Close, Open, High, Low, Volume}}.
+
+    Uses regex directly on the raw HTML rather than an html-parser tree walk
+    — the page is a compressed single-line Nuxt build and some bs4 parsers
+    silently zero-match on it. The three per-row class hooks
+    (`symbol-text`, `price-text`, `vol-text`) are stable and appear exactly
+    once per row in a fixed order, so extracting each list and zipping is
+    both fast and resilient to future markup churn.
     """
     global _ks_cache
     if _ks_cache is not None:
         return _ks_cache
 
-    try:
-        from bs4 import BeautifulSoup
-    except ImportError:
-        log.debug("BeautifulSoup not available; skipping kenyanstocks scrape")
-        _ks_cache = {}
-        return {}
+    import re
 
     try:
         resp = requests.get(_KS_URL, headers=_NSE_HEADERS, timeout=30)
@@ -421,36 +423,47 @@ def _fetch_kenyanstocks_all() -> dict[str, dict]:
         _ks_cache = {}
         return {}
 
-    results: dict[str, dict] = {}
-    try:
-        soup = BeautifulSoup(resp.text, "html.parser")
-        for row in soup.find_all("tr", class_="data-row"):
-            symbol_a = row.find("a", class_="symbol-text")
-            price_td = row.find("td", class_=lambda c: c and "price-text" in c)
-            vol_td   = row.find("td", class_=lambda c: c and "vol-text"   in c)
-            if not (symbol_a and price_td):
-                continue
-            ticker = symbol_a.get_text(strip=True).upper()
-            try:
-                price = float(price_td.get_text(strip=True).replace(",", ""))
-            except ValueError:
-                continue
-            if price <= 0:
-                continue
-            volume = _parse_ks_volume(vol_td.get_text(strip=True)) if vol_td else 0
-            results[ticker] = {
-                "Close":  price,
-                "Open":   price,
-                "High":   price,
-                "Low":    price,
-                "Volume": volume,
-            }
-    except Exception as exc:
-        log.warning("kenyanstocks parse failed: %s", exc)
+    html = resp.text
+
+    # Three parallel arrays — same length, same order, one per row.
+    #   /stock/nse/{TICKER}"…>{TICKER}</a>
+    symbols = re.findall(r'href="/stock/nse/([A-Z][A-Z0-9_]{0,7})"[^>]*class="symbol-text"', html)
+    prices  = re.findall(r'class="[^"]*price-text[^"]*"[^>]*>([\d.,]+)<',                    html)
+    volumes = re.findall(r'class="[^"]*vol-text[^"]*"[^>]*>\s*([\d.,\s]+[KMB]?)\s*<',        html)
+
+    if not symbols:
+        log.warning(
+            "kenyanstocks: 0 symbols in response — HTML length=%d, "
+            "price-text hits=%d, /stock/nse/ hits=%d (site markup likely changed)",
+            len(html), len(re.findall(r'price-text', html)),
+            len(re.findall(r'/stock/nse/', html)),
+        )
         _ks_cache = {}
         return {}
 
-    log.info("kenyanstocks: fetched %d equity prices (Tier 2 live source)", len(results))
+    n = min(len(symbols), len(prices))
+    results: dict[str, dict] = {}
+    for i in range(n):
+        ticker = symbols[i].upper()
+        try:
+            price = float(prices[i].replace(",", ""))
+        except ValueError:
+            continue
+        if price <= 0:
+            continue
+        volume = _parse_ks_volume(volumes[i]) if i < len(volumes) else 0
+        results[ticker] = {
+            "Close":  price,
+            "Open":   price,
+            "High":   price,
+            "Low":    price,
+            "Volume": volume,
+        }
+
+    log.info(
+        "kenyanstocks: fetched %d equity prices (Tier 2 live source; symbols=%d prices=%d volumes=%d)",
+        len(results), len(symbols), len(prices), len(volumes),
+    )
     _ks_cache = results
     return results
 
