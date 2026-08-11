@@ -1,0 +1,48 @@
+name: Enrich shares outstanding from CMA Quarterly Bulletin
+
+on:
+  # Monthly, 12th at 05:00 UTC = 08:00 EAT — after CMA typically publishes
+  # the previous quarter's bulletin.
+  schedule:
+    - cron: "0 5 12 * *"
+  workflow_dispatch:
+    inputs:
+      bulletin_url:
+        description: "Override CMA bulletin PDF URL (blank = auto-discover latest)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Skip Firestore writes"
+        required: false
+        default: "false"
+
+jobs:
+  enrich:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install deps
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Enrich shares outstanding from CMA
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL:             ${{ secrets.FIREBASE_RTDB_URL }}
+          FIREBASE_STORAGE_BUCKET:       ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          if [ -n "${{ github.event.inputs.bulletin_url }}" ]; then
+            ARGS="$ARGS --bulletin-url ${{ github.event.inputs.bulletin_url }}"
+          fi
+          python pipeline/scripts/enrich_from_cma_bulletin.py $ARGS
