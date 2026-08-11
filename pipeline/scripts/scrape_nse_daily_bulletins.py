@@ -346,9 +346,11 @@ def main() -> None:
             continue
         if args.debug:
             print(f"\n===== DEBUG OCR — {d} — {len(text)} chars total =====")
-            # Print in chunks so we see pages 2 & 3
-            for chunk_start in range(0, min(len(text), 25000), 5000):
-                print(text[chunk_start:chunk_start + 5000])
+            # Print full text in chunks so nothing gets truncated
+            step = 4000
+            for chunk_start in range(0, len(text), step):
+                print(text[chunk_start:chunk_start + step])
+                print(f"--chunk-end-{chunk_start}--")
             print(f"===== END DEBUG =====\n")
         records = extract_actions(text)
         if args.debug:
