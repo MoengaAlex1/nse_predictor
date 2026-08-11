@@ -23,6 +23,10 @@ on:
         description: "Skip Firestore writes"
         required: false
         default: "false"
+      debug:
+        description: "Dump raw OCR text (for regex debugging)"
+        required: false
+        default: "false"
 
 jobs:
   scrape:
@@ -61,5 +65,8 @@ jobs:
           fi
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             ARGS="$ARGS --dry-run"
+          fi
+          if [ "${{ github.event.inputs.debug }}" = "true" ]; then
+            ARGS="$ARGS --debug"
           fi
           python pipeline/scripts/scrape_nse_daily_bulletins.py $ARGS

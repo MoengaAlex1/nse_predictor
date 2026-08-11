@@ -310,6 +310,7 @@ def main() -> None:
     parser.add_argument("--end", type=str, default=None, help="default: today")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--limit", type=int, default=None, help="cap on bulletins to process")
+    parser.add_argument("--debug", action="store_true", help="dump OCR text for each bulletin")
     args = parser.parse_args()
 
     start = datetime.strptime(args.start, "%Y-%m-%d").date()
@@ -343,7 +344,15 @@ def main() -> None:
         except Exception as exc:
             print(f"  {d} OCR failed: {exc}")
             continue
+        if args.debug:
+            print(f"\n===== DEBUG OCR — {d} =====")
+            print(text[:5000])
+            print(f"===== END DEBUG ({len(text)} chars) =====\n")
         records = extract_actions(text)
+        if args.debug:
+            print(f"  Records matched: {len(records)}")
+            for r in records[:5]:
+                print(f"    {r}")
         if not records:
             continue
         total_records += len(records)
