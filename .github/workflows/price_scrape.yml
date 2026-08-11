@@ -1,30 +1,31 @@
-name: NSE Daily Price Capture (5× per day)
+name: NSE Intraday Price Capture (every 30 min)
 
-# Runs five times every NSE trading day (Mon–Fri, EAT = UTC+3):
-#   09:00 EAT (06:00 UTC) — opening price snapshot
-#   11:00 EAT (08:00 UTC) — ~2 h interval
-#   13:00 EAT (10:00 UTC) — ~2 h interval
-#   14:00 EAT (11:00 UTC) — midday overwrite
-#   15:30 EAT (12:30 UTC) — final closing price (NSE closes at 15:00 EAT)
+# Runs every 30 min through every NSE trading day (Mon–Fri, EAT = UTC+3):
+#   09:00 → 15:30 EAT  (06:00 → 12:30 UTC)  = 14 runs / day
+# NSE opens 09:00, closes 15:00; the 15:30 run captures the final settle.
 #
 # Each run:
-#   Step 1 – scrape_nse_prices.py  → fetch latest prices, update Firebase Storage CSVs
-#   Step 2 – push_intraday_prices.py → read updated CSVs, push price_history +
-#             current_price + change_pct_today + intraday_today to Firestore
+#   Step 1 – scrape_nse_prices.py     → fetch latest prices, refresh Storage CSVs
+#   Step 2 – push_intraday_prices.py  → push current_price + change_pct_today +
+#                                       intraday_today + today's Volume to Firestore
+#   Step 3 – backfill_most_active.py  → rewrite market_overview.most_active from
+#                                       the fresh volumes so the Home page's
+#                                       "Most Active" list reflects the day's
+#                                       actual transactions in near real time.
 #
-# intraday_today accumulates {time, price} snapshots across all 5 daily runs so users
-# can view intra-day price movement on the "1D" chart range.
+# intraday_today accumulates {time, price} snapshots across all 14 runs so the
+# "1D" chart shows a real intraday curve, not a flat line.
 #
-# The nightly daily_update.yml (midnight EAT) handles full model retraining
+# Concurrency guard: if a run takes >30 min (rare — typical run is ~2 min) the
+# next tick waits rather than piling up parallel scrapers on the same CSVs.
+#
+# The nightly daily_update.yml (midnight EAT) still handles full model retraining
 # and buy/sell/hold signal generation — that job is not replaced by this one.
 
 on:
   schedule:
-    - cron: "0 6 * * 1-5"     # 06:00 UTC = 09:00 EAT — market open
-    - cron: "0 8 * * 1-5"     # 08:00 UTC = 11:00 EAT — ~2 h interval
-    - cron: "0 10 * * 1-5"    # 10:00 UTC = 13:00 EAT — ~2 h interval
-    - cron: "0 11 * * 1-5"    # 11:00 UTC = 14:00 EAT — midday
-    - cron: "30 12 * * 1-5"   # 12:30 UTC = 15:30 EAT — market close
+    # Every :00 and :30 from 06:00–12:30 UTC = 09:00–15:30 EAT, Mon–Fri
+    - cron: "0,30 6-12 * * 1-5"
   workflow_dispatch:
     inputs:
       backfill:
@@ -39,6 +40,12 @@ on:
         description: "Set to 'true' to scrape only (skip Firestore push)"
         required: false
         default: "false"
+
+# Serialise on the scheduled 30-min cadence so a slow run never overlaps the
+# next tick. Manual dispatch (backfills, single-ticker debugs) still queues.
+concurrency:
+  group: nse-intraday-price-capture
+  cancel-in-progress: false
 
 jobs:
   capture:
