@@ -8,10 +8,14 @@ type Props = {
   companies: CompanyDoc[];
 };
 
+// "active" now shows "Most Active" ONLY when the daily pipeline has
+// written market.most_active (real by-volume sort). Older market overviews
+// pre-date that field, so we fall back to "Biggest Movers" (|Δ|) and
+// label the box accordingly to stay honest.
 const HEADERS: Record<Props["type"], string> = {
   gainers: "Top Gainers",
   losers:  "Top Losers",
-  active:  "Most Active",
+  active:  "Most Active",  // renamed dynamically below if fallback kicks in
 };
 
 // Compute movers from LIVE change_pct_today on each company doc rather
@@ -23,33 +27,58 @@ const HEADERS: Record<Props["type"], string> = {
 //
 // Sorting from the live doc guarantees the box's %-values match its
 // label. Ties/nulls filtered out.
-function getRows(_type: Props["type"], _market: MarketOverviewDoc, companies: CompanyDoc[]): CompanyDoc[] {
+// Returns rows plus whether the "active" sort came from real volume data
+// (market.most_active) or fell back to |Δ|. Caller uses this to swap the
+// box header between "Most Active" and "Biggest Movers".
+function getRowsWithSource(
+  type: Props["type"],
+  market: MarketOverviewDoc,
+  companies: CompanyDoc[],
+): { rows: CompanyDoc[]; fallback: boolean } {
   const withPct = companies.filter(c => c.change_pct_today != null);
-  const type = _type;
   if (type === "gainers") {
-    return withPct
-      .filter(c => (c.change_pct_today ?? 0) > 0)
-      .sort((a, b) => (b.change_pct_today ?? 0) - (a.change_pct_today ?? 0))
-      .slice(0, 5);
+    return {
+      rows: withPct
+        .filter(c => (c.change_pct_today ?? 0) > 0)
+        .sort((a, b) => (b.change_pct_today ?? 0) - (a.change_pct_today ?? 0))
+        .slice(0, 5),
+      fallback: false,
+    };
   }
   if (type === "losers") {
-    return withPct
-      .filter(c => (c.change_pct_today ?? 0) < 0)
-      .sort((a, b) => (a.change_pct_today ?? 0) - (b.change_pct_today ?? 0))
-      .slice(0, 5);
+    return {
+      rows: withPct
+        .filter(c => (c.change_pct_today ?? 0) < 0)
+        .sort((a, b) => (a.change_pct_today ?? 0) - (b.change_pct_today ?? 0))
+        .slice(0, 5),
+      fallback: false,
+    };
   }
-  return withPct
-    .sort((a, b) => Math.abs(b.change_pct_today!) - Math.abs(a.change_pct_today!))
-    .slice(0, 5);
+  // active — prefer market.most_active (real by-volume sort). Fall back
+  // to |Δ| if the current market_overview doc pre-dates that field.
+  if (market.most_active && market.most_active.length > 0) {
+    const companyMap = new Map(companies.map(c => [c.id, c]));
+    const rows = market.most_active
+      .map(a => companyMap.get(a.ticker))
+      .filter((c): c is CompanyDoc => c != null);
+    if (rows.length > 0) return { rows, fallback: false };
+  }
+  return {
+    rows: withPct
+      .sort((a, b) => Math.abs(b.change_pct_today!) - Math.abs(a.change_pct_today!))
+      .slice(0, 5),
+    fallback: true,
+  };
 }
 
 export const MoversTable: FC<Props> = ({ type, market, companies }) => {
-  const rows = getRows(type, market, companies);
+  const { rows, fallback } = getRowsWithSource(type, market, companies);
+  const header = type === "active" && fallback ? "Biggest Movers" : HEADERS[type];
 
   return (
     <div className="overflow-hidden rounded-xl border border-rim bg-surface">
       <div className="flex items-center justify-between border-b border-seam/60 px-4 py-2.5">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted">{HEADERS[type]}</span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted">{header}</span>
         <span className="text-[10px] text-hint">{rows.length} of {companies.length}</span>
       </div>
       {rows.length === 0 ? (

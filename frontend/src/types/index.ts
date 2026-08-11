@@ -175,6 +175,11 @@ export interface MarketOverviewDoc {
   date: string;
   top_gainers: { ticker: string; change_pct: number }[];
   top_losers: { ticker: string; change_pct: number }[];
+  // Present in docs written by the daily pipeline after 2026-08-11.
+  // Top 5 tickers by day's traded volume — the true "Most Active" metric.
+  // Older docs may lack this field; consumers should fall back to sorting
+  // companies by |change_pct_today| and rename the box "Biggest Movers".
+  most_active?: { ticker: string; volume: number; turnover_kes: number; change_pct: number }[];
   signal_distribution: { BUY: number; HOLD: number; SELL: number };
   sector_performance: Record<string, number>;
   nse20_value: number | null;
