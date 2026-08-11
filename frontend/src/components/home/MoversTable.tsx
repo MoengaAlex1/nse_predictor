@@ -14,19 +14,33 @@ const HEADERS: Record<Props["type"], string> = {
   active:  "Most Active",
 };
 
-// market_overview.top_gainers[].ticker is the BARE ticker ("CGEN"), but
-// company.ticker carries the ".NR" display suffix ("CGEN.NR"). Key the
-// lookup by c.id (which is the bare Firestore doc id) so the lookup
-// actually hits. Same fix as needed in TickerTape.
-function getRows(type: Props["type"], market: MarketOverviewDoc, companies: CompanyDoc[]): CompanyDoc[] {
-  const companyMap = new Map(companies.map(c => [c.id, c]));
+// Compute movers from LIVE change_pct_today on each company doc rather
+// than the pre-computed market_overview.top_gainers/losers arrays. Those
+// are a snapshot from some earlier point in the day, so tickers on the
+// snapshot's gainers list may have flipped negative by the time the user
+// loads the page — the box would then show a "Top Gainer" with a red
+// negative %.
+//
+// Sorting from the live doc guarantees the box's %-values match its
+// label. Ties/nulls filtered out.
+function getRows(_type: Props["type"], _market: MarketOverviewDoc, companies: CompanyDoc[]): CompanyDoc[] {
+  const withPct = companies.filter(c => c.change_pct_today != null);
+  const type = _type;
   if (type === "gainers") {
-    return market.top_gainers.slice(0, 5).map(g => companyMap.get(g.ticker)).filter((c): c is CompanyDoc => c != null);
+    return withPct
+      .filter(c => (c.change_pct_today ?? 0) > 0)
+      .sort((a, b) => (b.change_pct_today ?? 0) - (a.change_pct_today ?? 0))
+      .slice(0, 5);
   }
   if (type === "losers") {
-    return market.top_losers.slice(0, 5).map(l => companyMap.get(l.ticker)).filter((c): c is CompanyDoc => c != null);
+    return withPct
+      .filter(c => (c.change_pct_today ?? 0) < 0)
+      .sort((a, b) => (a.change_pct_today ?? 0) - (b.change_pct_today ?? 0))
+      .slice(0, 5);
   }
-  return [...companies].filter(c => c.change_pct_today != null).sort((a, b) => Math.abs(b.change_pct_today!) - Math.abs(a.change_pct_today!)).slice(0, 5);
+  return withPct
+    .sort((a, b) => Math.abs(b.change_pct_today!) - Math.abs(a.change_pct_today!))
+    .slice(0, 5);
 }
 
 export const MoversTable: FC<Props> = ({ type, market, companies }) => {
