@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useRecentTickers } from "../hooks/useRecentTickers";
-import { useCompany, useLatestTechnicals, useLatestSnapshot, useFundamentals, useFinancials } from "../hooks/useCompany";
+import { useCompany, useLatestTechnicals, useLatestSnapshot, useFundamentals, useFinancials as useFinancialsDoc } from "../hooks/useCompany";
 import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
 import { PriceHeader } from "../components/investor/PriceHeader";
 import { PriceAreaChart } from "../components/investor/PriceAreaChart";
@@ -14,6 +14,7 @@ import { EarningsForecastCard } from "../components/investor/EarningsForecastCar
 import { FinancialsValuationCard } from "../components/investor/FinancialsValuationCard";
 import { TradingCard } from "../components/investor/TradingCard";
 import { ProfitabilityCard } from "../components/investor/ProfitabilityCard";
+import { FilingsPanel } from "../components/investor/FilingsPanel";
 import { TimeframeTabs } from "../components/ui/TimeframeTabs";
 import { RightStatsRail } from "../components/layout/RightStatsRail";
 import { LeftWatchlistRail } from "../components/layout/LeftWatchlistRail";
@@ -47,7 +48,7 @@ export const InvestorDashboard = () => {
   const { data: technicals } = useLatestTechnicals(cleaned);
   const { data: snapshot } = useLatestSnapshot(cleaned);
   const { data: fundamentals } = useFundamentals(cleaned);
-  const { data: financials } = useFinancials(cleaned);
+  const { data: financials } = useFinancialsDoc(cleaned);
   const { data: rtdbPrices = [] } = useHistoricalPrices(cleaned, FETCH_START, todayIso());
 
   const history: PricePoint[] = useMemo(
@@ -124,6 +125,8 @@ export const InvestorDashboard = () => {
             <TradingCard technicals={technicals} dayLow={dayLow} dayHigh={dayHigh} />
             <ProfitabilityCard />
           </div>
+
+          <FilingsPanel financials={financials} />
         </div>
 
         <RightStatsRail

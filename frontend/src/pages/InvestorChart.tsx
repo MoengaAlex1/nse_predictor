@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useRecentTickers } from "../hooks/useRecentTickers";
-import { useCompany, useLatestTechnicals } from "../hooks/useCompany";
+import { useCompany, useLatestTechnicals, useFinancials as useFinancialsDoc } from "../hooks/useCompany";
 import { useCompanies } from "../hooks/useCompanies";
 import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
 import { useCompareSeries } from "../hooks/useCompareSeries";
@@ -13,6 +13,7 @@ import { TimeframeTabs } from "../components/ui/TimeframeTabs";
 import { FocusedPriceChart } from "../components/investor/FocusedPriceChart";
 import { CompareChart, type CompareLine } from "../components/investor/CompareChart";
 import { CompareControls } from "../components/investor/CompareControls";
+import { FilingsPanel } from "../components/investor/FilingsPanel";
 import {
   cleanTicker,
   FETCH_START,
@@ -119,6 +120,7 @@ export const InvestorChart = () => {
   // Firestore + RTDB fetch — the doc id is the canonical key.
   const { data: company } = useCompany(cleaned);
   const { data: technicals } = useLatestTechnicals(cleaned);
+  const { data: financials } = useFinancialsDoc(cleaned);
   const { data: allCompanies = [] } = useCompanies();
   const { data: rtdbPrimary = [] } = useHistoricalPrices(cleaned, FETCH_START, todayIso());
   const compareResults = useCompareSeries(compareTickers, FETCH_START, todayIso());
@@ -380,6 +382,11 @@ export const InvestorChart = () => {
                   color={primaryLineColor}
                   height={620}
                 />
+              )}
+              {visiblePrimary.length > 0 && financials && (
+                <div className="mt-3">
+                  <FilingsPanel financials={financials} />
+                </div>
               )}
               {visiblePrimary.length > 0 && (
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 px-2 text-[10px] text-hint">
