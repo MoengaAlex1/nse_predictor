@@ -1,11 +1,19 @@
 """
 scrape_nse_prices.py
 
-Daily NSE price scraper with four-tier data source fallback:
-  1. NSE AJAX     — https://www.nse.co.ke/dataservices/wp-admin/admin-ajax.php (live feed, traded stocks only)
-  2. stooq.com    — https://stooq.com/q/d/l/?s={ticker}.ke (reliable CSV API)
-  3. Yahoo Finance — yfinance (.KE suffix)
-  4. afx.kwayisi.org — https://afx.kwayisi.org/nse/ (all listed stocks, last-traded price, static HTML)
+Daily NSE price scraper with five-tier data source fallback:
+  1. NSE AJAX        — https://www.nse.co.ke/dataservices/wp-admin/admin-ajax.php (live, ~15-min delayed, WordPress-nonce gated)
+  2. kenyanstocks.com — https://kenyanstocks.com/stock (live, server-rendered Nuxt page — no auth)
+  3. afx.kwayisi.org — https://afx.kwayisi.org/nse/ (live last-traded, covers all listed stocks incl. thinly-traded)
+  4. stooq.com       — https://stooq.com/q/d/l/?s={ticker}.ke (EOD only — backfill / fallback for missing tickers)
+  5. Yahoo Finance   — yfinance (.KE suffix) (EOD only — last-resort backfill)
+
+Tiers 1–3 are LIVE intraday during trading (09:00–15:00 EAT). Tiers 4–5 are EOD
+and only used when all live tiers fail for a ticker. Sources 1–3 are checked
+in order so a live-source outage still yields fresh intraday data. Each ticker's
+resolved source is recorded in `_sources_used` and flushed to
+/tmp/nse_scrape_sources.json at end-of-run — consumed by push_intraday_prices.py's
+freshness watchdog.
 
 For each company:
   1. Download the existing cleaned CSV from Firebase Storage.
@@ -52,6 +60,15 @@ log = logging.getLogger(__name__)
 TODAY = date.today().isoformat()
 CSVS_TMP = Path("/tmp/nse_csvs")
 _REQUIRED_COLS = {"Open", "High", "Low", "Close", "Volume"}
+
+# Source tracker — populated by _fetch_new_rows once per ticker with the tier
+# that ultimately supplied today's price. Flushed to /tmp/nse_scrape_sources.json
+# in main() for push_intraday_prices.py's freshness watchdog.
+# Values: "nse_ajax" | "kenyanstocks" | "afx" | "stooq" | "yfinance"
+_sources_used: dict[str, str] = {}
+_LIVE_SOURCES = {"nse_ajax", "kenyanstocks", "afx"}
+_EOD_SOURCES  = {"stooq", "yfinance"}
+SOURCES_TRACK_FILE = Path("/tmp/nse_scrape_sources.json")
 
 # NSE Kenya daily circuit breaker: ±9.9%.  We flag moves beyond this.
 _NSE_CIRCUIT_BREAKER_PCT = 9.9
@@ -342,7 +359,113 @@ def _fetch_nse_today(ticker_base: str) -> pd.DataFrame | None:
     return df
 
 
-# ── Source 4: afx.kwayisi.org/nse/ (all listed stocks, last traded price) ─────
+# ── Source 2: kenyanstocks.com (live, no auth, whole market in one page) ─────
+# Server-rendered Nuxt page — a plain HTML table with predictable class hooks:
+#   <tr class="data-row">
+#     <td class="col-symbol"><a href="/stock/nse/ABSA">ABSA</a></td>
+#     <td class="col-company">…</td>
+#     <td class="col-sector">…</td>
+#     <td class="… price-text">33.90</td>
+#     <td class="… change-text">+0.00%</td>
+#     <td class="… vol-text">246.08 K</td>
+#   </tr>
+# Volume uses K / M / B suffixes.  Tickers match NSE bases exactly.
+
+_KS_URL = "https://kenyanstocks.com/stock"
+_ks_cache: dict[str, dict] | None = None
+
+
+def _parse_ks_volume(text: str) -> int:
+    """Parse volume strings like '246.08 K', '3.61 M', '1.2 B', '177'."""
+    text = text.strip().replace(",", "")
+    if not text or text == "-":
+        return 0
+    mult = 1
+    upper = text.upper()
+    if upper.endswith("K"):
+        mult, text = 1_000,         text[:-1].strip()
+    elif upper.endswith("M"):
+        mult, text = 1_000_000,     text[:-1].strip()
+    elif upper.endswith("B"):
+        mult, text = 1_000_000_000, text[:-1].strip()
+    try:
+        return int(float(text) * mult)
+    except ValueError:
+        return 0
+
+
+def _fetch_kenyanstocks_all() -> dict[str, dict]:
+    """
+    Scrape https://kenyanstocks.com/stock — one HTTP request returns the whole
+    NSE board (~64 tickers).  Live during trading; mirrors NSE Market Statistics.
+
+    Used as Tier 2 fallback when NSE AJAX (Tier 1) fails, before falling
+    through to EOD sources.  Returns {TICKER_BASE: {Close, Open, High, Low, Volume}}.
+    """
+    global _ks_cache
+    if _ks_cache is not None:
+        return _ks_cache
+
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        log.debug("BeautifulSoup not available; skipping kenyanstocks scrape")
+        _ks_cache = {}
+        return {}
+
+    try:
+        resp = requests.get(_KS_URL, headers=_NSE_HEADERS, timeout=30)
+        resp.raise_for_status()
+    except Exception as exc:
+        log.warning("kenyanstocks fetch failed: %s", exc)
+        _ks_cache = {}
+        return {}
+
+    results: dict[str, dict] = {}
+    try:
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for row in soup.find_all("tr", class_="data-row"):
+            symbol_a = row.find("a", class_="symbol-text")
+            price_td = row.find("td", class_=lambda c: c and "price-text" in c)
+            vol_td   = row.find("td", class_=lambda c: c and "vol-text"   in c)
+            if not (symbol_a and price_td):
+                continue
+            ticker = symbol_a.get_text(strip=True).upper()
+            try:
+                price = float(price_td.get_text(strip=True).replace(",", ""))
+            except ValueError:
+                continue
+            if price <= 0:
+                continue
+            volume = _parse_ks_volume(vol_td.get_text(strip=True)) if vol_td else 0
+            results[ticker] = {
+                "Close":  price,
+                "Open":   price,
+                "High":   price,
+                "Low":    price,
+                "Volume": volume,
+            }
+    except Exception as exc:
+        log.warning("kenyanstocks parse failed: %s", exc)
+        _ks_cache = {}
+        return {}
+
+    log.info("kenyanstocks: fetched %d equity prices (Tier 2 live source)", len(results))
+    _ks_cache = results
+    return results
+
+
+def _fetch_kenyanstocks_today(ticker_base: str) -> pd.DataFrame | None:
+    """Return a one-row DataFrame with today's price from kenyanstocks.com, or None."""
+    all_prices = _fetch_kenyanstocks_all()
+    row = all_prices.get(ticker_base.upper())
+    if not row:
+        return None
+    today_ts = pd.Timestamp(TODAY)
+    return pd.DataFrame([row], index=pd.DatetimeIndex([today_ts], name="Date"))
+
+
+# ── Source 3: afx.kwayisi.org/nse/ (all listed stocks, last traded price) ─────
 # Static server-rendered HTML table — no JavaScript rendering needed.
 # Columns: Ticker | Name | Volume | Price | Change
 # Tickers match NSE ticker bases directly (e.g. "BRIT", "BOC").
@@ -599,42 +722,66 @@ def _fetch_new_rows(
     ticker_base = _ticker_base(safe)
     today_str = TODAY
 
+    source: str | None = None
     if backfill_from and backfill_to:
         # ── Backfill: stooq → yfinance → afx (last-traded for thinly-traded stocks)
         df = _fetch_stooq(safe, backfill_from, backfill_to)
+        if df is not None and not df.empty:
+            source = "stooq"
         if df is None or df.empty:
             log.info("%s: stooq empty for backfill — trying yfinance", safe)
             df = _fetch_yfinance(safe, start=backfill_from, end=backfill_to)
+            if df is not None and not df.empty:
+                source = "yfinance"
         # afx gives only the current last-traded price; adds today's row for
         # thinly-traded stocks that stooq/yfinance have no knowledge of.
         if df is None or df.empty:
             log.info("%s: all backfill sources failed — trying afx.kwayisi.org (last traded)", safe)
             df = _fetch_nse_equity_page_today(ticker_base)
+            if df is not None and not df.empty:
+                source = "afx"
         # Final fallback: NSE AJAX (reachable from GitHub Actions when afx is not).
         # Returns only today's last-traded price — better than nothing for thinly-traded stocks.
         if df is None or df.empty:
             log.info("%s: afx unavailable — trying NSE AJAX for today's price", safe)
             df = _fetch_nse_today(ticker_base)
+            if df is not None and not df.empty:
+                source = "nse_ajax"
     else:
-        # ── Normal daily: try today via NSE website first
+        # ── Normal / intraday: try all three LIVE tiers first, then EOD ─────
+        # Tier 1: NSE AJAX (authoritative, WordPress-nonce gated)
         df = _fetch_nse_today(ticker_base)
+        if df is not None and not df.empty:
+            source = "nse_ajax"
 
-        # If NSE website failed or stale, use stooq for last 7 days
+        # Tier 2: kenyanstocks.com (live, no auth)
+        if df is None or df.empty:
+            df = _fetch_kenyanstocks_today(ticker_base)
+            if df is not None and not df.empty:
+                source = "kenyanstocks"
+
+        # Tier 3: afx.kwayisi.org (live last-traded — best coverage for thin stocks)
+        if df is None or df.empty:
+            df = _fetch_nse_equity_page_today(ticker_base)
+            if df is not None and not df.empty:
+                source = "afx"
+
+        # Tier 4: stooq (EOD only — will just return yesterday's close during trading)
         if df is None or df.empty:
             week_ago = (date.today() - timedelta(days=7)).isoformat()
             df = _fetch_stooq(safe, week_ago, today_str)
+            if df is not None and not df.empty:
+                source = "stooq"
 
-        # Third: yfinance 5-day window
+        # Tier 5: yfinance (EOD only — last-resort)
         if df is None or df.empty:
-            log.info("%s: stooq/NSE failed — falling back to yfinance", safe)
+            log.info("%s: all live + stooq failed — falling back to yfinance", safe)
             df = _fetch_yfinance(safe, period="5d")
+            if df is not None and not df.empty:
+                source = "yfinance"
 
-        # Fourth: NSE equity securities static page — shows last-traded price for
-        # ALL stocks, including those with no activity today.  Used for thinly-traded
-        # stocks that are absent from the AJAX live feed.
-        if df is None or df.empty:
-            log.info("%s: all live sources failed — trying afx.kwayisi.org (last traded)", safe)
-            df = _fetch_nse_equity_page_today(ticker_base)
+    if source:
+        _sources_used[safe] = source
 
     if df is None or df.empty:
         return None
@@ -809,7 +956,7 @@ def scrape_company(
         len(new_rows),
         latest_date.date(),
         latest_close,
-        "NSE/stooq/yf/equity-page",
+        _sources_used.get(safe, "unknown"),
     )
 
     result["scraped"] = True
@@ -865,6 +1012,28 @@ def main(
                 scraped_count += 1
 
     log.info("Scraping complete: %d/%d companies updated.", scraped_count, len(companies))
+
+    # ── Persist source tracking for the freshness watchdog ────────────────
+    # Written even on partial failures so downstream steps still have data.
+    import json
+    from collections import Counter
+    try:
+        SOURCES_TRACK_FILE.write_text(json.dumps(_sources_used, indent=2))
+    except Exception as exc:
+        log.warning("Could not write %s: %s", SOURCES_TRACK_FILE, exc)
+
+    tally = Counter(_sources_used.values())
+    n_live = sum(v for k, v in tally.items() if k in _LIVE_SOURCES)
+    n_eod  = sum(v for k, v in tally.items() if k in _EOD_SOURCES)
+    log.info("=== Data source breakdown (%d tickers with a price) ===",
+             sum(tally.values()))
+    for src in ("nse_ajax", "kenyanstocks", "afx", "stooq", "yfinance"):
+        n = tally.get(src, 0)
+        if n:
+            tier = "LIVE" if src in _LIVE_SOURCES else "EOD "
+            log.info("  %-14s %3d  [%s]", src, n, tier)
+    log.info("Live tiers total: %d  |  EOD tiers total: %d", n_live, n_eod)
+
     return results
 
 

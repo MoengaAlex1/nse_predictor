@@ -144,23 +144,110 @@ export const PriceHeader: FC<PriceHeaderProps> = ({
         ) : (
           <span className="text-2xl text-hint">{EM_DASH}</span>
         )}
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
-          At close
-        </span>
+        <FreshnessChip
+          isLive={company?.price_is_live ?? null}
+          updatedAt={company?.price_updated_at ?? null}
+        />
         {changeAbs != null && changePct != null && (
           <span className={`font-mono text-sm font-semibold tabular-nums ${trendColor}`}>
             {arrow(up)} {fmtChangeSigned(changeAbs)} ({fmtPct(changePct)})
           </span>
         )}
       </div>
-      {priceAsOf && (
-        <p className="mt-1.5 flex flex-wrap items-center gap-2 text-[10px] text-hint">
-          <span>Closing price · {priceAsOf}</span>
-          <span className="rounded border border-seam bg-raised px-1.5 py-0.5 font-mono uppercase tracking-wider">
-            EOD only
-          </span>
-        </p>
-      )}
+      <FreshnessLine
+        isLive={company?.price_is_live ?? null}
+        updatedAt={company?.price_updated_at ?? null}
+        priceAsOf={priceAsOf ?? null}
+      />
     </div>
   );
+};
+
+// ── Freshness helpers ────────────────────────────────────────────────────────
+
+const EAT_TZ = "Africa/Nairobi";
+
+function formatEatTime(iso: string): string | null {
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return null;
+  return t.toLocaleTimeString("en-KE", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: EAT_TZ,
+  });
+}
+
+function formatEatDate(iso: string): string | null {
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return null;
+  return t.toLocaleDateString("en-KE", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    timeZone: EAT_TZ,
+  });
+}
+
+// Small pill sitting inline with the price. Shows LIVE (green) when the
+// current push came from an intraday tier, or "At close" (muted) otherwise.
+const FreshnessChip: FC<{ isLive: boolean | null; updatedAt: string | null }> = ({
+  isLive,
+  updatedAt,
+}) => {
+  if (isLive === true) {
+    const timeStr = updatedAt ? formatEatTime(updatedAt) : null;
+    return (
+      <span
+        title="Live intraday price from NSE — ~15 minute delay"
+        className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-400"
+      >
+        <span className="relative inline-flex h-1.5 w-1.5">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        </span>
+        Live{timeStr ? ` · ${timeStr} EAT` : ""}
+      </span>
+    );
+  }
+  return (
+    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+      At close
+    </span>
+  );
+};
+
+// Second line under the price with the source and delay disclaimer.
+// Live → "Updated HH:MM EAT · ~15 min delayed"
+// EOD  → "Closing price · YYYY-MM-DD"
+const FreshnessLine: FC<{
+  isLive: boolean | null;
+  updatedAt: string | null;
+  priceAsOf: string | null;
+}> = ({ isLive, updatedAt, priceAsOf }) => {
+  if (isLive === true) {
+    const timeStr = updatedAt ? formatEatTime(updatedAt) : null;
+    const dateStr = updatedAt ? formatEatDate(updatedAt) : null;
+    return (
+      <p className="mt-1.5 flex flex-wrap items-center gap-2 text-[10px] text-hint">
+        <span>
+          {dateStr && `${dateStr} · `}Updated{timeStr ? ` ${timeStr} EAT` : ""} · ~15 min delayed
+        </span>
+        <span className="rounded border border-emerald-500/30 bg-emerald-500/5 px-1.5 py-0.5 font-mono uppercase tracking-wider text-emerald-400">
+          Intraday
+        </span>
+      </p>
+    );
+  }
+  if (priceAsOf) {
+    return (
+      <p className="mt-1.5 flex flex-wrap items-center gap-2 text-[10px] text-hint">
+        <span>Closing price · {priceAsOf}</span>
+        <span className="rounded border border-seam bg-raised px-1.5 py-0.5 font-mono uppercase tracking-wider">
+          EOD only
+        </span>
+      </p>
+    );
+  }
+  return null;
 };

@@ -104,11 +104,36 @@ jobs:
           cd $GITHUB_WORKSPACE
           python pipeline/scripts/push_intraday_prices.py 2>&1 | tee /tmp/push.log
 
-      # ── Step 3: Refresh market_overview.most_active from current volumes ─────
-      # Runs 5× per trading day (once per scrape) so the Home page's Most
-      # Active box tracks the day's actual transactions — SCOM at 09:00 EAT
-      # with 500K shares traded might slide down by 15:00 EAT after another
-      # ticker's block trade lands.
+      # ── Step 3: Freshness watchdog ─────────────────────────────────────────
+      # Read /tmp/scrape_health.json (written by push_intraday_prices.py) and
+      # emit a GitHub Actions ::warning:: if fewer than the configured number
+      # of tickers came from live sources — that means all 3 live tiers
+      # (NSE AJAX, kenyanstocks, afx.kwayisi) failed and users are seeing
+      # yesterday's EOD close labelled as "current". Non-fatal — the job
+      # still succeeds so the schedule keeps running, but the warning surfaces
+      # in the runs list and can be wired to an alert later.
+      - name: Freshness watchdog
+        if: ${{ github.event.inputs.skip_firestore_push != 'true' && github.event.inputs.backfill == '' }}
+        run: |
+          if [ ! -f /tmp/scrape_health.json ]; then
+            echo "::warning::scrape_health.json not written — push step failed silently"
+            exit 0
+          fi
+          cat /tmp/scrape_health.json
+          HEALTHY=$(python -c "import json; print(json.load(open('/tmp/scrape_health.json'))['healthy'])")
+          LIVE=$(python -c "import json; print(json.load(open('/tmp/scrape_health.json'))['live_count'])")
+          MIN=$(python -c "import json; print(json.load(open('/tmp/scrape_health.json'))['live_min'])")
+          if [ "$HEALTHY" != "True" ]; then
+            echo "::warning title=Live NSE feed degraded::Only ${LIVE} tickers had live prices (threshold: ${MIN}). Check NSE AJAX / kenyanstocks / afx.kwayisi outages."
+          else
+            echo "Freshness OK — ${LIVE} tickers from live sources."
+          fi
+
+      # ── Step 4: Refresh market_overview.most_active from current volumes ─────
+      # Runs on every intraday scrape so the Home page's Most Active box
+      # tracks the day's actual transactions — SCOM at 09:00 EAT with 500K
+      # shares traded might slide down by 15:00 EAT after another ticker's
+      # block trade lands.
       - name: Refresh Most Active by volume
         if: ${{ github.event.inputs.skip_firestore_push != 'true' && github.event.inputs.backfill == '' }}
         env:
@@ -129,6 +154,8 @@ jobs:
             /tmp/scrape.log
             /tmp/push.log
             /tmp/most_active.log
+            /tmp/nse_scrape_sources.json
+            /tmp/scrape_health.json
           retention-days: 7
 
       - name: Notify on failure

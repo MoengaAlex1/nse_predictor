@@ -34,6 +34,13 @@ export interface CompanyDoc {
   last_known_price?: number | null;
   last_known_price_as_of?: string | null;
   last_known_price_source?: string | null;
+  // Freshness metadata written by push_intraday_prices.py on each 30-min run.
+  // Used by the PriceHeader "Live · HH:MM" badge — if `price_is_live` is true
+  // the number came from an intraday tier (NSE AJAX / kenyanstocks / afx);
+  // if false it fell back to an EOD tier (stooq / yfinance).
+  price_updated_at?: string | null;   // ISO 8601 with EAT (+03:00) offset
+  price_source?: "nse_ajax" | "kenyanstocks" | "afx" | "stooq" | "yfinance" | "unknown" | null;
+  price_is_live?: boolean | null;
 }
 
 export interface SnapshotDoc {
