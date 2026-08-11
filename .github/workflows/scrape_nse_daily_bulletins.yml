@@ -1,0 +1,65 @@
+name: Scrape NSE Daily Bulletin corporate actions
+
+on:
+  # Weekly on Saturday at 06:00 UTC = 09:00 EAT — after Friday's bulletin
+  # is safely published.
+  schedule:
+    - cron: "0 6 * * 6"
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Start date YYYY-MM-DD"
+        required: false
+        default: "2020-01-01"
+      end:
+        description: "End date YYYY-MM-DD (blank = today)"
+        required: false
+        default: ""
+      limit:
+        description: "Cap on bulletins to process (blank = all)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Skip Firestore writes"
+        required: false
+        default: "false"
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    # 5 years × 250 trading days × ~4s OCR each ≈ 2.7 hours worst-case.
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install system tesseract for OCR
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+
+      - name: Install Python deps
+        run: |
+          pip install -r pipeline/requirements.txt
+          pip install --upgrade PyMuPDF pytesseract Pillow
+
+      - name: Scrape daily bulletins
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL:             ${{ secrets.FIREBASE_RTDB_URL }}
+          FIREBASE_STORAGE_BUCKET:       ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          ARGS="--start ${{ github.event.inputs.start || '2020-01-01' }}"
+          if [ -n "${{ github.event.inputs.end }}" ]; then
+            ARGS="$ARGS --end ${{ github.event.inputs.end }}"
+          fi
+          if [ -n "${{ github.event.inputs.limit }}" ]; then
+            ARGS="$ARGS --limit ${{ github.event.inputs.limit }}"
+          fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python pipeline/scripts/scrape_nse_daily_bulletins.py $ARGS
