@@ -114,8 +114,8 @@ def download(url: str) -> bytes | None:
 # ---------------------------------------------------------------------------
 
 def ocr_bulletin(pdf_bytes: bytes) -> str:
-    """Return combined OCR text for the whole PDF. Handles image-only PDFs
-    that pdfplumber can't read directly."""
+    """Return combined OCR text for the whole PDF, page-separated. Handles
+    image-only PDFs that pdfplumber can't read directly."""
     import fitz  # PyMuPDF
     import pytesseract
     from PIL import Image
@@ -123,17 +123,17 @@ def ocr_bulletin(pdf_bytes: bytes) -> str:
 
     text_parts = []
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
-        for page in doc:
+        for pi, page in enumerate(doc):
             # Try native text first — some bulletins have selectable text
             native = page.get_text().strip()
             if native and len(native) > 200:
-                text_parts.append(native)
+                text_parts.append(f"[PAGE {pi} native text]\n{native}")
                 continue
             # Fall back to OCR
             pix = page.get_pixmap(dpi=250)
             img = Image.open(io.BytesIO(pix.tobytes("png")))
             ocr_text = pytesseract.image_to_string(img)
-            text_parts.append(ocr_text)
+            text_parts.append(f"[PAGE {pi} OCR]\n{ocr_text}")
     return "\n".join(text_parts)
 
 
@@ -345,9 +345,11 @@ def main() -> None:
             print(f"  {d} OCR failed: {exc}")
             continue
         if args.debug:
-            print(f"\n===== DEBUG OCR — {d} =====")
-            print(text[:5000])
-            print(f"===== END DEBUG ({len(text)} chars) =====\n")
+            print(f"\n===== DEBUG OCR — {d} — {len(text)} chars total =====")
+            # Print in chunks so we see pages 2 & 3
+            for chunk_start in range(0, min(len(text), 25000), 5000):
+                print(text[chunk_start:chunk_start + 5000])
+            print(f"===== END DEBUG =====\n")
         records = extract_actions(text)
         if args.debug:
             print(f"  Records matched: {len(records)}")
