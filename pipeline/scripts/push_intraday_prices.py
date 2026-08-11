@@ -17,7 +17,12 @@ For each company:
   4. Push to Firestore via update_company_public (merge=True).
      Only updates: current_price, change_pct_today, price_history,
                    price_preview, last_updated.
-     Leaves untouched: signal, snapshot, technicals, predictions.
+     Leaves untouched: signal, snapshot, technicals.
+  5. Merge today's Volume into companies/{doc_id}/technicals/{TODAY}
+     via merge=True so backfill_most_active.py picks up intraday volume
+     changes on its next run (Most Active list truly varies through the
+     day, not just between inference runs). Inference-computed fields
+     on the same doc (RSI, MACD, SMA, avg_volume_30d) survive merge.
 
 The nightly daily_update.yml handles full model retraining and signal refresh.
 """
@@ -116,6 +121,36 @@ def _build_intraday_today(db, doc_id: str, current_price: float) -> list[dict]:
     return updated
 
 
+def _push_intraday_volume(db, doc_id: str, df: pd.DataFrame) -> int | None:
+    """If today's row has a Volume value in the scraped CSV, merge it into
+    companies/{doc_id}/technicals/{TODAY_EAT} so Most Active can be
+    computed from live intraday transactions. Inference-computed fields
+    (RSI, MACD, SMA, avg_volume_30d) on the same doc survive merge=True.
+    Returns the volume written, or None when not available."""
+    if "Volume" not in df.columns:
+        return None
+    today_ts = pd.Timestamp(TODAY_EAT)
+    today_rows = df[df.index == today_ts]
+    if today_rows.empty:
+        return None
+    val = today_rows["Volume"].iloc[-1]
+    if pd.isna(val) or val <= 0:
+        return None
+    volume = int(val)
+    (db.collection("companies").document(doc_id)
+        .collection("technicals").document(TODAY_EAT)
+        .set(
+            {
+                "date":         TODAY_EAT,
+                "volume":       volume,
+                "last_updated": _NOW_EAT.isoformat(),
+            },
+            merge=True,
+        )
+    )
+    return volume
+
+
 def push_company(company: dict, db) -> dict:
     """Read the scraped CSV and push a price-only update to Firestore."""
     safe = company["ticker"].replace(".", "_")   # used for CSV file lookup only
@@ -159,11 +194,17 @@ def push_company(company: dict, db) -> dict:
         "intraday_date":    TODAY_EAT,
     })
 
+    # Also write today's volume to the technicals subcollection so
+    # Most Active updates within the day. merge=True preserves the
+    # RSI/MACD/etc that inference writes at 18:30 EAT.
+    volume = _push_intraday_volume(db, doc_id, df)
+
     log.info(
-        "%-20s  price=%.4f  chg=%+.2f%%  pts=%d  intraday=%d",
+        "%-20s  price=%.4f  chg=%+.2f%%  pts=%d  intraday=%d  vol=%s",
         doc_id, current_price, change_pct, len(price_history), len(intraday_today),
+        f"{volume:,}" if volume else "—",
     )
-    return {"ticker": doc_id, "pushed": True, "price": current_price}
+    return {"ticker": doc_id, "pushed": True, "price": current_price, "volume": volume}
 
 
 def main() -> None:
