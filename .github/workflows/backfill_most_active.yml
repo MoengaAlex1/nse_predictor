@@ -1,0 +1,43 @@
+name: Backfill most_active into market_overview
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "market_overview doc id (blank = newest)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Skip Firestore writes"
+        required: false
+        default: "false"
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - run: pip install -r pipeline/requirements.txt
+
+      - name: Backfill most_active
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL:             ${{ secrets.FIREBASE_RTDB_URL }}
+          FIREBASE_STORAGE_BUCKET:       ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.date }}" ]; then
+            ARGS="$ARGS --date ${{ github.event.inputs.date }}"
+          fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python pipeline/scripts/backfill_most_active.py $ARGS
