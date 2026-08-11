@@ -7,6 +7,7 @@ import { Companies } from "./pages/Companies";
 import { CompanyDeepDive } from "./pages/CompanyDeepDive";
 import { InvestorDashboard } from "./pages/InvestorDashboard";
 import { InvestorChart } from "./pages/InvestorChart";
+import { Screener } from "./pages/Screener";
 
 export default function App() {
   useEffect(() => {
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/companies" element={<Companies />} />
         <Route path="/company/:ticker" element={<CompanyDeepDive />} />
+        <Route path="/screener" element={<Screener />} />
       </Route>
 
       <Route

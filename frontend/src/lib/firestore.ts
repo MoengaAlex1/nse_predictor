@@ -31,6 +31,24 @@ export async function fetchAllCompanies(): Promise<CompanyDoc[]> {
   return snap.docs.map((d) => normalizeCompany(d.id, d.data() as Omit<CompanyDoc, "id">));
 }
 
+// Batch collection fetches for the market screener. One round-trip per
+// collection instead of N per-doc requests. Rules already allow public
+// read on financials/ and fundamentals/.
+
+export async function fetchAllFinancials(): Promise<Map<string, FinancialsDoc>> {
+  const snap = await getDocs(collection(db, "financials"));
+  const out = new Map<string, FinancialsDoc>();
+  snap.docs.forEach((d) => out.set(d.id, d.data() as FinancialsDoc));
+  return out;
+}
+
+export async function fetchAllFundamentals(): Promise<Map<string, FundamentalsDoc>> {
+  const snap = await getDocs(collection(db, "fundamentals"));
+  const out = new Map<string, FundamentalsDoc>();
+  snap.docs.forEach((d) => out.set(d.id, d.data() as FundamentalsDoc));
+  return out;
+}
+
 export async function fetchCompany(safeTicker: string): Promise<CompanyDoc | null> {
   const ref = doc(db, "companies", safeTicker);
   const snap = await getDoc(ref);

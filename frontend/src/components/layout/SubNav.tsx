@@ -10,6 +10,7 @@ type SubNavLink = {
 const LINKS: SubNavLink[] = [
   { label: "Discover", to: "/" },
   { label: "Markets", to: "/companies" },
+  { label: "Screener", to: "/screener" },
   { label: "Portfolios", to: "/portfolios", disabled: true },
   { label: "Sectors", to: "/sectors", disabled: true },
 ];

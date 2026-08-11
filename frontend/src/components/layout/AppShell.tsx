@@ -11,10 +11,10 @@ import { SubNav } from "./SubNav";
 import { RecentTickersStrip } from "./RecentTickersStrip";
 
 const NAV_LINKS = [
-  { label: "Markets",  to: "/companies",  disabled: false },
-  { label: "Screener", to: "/companies",  disabled: false },
-  { label: "News",     to: "/companies",  disabled: false },
-  { label: "Calendar", to: "/companies",  disabled: true  },
+  { label: "Markets",  to: "/companies", disabled: false },
+  { label: "Screener", to: "/screener",  disabled: false },
+  { label: "News",     to: "/companies", disabled: true  },
+  { label: "Calendar", to: "/companies", disabled: true  },
 ];
 
 const navLinkCls = ({ isActive }: { isActive: boolean }) =>
