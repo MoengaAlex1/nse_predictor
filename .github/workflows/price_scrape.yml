@@ -97,6 +97,21 @@ jobs:
           cd $GITHUB_WORKSPACE
           python pipeline/scripts/push_intraday_prices.py 2>&1 | tee /tmp/push.log
 
+      # ── Step 3: Refresh market_overview.most_active from current volumes ─────
+      # Runs 5× per trading day (once per scrape) so the Home page's Most
+      # Active box tracks the day's actual transactions — SCOM at 09:00 EAT
+      # with 500K shares traded might slide down by 15:00 EAT after another
+      # ticker's block trade lands.
+      - name: Refresh Most Active by volume
+        if: ${{ github.event.inputs.skip_firestore_push != 'true' && github.event.inputs.backfill == '' }}
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          set -o pipefail
+          cd $GITHUB_WORKSPACE
+          python pipeline/scripts/backfill_most_active.py 2>&1 | tee /tmp/most_active.log
+
       # ── Artifacts ─────────────────────────────────────────────────────────────
       - name: Upload logs
         if: always()
@@ -106,6 +121,7 @@ jobs:
           path: |
             /tmp/scrape.log
             /tmp/push.log
+            /tmp/most_active.log
           retention-days: 7
 
       - name: Notify on failure
