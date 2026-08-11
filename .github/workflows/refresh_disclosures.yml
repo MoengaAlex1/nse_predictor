@@ -49,6 +49,17 @@ jobs:
           FIREBASE_STORAGE_BUCKET:       ${{ secrets.FIREBASE_STORAGE_BUCKET }}
         run: python pipeline/scripts/seed_curated_data.py
 
+      # 2b. Seed last-known VWAP prices from the NSE Daily Share Movements
+      # Excel (Sep 2023 sheet). Fills companies.last_known_price for the
+      # ~50 tickers whose intraday RTDB feed doesn't populate current_price,
+      # so the screener's Market Cap column computes for them.
+      - name: Seed last-known VWAP fallback prices
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL:             ${{ secrets.FIREBASE_RTDB_URL }}
+          FIREBASE_STORAGE_BUCKET:       ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: python pipeline/scripts/seed_last_vwap.py
+
       # 3. Scrape NSE announcements + dividends + corporate actions.
       # Merges by URL, so re-running is safe.
       - name: Refresh NSE disclosures

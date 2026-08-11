@@ -27,6 +27,13 @@ export interface CompanyDoc {
   last_updated: string | null;
   intraday_today?: IntradayPoint[];
   intraday_date?: string;
+  // Fallback price sourced from the NSE Daily Share Movements Excel
+  // (last available VWAP, populated by pipeline/scripts/seed_last_vwap.py).
+  // Used by the Screener / RightStatsRail as a Market-Cap fallback for
+  // tickers whose intraday RTDB feed hasn't populated a current_price.
+  last_known_price?: number | null;
+  last_known_price_as_of?: string | null;
+  last_known_price_source?: string | null;
 }
 
 export interface SnapshotDoc {

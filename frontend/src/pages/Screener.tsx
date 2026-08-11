@@ -19,6 +19,8 @@ type ScreenerRow = {
   color: string;
   icon: string;
   price: number | null;
+  priceIsFallback: boolean;
+  priceAsOf: string | null;
   changePct: number | null;
   signal: "BUY" | "HOLD" | "SELL" | null;
   eps: number | null;
@@ -35,7 +37,13 @@ function buildRow(
   fin: FinancialsDoc | undefined,
   fund: FundamentalsDoc | undefined,
 ): ScreenerRow {
-  const price = c.current_price ?? null;
+  // Live price wins; otherwise fall back to the last known VWAP so Market
+  // Cap still computes for tickers with a thin intraday feed. Flagged as
+  // stale in the UI via a chip so users know the source.
+  const livePrice = c.current_price ?? null;
+  const fallbackPrice = c.last_known_price ?? null;
+  const price = livePrice ?? fallbackPrice;
+  const priceIsFallback = livePrice == null && fallbackPrice != null;
   const changePct = c.change_pct_today ?? null;
   const sharesMn = fund?.shares_outstanding_mn ?? null;
   const marketCap = price != null && sharesMn != null ? price * sharesMn * 1_000_000 : null;
@@ -82,6 +90,8 @@ function buildRow(
     color: c.color,
     icon: c.icon,
     price,
+    priceIsFallback,
+    priceAsOf: priceIsFallback ? c.last_known_price_as_of ?? null : c.price_date ?? null,
     changePct,
     signal: c.signal,
     eps,
@@ -244,6 +254,9 @@ export const Screener: FC = () => {
         <h1 className="text-2xl font-bold text-ink">Market Screener</h1>
         <p className="mt-1 text-xs text-sub">
           {sorted.length} of {rows.length} companies · sort by any column · click a row for full detail
+          <span className="ml-2 text-hint">
+            (prices marked <span className="text-hint">*</span> are last-known VWAP for thinly-traded tickers)
+          </span>
         </p>
       </div>
 
@@ -329,7 +342,15 @@ export const Screener: FC = () => {
                       <span className="truncate">{r.sector || EM_DASH}</span>
                     </td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums text-ink">
-                      {r.price != null ? fmtPrice(r.price) : EM_DASH}
+                      {r.price != null ? (
+                        <span
+                          className={r.priceIsFallback ? "text-hint" : ""}
+                          title={r.priceIsFallback && r.priceAsOf ? `Last known price as of ${r.priceAsOf}` : undefined}
+                        >
+                          {fmtPrice(r.price)}
+                          {r.priceIsFallback && <span className="ml-1 text-[9px] text-hint">*</span>}
+                        </span>
+                      ) : EM_DASH}
                     </td>
                     <td className={`px-3 py-2 text-right font-mono tabular-nums font-semibold ${trendClass(r.changePct)}`}>
                       {r.changePct != null ? `${arrow(r.changePct >= 0)} ${fmtPct(r.changePct)}` : EM_DASH}
