@@ -50,17 +50,41 @@ sys.path.insert(0, str(PIPELINE_ROOT))
 
 UA_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0"}
 
-# Corporate action line regex. Tolerates lots of OCR quirks:
-# extra whitespace, missing colons, Kes vs KES, "Book" vs "Books", etc.
+# Corporate action line regex — very forgiving, built from observed OCR
+# output. The bulletins use ";" as field separator (not ":"), OCR frequently
+# misreads "Plc" as "Ple"/"Pic", and layout can interleave table cells like
+# "Total Deals" between records. So we anchor on the highly-specific fields
+# (KE-ISIN → announced → dividend → dates) and tolerate arbitrary text
+# between them.
+#
+# Also allow line breaks anywhere via re.DOTALL — the OCR wraps a single
+# logical row across up to 3 output lines.
+_DATE = r"(\d{1,2}-[A-Za-z]{3}-\d{2,4})"
+_STATUS = r"(?:SUBJECT\s+TO\s+APPROVAL|N/A|-)"
+
 CORP_ACTION_RE = re.compile(
-    r"(?P<name>[A-Za-z][\w\s.,&()\-']+?)\s*(?:Ord|Ord\.|Ord[a-z]*)\s*\d[\d.]*[A-Z]*\s*;\s*"
-    r"(?P<isin>KE\d{10,12}|)\s*;\s*"
-    r"announced\s+a\s+(?P<type>Final|Interim|Special|First\s*&\s*Final|First\s*and\s*Final|Total|Scrip|Bonus|Preference)\s+(?:and\s+\w+\s+)?Dividend\s+of\s+"
-    r"Kes\.?\s*(?P<amount>\d+(?:\.\d+)?)\s+"
-    r"on\s+(?P<ann_date>\d{1,2}-[A-Za-z]{3}-\d{2,4})\s*[;.,]?\s*"
-    r"Books?\s+Closure\s*:?\s*(?P<ex_date>\d{1,2}-[A-Za-z]{3}-\d{2,4}|SUBJECT\s+TO\s+APPROVAL|-|N/A)?\s*[;.,]?\s*"
-    r"Payment\s+date\s*:?\s*(?P<pay_date>\d{1,2}-[A-Za-z]{3}-\d{2,4}|SUBJECT\s+TO\s+APPROVAL|-|N/A)?",
-    re.IGNORECASE,
+    # Company name — anything up to Ord/Ord.
+    r"(?P<name>[A-Za-z][\w\s.,&()\-'/]+?)\s*(?:Ord|Ord\.|Ord[a-z]{0,4})\s*[\d.]+\s*[A-Za-z]{0,4}\s*[;:,]\s*"
+    # ISIN — sometimes lowercased, may have OCR artifacts
+    r"(?P<isin>[Kk][Ee]\d{6,12})\s*[;:,]\s*"
+    # "announced a/an ... Dividend"
+    r"announced\s+an?\s+(?P<type>[A-Za-z][A-Za-z\s&]{2,40}?)\s+Dividend"
+    # Optional "and Special Dividend" trailing
+    r"(?:[^K]{0,80}?)"
+    r"\s+of\s+Kes\.?\s*"
+    r"(?P<amount>\d+(?:\.\d+)?)"
+    # Everything up to announcement date
+    r"[^0-9]{0,60}?"
+    r"on\s+(?P<ann_date>" + _DATE + r")"
+    # Loose gap — bulletins put "Books Closure;" or "Books Closure:"
+    r"[^0-9]{0,120}?"
+    r"[Bb]ooks?\s*Closure\s*[;:,]?\s*"
+    r"(?P<ex_date>" + _DATE + r"|" + _STATUS + r")"
+    # Loose gap to Payment date
+    r"[^0-9]{0,120}?"
+    r"[Pp]ayment\s+date\s*[;:,]?\s*"
+    r"(?P<pay_date>" + _DATE + r"|" + _STATUS + r")",
+    re.IGNORECASE | re.DOTALL,
 )
 
 _MONTH_MAP = {m: i for i, m in enumerate(
@@ -142,15 +166,22 @@ def ocr_bulletin(pdf_bytes: bytes) -> str:
 # ---------------------------------------------------------------------------
 
 def extract_actions(text: str) -> list[dict]:
-    # First isolate the CORPORATE ACTIONS block if present — reduces false
-    # positives from the market-summary section.
+    # First isolate the CORPORATE ACTIONS block if present. NSE puts it in
+    # the middle of the bulletin with market-summary table cells interleaved
+    # into the OCR output — narrowing the search reduces both false positives
+    # and the amount of noise the regex has to skip over.
     lower = text.lower()
     idx = lower.find("corporate action")
-    block = text[idx:] if idx >= 0 else text
-    # Cut off before next section header if any (LIABILITIES, TRANSACTION, etc.)
-    for stopper in ["LIABILITIES", "TRANSACTIONS SUMMARY", "MARKET STATISTICS", "END OF DAY"]:
-        j = block.upper().find(stopper)
-        if j > 0:
+    if idx < 0:
+        return []
+    block = text[idx:]
+    # Cut off at the trailing footer / disclaimer to avoid junk matches.
+    for stopper in [
+        "SECURITIES LENDING", "DISCLAIMER", "The Trades & Turnover",
+        "Represents Quotes", "LIABILITIES", "TRANSACTIONS SUMMARY",
+    ]:
+        j = block.upper().find(stopper.upper())
+        if j > 100:  # keep at least first 100 chars (which is just the header)
             block = block[:j]
 
     out = []
