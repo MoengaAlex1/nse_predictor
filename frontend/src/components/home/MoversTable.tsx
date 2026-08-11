@@ -14,8 +14,12 @@ const HEADERS: Record<Props["type"], string> = {
   active:  "Most Active",
 };
 
+// market_overview.top_gainers[].ticker is the BARE ticker ("CGEN"), but
+// company.ticker carries the ".NR" display suffix ("CGEN.NR"). Key the
+// lookup by c.id (which is the bare Firestore doc id) so the lookup
+// actually hits. Same fix as needed in TickerTape.
 function getRows(type: Props["type"], market: MarketOverviewDoc, companies: CompanyDoc[]): CompanyDoc[] {
-  const companyMap = new Map(companies.map(c => [c.ticker, c]));
+  const companyMap = new Map(companies.map(c => [c.id, c]));
   if (type === "gainers") {
     return market.top_gainers.slice(0, 5).map(g => companyMap.get(g.ticker)).filter((c): c is CompanyDoc => c != null);
   }

@@ -45,7 +45,10 @@ export const TickerTape: FC = () => {
 
   if (!market) return null;
 
-  const companyMap = new Map(companies.map(c => [c.ticker, c]));
+  // Key by c.id (bare ticker matching Firestore doc id) so the map matches
+  // market_overview.top_gainers[].ticker which is bare (no .NR suffix).
+  // Company.ticker carries the display .NR suffix so it wouldn't match.
+  const companyMap = new Map(companies.map(c => [c.id, c]));
   const gainers = market.top_gainers.slice(0, 5);
   const losers = market.top_losers.slice(0, 5);
 
