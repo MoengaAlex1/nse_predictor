@@ -73,12 +73,29 @@ USER_PROMPT = """
 Extract structured facts about this NSE-listed company from its
 investor-relations webpage. Use the record_ir_facts function. Rules:
 - Numbers: only report what appears on the page. Don't estimate.
-- Prefer null over inferred values.
+- Prefer null / empty arrays over inferred values.
 - URLs: only extract PDF links that clearly belong to annual reports,
   audited financial statements, integrated reports, or investor
   presentations. Ignore navigation links, terms & conditions, etc.
-- business_description: 1-3 concise sentences summarising what the
+- business_description: 2-4 concise sentences summarising what the
   company does — pull from any "About" section on the page.
+
+Investor-relations depth extraction (Phase 2 additions):
+- major_shareholders: top holders (usually 5-10) with stake_pct if the
+  page publishes a shareholder list. Skip anonymous nominee accounts
+  unless they aggregate ≥3%. type = strategic / institutional /
+  government / insider / retail / other.
+- board_of_directors: full list of directors with their role
+  (Chairperson / CEO / CFO / Independent Director / Non-Executive).
+  Include appointment_date only if the page states it explicitly.
+- business_segments: revenue by segment. If percentages aren't shown
+  but segment names are, list segments with revenue_pct = null.
+- geographic_exposure: revenue by country / region, same rule.
+- strategic_priorities: 3-6 short bullet points from the CEO letter,
+  strategy page, or "Vision & Mission" section.
+- awards: recent recognitions (last 3-5 years). Year + title + issuer.
+- credit_rating: agency (Moody's / Fitch / S&P / GCR) + rating string
+  (e.g. "B2") + outlook + as_of date if the page publishes one.
 """
 
 EXTRACTION_TOOL = {
@@ -111,6 +128,87 @@ EXTRACTION_TOOL = {
                         },
                         "required": ["title", "url", "kind"],
                     },
+                },
+                # ── Phase 2 IR-depth additions ──────────────────────────────
+                "major_shareholders": {
+                    "type": "array",
+                    "description": "Top 5-10 shareholders published on the page. Empty array if none listed.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name":     {"type": "string"},
+                            "stake_pct": {"type": ["number", "null"]},
+                            "type":     {"type": ["string", "null"], "enum": ["strategic", "institutional", "government", "retail", "insider", "other", None]},
+                        },
+                        "required": ["name"],
+                    },
+                },
+                "board_of_directors": {
+                    "type": "array",
+                    "description": "Full board / senior management if published. Empty if not.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name":            {"type": "string"},
+                            "role":            {"type": "string", "description": "Chairperson / CEO / CFO / Independent Director / Non-Executive"},
+                            "appointment_date": {"type": ["string", "null"], "description": "YYYY-MM-DD if the page states it"},
+                        },
+                        "required": ["name", "role"],
+                    },
+                },
+                "business_segments": {
+                    "type": "array",
+                    "description": "Revenue-generating business lines. If percentages missing, still list segment names with revenue_pct=null.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name":        {"type": "string"},
+                            "revenue_pct": {"type": ["number", "null"]},
+                            "description": {"type": ["string", "null"]},
+                        },
+                        "required": ["name"],
+                    },
+                },
+                "geographic_exposure": {
+                    "type": "array",
+                    "description": "Revenue by country/region. Same null-if-unknown rule.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "country":     {"type": "string"},
+                            "revenue_pct": {"type": ["number", "null"]},
+                        },
+                        "required": ["country"],
+                    },
+                },
+                "strategic_priorities": {
+                    "type": "array",
+                    "description": "3-6 short bullets from CEO letter / vision / mission / strategy page.",
+                    "items": {"type": "string"},
+                },
+                "awards": {
+                    "type": "array",
+                    "description": "Corporate recognitions/awards published on the page (last 3-5y).",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "year":   {"type": ["integer", "null"]},
+                            "title":  {"type": "string"},
+                            "issuer": {"type": ["string", "null"]},
+                        },
+                        "required": ["title"],
+                    },
+                },
+                "credit_rating": {
+                    "type": ["object", "null"],
+                    "description": "Sovereign/corporate credit rating if published.",
+                    "properties": {
+                        "agency":  {"type": "string", "description": "Moody's / Fitch / S&P / GCR"},
+                        "rating":  {"type": "string", "description": "e.g. B2, BB-, AA"},
+                        "outlook": {"type": ["string", "null"], "enum": ["positive", "stable", "negative", None]},
+                        "as_of":   {"type": ["string", "null"], "description": "YYYY-MM-DD"},
+                    },
+                    "required": ["agency", "rating"],
                 },
                 "extraction_confidence": {"type": "string", "enum": ["high", "medium", "low"]},
                 "notes":                 {"type": "string"},
@@ -214,6 +312,12 @@ def extract_via_nvidia(client, text: str, discovered_pdfs: list[dict]) -> dict |
 # ---------------------------------------------------------------------------
 
 def write_enrichment(db, ticker: str, parsed: dict, discovered_pdfs: list[dict], dry_run: bool) -> dict:
+    # Enforce the short-form primary key (SCOM), not "SCOM.NR" / "SCOM_NR".
+    # Legacy call sites might still pass a display form; coerce loudly.
+    from src.identity import is_short, short_from_display_ticker
+    if not is_short(ticker):
+        ticker = short_from_display_ticker(ticker)
+
     now = datetime.now(timezone.utc).isoformat()
     summary = {"companies": 0, "fundamentals": 0, "announcements_added": 0}
 
@@ -234,6 +338,16 @@ def write_enrichment(db, ticker: str, parsed: dict, discovered_pdfs: list[dict],
     for k in ("employees", "ceo", "chairperson", "industry", "address", "isin", "listing_date", "founded_year"):
         if parsed.get(k) is not None:
             fund_updates[k] = parsed[k]
+    # Phase 2 IR-depth fields — only write when non-empty so we don't
+    # clobber an earlier good run's data with an empty extraction.
+    for array_key in ("major_shareholders", "board_of_directors",
+                      "business_segments", "geographic_exposure",
+                      "strategic_priorities", "awards"):
+        val = parsed.get(array_key)
+        if isinstance(val, list) and len(val) > 0:
+            fund_updates[array_key] = val
+    if parsed.get("credit_rating"):
+        fund_updates["credit_rating"] = parsed["credit_rating"]
     # Only overwrite shares if the model returned one AND we don't already
     # have a curated one (curated = trusted).
     fund_snap = db.collection("fundamentals").document(ticker).get()

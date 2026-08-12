@@ -15,6 +15,11 @@ import { FinancialsValuationCard } from "../components/investor/FinancialsValuat
 import { TradingCard } from "../components/investor/TradingCard";
 import { ProfitabilityCard } from "../components/investor/ProfitabilityCard";
 import { FilingsPanel } from "../components/investor/FilingsPanel";
+import { CompanyProfileCard } from "../components/investor/CompanyProfileCard";
+import { OwnershipCard } from "../components/investor/OwnershipCard";
+import { LeadershipCard } from "../components/investor/LeadershipCard";
+import { BusinessMixCard } from "../components/investor/BusinessMixCard";
+import { StrategyCard } from "../components/investor/StrategyCard";
 import { AnnualFinancialsTable } from "../components/investor/AnnualFinancialsTable";
 import { DividendHistoryChart } from "../components/investor/DividendHistoryChart";
 import { DividendYieldTimeline } from "../components/investor/DividendYieldTimeline";
@@ -112,6 +117,25 @@ export const InvestorDashboard = () => {
               <PriceAreaChart data={visible} color={company?.color ?? "rgb(var(--accent))"} />
             </div>
           </div>
+
+          {company && (
+            <CompanyProfileCard company={company} fundamentals={fundamentals} />
+          )}
+
+          {/* ── Investor-relations depth ────────────────────────────────────
+              All four cards read from fundamentals/{short}, populated by
+              pipeline/scripts/enrich_from_ir_pages.py's Phase-2 NVIDIA
+              schema (major_shareholders, board_of_directors,
+              business_segments, geographic_exposure, strategic_priorities,
+              awards). Empty-state cards render helpful "populates once IR
+              pipeline runs" messaging for tickers not yet enriched.
+          */}
+          <div className="grid gap-3 md:grid-cols-2">
+            <OwnershipCard fundamentals={fundamentals} />
+            <LeadershipCard fundamentals={fundamentals} />
+          </div>
+          <BusinessMixCard fundamentals={fundamentals} />
+          <StrategyCard fundamentals={fundamentals} />
 
           <QuickCompareRow ticker={ticker} sector={company?.sector ?? null} />
 

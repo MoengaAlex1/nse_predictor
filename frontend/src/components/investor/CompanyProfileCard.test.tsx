@@ -35,7 +35,9 @@ describe("CompanyProfileCard", () => {
   it("renders the company name and sector", () => {
     render(<CompanyProfileCard company={BASE_COMPANY} />);
     expect(screen.getByText("Co-operative Bank")).toBeInTheDocument();
-    expect(screen.getByText("Banking")).toBeInTheDocument();
+    // Sector appears inline with the profile subheader ("About COOP · Banking")
+    // when there's no IR-extracted industry to prefer.
+    expect(screen.getByText(/Banking/)).toBeInTheDocument();
   });
 
   it("shows CEO and headquarters from static profile", () => {
@@ -51,8 +53,8 @@ describe("CompanyProfileCard", () => {
     expect(dashes.length).toBeGreaterThan(0);
   });
 
-  it("truncates description longer than 220 chars and shows Read more button", () => {
-    const long = "A".repeat(250);
+  it("truncates description longer than TRUNCATE_LEN chars and shows Read more button", () => {
+    const long = "A".repeat(400);
     render(<CompanyProfileCard company={{ ...BASE_COMPANY, description: long }} />);
     expect(screen.getByRole("button", { name: /read more/i })).toBeInTheDocument();
     expect(screen.queryByText(long)).not.toBeInTheDocument();
@@ -60,7 +62,7 @@ describe("CompanyProfileCard", () => {
 
   it("expands description when Read more is clicked", async () => {
     const user = userEvent.setup();
-    const long = "A".repeat(250);
+    const long = "A".repeat(400);
     render(<CompanyProfileCard company={{ ...BASE_COMPANY, description: long }} />);
     await user.click(screen.getByRole("button", { name: /read more/i }));
     expect(screen.getByText(long)).toBeInTheDocument();

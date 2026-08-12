@@ -41,6 +41,14 @@ export interface CompanyDoc {
   price_updated_at?: string | null;   // ISO 8601 with EAT (+03:00) offset
   price_source?: "nse_ajax" | "kenyanstocks" | "afx" | "stooq" | "yfinance" | "unknown" | null;
   price_is_live?: boolean | null;
+
+  // IR-extracted profile fields (populated by pipeline/scripts/
+  // enrich_from_ir_pages.py via NVIDIA function-calling).
+  // The pipeline writes some to companies/{short} (below) and some to
+  // fundamentals/{short}. The UI reads both and prefers the freshest.
+  ceo?: string | null;
+  employees?: number | null;
+  ir_enriched_at?: string | null;
 }
 
 export interface SnapshotDoc {
@@ -209,6 +217,50 @@ export interface FundamentalsDoc {
   enterprise_value_kes_bn: number | null;
   employees: number | null;
   estimates: FundamentalsEstimate[];
+  // IR-extracted profile fields (from pipeline/scripts/enrich_from_ir_pages.py).
+  // These live on fundamentals/{short} rather than companies/{short} because
+  // they are analytical / registry-level facts, not the compact CompanyDoc
+  // header used by every card. UI aggregates both docs for the ProfileCard.
+  ceo?: string | null;
+  chairperson?: string | null;
+  industry?: string | null;
+  address?: string | null;
+  isin?: string | null;
+  listing_date?: string | null;
+  founded_year?: number | null;
+  ir_enriched_at?: string | null;
+  // Phase 2 additions — populated by the extended NVIDIA tool schema.
+  major_shareholders?: {
+    name: string;
+    stake_pct: number | null;
+    type?: "strategic" | "institutional" | "government" | "retail" | "insider" | "other";
+  }[];
+  board_of_directors?: {
+    name: string;
+    role: string;              // "Chairperson" | "CEO" | "CFO" | "Independent Director" ...
+    appointment_date?: string | null;
+  }[];
+  business_segments?: {
+    name: string;
+    revenue_pct?: number | null;
+    description?: string | null;
+  }[];
+  geographic_exposure?: {
+    country: string;
+    revenue_pct?: number | null;
+  }[];
+  strategic_priorities?: string[];
+  awards?: {
+    year: number | null;
+    title: string;
+    issuer?: string | null;
+  }[];
+  credit_rating?: {
+    agency: string;
+    rating: string;
+    outlook?: "positive" | "stable" | "negative" | null;
+    as_of?: string | null;
+  } | null;
 }
 
 export interface NewsItem {
