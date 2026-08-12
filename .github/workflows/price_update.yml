@@ -1,16 +1,35 @@
-name: Hourly NSE Price Update
+name: End-of-Day NSE PDF → RTDB
+
+# Runs AFTER the NSE daily equity statistics PDF is published (~15:30 EAT).
+# Fires hourly from 16:00 → 19:00 EAT so if NSE publishes late (they often
+# do) a later slot will pick it up. The scrape+push_to_rtdb chain is
+# idempotent — once one slot succeeds, later slots just re-write the same
+# values with no harm.
+#
+# This is the ONLY writer to Firebase RTDB at `prices/{short}/{date}`. The
+# frontend reads historical prices from RTDB (useHistoricalPrices,
+# useCompareSeries), so this workflow keeps that data fresh. Do NOT retire
+# it — the Firestore-based price_scrape.yml handles intraday snapshots but
+# does not populate RTDB.
+#
+# Previous schedule (every 30 min from 09:00–15:00 EAT) generated ~12
+# guaranteed 404s per day because NSE's daily PDF doesn't exist until after
+# 15:00 close. New schedule keeps only slots where the PDF actually exists.
 
 on:
   schedule:
-    # Every 30 min from 09:00–15:00 EAT (06:00–12:00 UTC) Mon–Fri
-    - cron: "0,30 6,7,8,9,10,11 * * 1-5"  # 06:00–11:30 UTC = 09:00–14:30 EAT
-    - cron: "0 12 * * 1-5"                  # 12:00 UTC = 15:00 EAT
+    # 16:00, 17:00, 18:00, 19:00 EAT (13:00–16:00 UTC), Mon–Fri
+    - cron: "0 13-16 * * 1-5"
   workflow_dispatch:
     inputs:
       date:
         description: "Date to scrape YYYY-MM-DD (blank = today)"
         required: false
         default: ""
+
+concurrency:
+  group: nse-eod-pdf-rtdb
+  cancel-in-progress: false
 
 jobs:
   scrape:
