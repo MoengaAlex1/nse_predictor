@@ -5,6 +5,7 @@ import { useCompanies } from "../../hooks/useCompanies";
 import { useWatchlist } from "../../hooks/useWatchlist";
 import { useMarketOverview } from "../../hooks/useMarket";
 import { fmtPrice, fmtPct, trendClass, EM_DASH } from "../../lib/format";
+import { shortFromDisplayTicker } from "../../lib/identity";
 import type { CompanyDoc } from "../../types";
 
 // Tiny inline sparkline drawn from CompanyDoc.price_preview (7-day array
@@ -65,9 +66,12 @@ export const LeftWatchlistRail: FC = () => {
   const { tickers: watchlistTickers, isAuthenticated } = useWatchlist();
   const { data: market } = useMarketOverview();
 
-  const companyMap = new Map(companies.map((c) => [c.ticker.toUpperCase(), c]));
+  // Post primary-key refactor: companyMap keys are always the short form
+  // (c.id === c.short). Watchlist entries stored in legacy "SCOM.NR" form
+  // get coerced by shortFromDisplayTicker() so old bookmarks still resolve.
+  const companyMap = new Map(companies.map((c) => [c.id, c]));
   const watchlist = watchlistTickers
-    .map((t) => companyMap.get(t.toUpperCase()))
+    .map((t) => companyMap.get(shortFromDisplayTicker(t)))
     .filter((c): c is CompanyDoc => !!c);
 
   const suggestedTickers = market
@@ -76,9 +80,10 @@ export const LeftWatchlistRail: FC = () => {
         ...market.top_losers.slice(0, 3).map((l) => l.ticker),
       ]
     : [];
+  const watchlistIds = new Set(watchlistTickers.map((t) => shortFromDisplayTicker(t)));
   const suggested = suggestedTickers
-    .filter((t) => !watchlistTickers.includes(t.toUpperCase()))
-    .map((t) => companyMap.get(t.toUpperCase()))
+    .filter((t) => !watchlistIds.has(shortFromDisplayTicker(t)))
+    .map((t) => companyMap.get(shortFromDisplayTicker(t)))
     .filter((c): c is CompanyDoc => !!c)
     .slice(0, 6);
 

@@ -9,15 +9,27 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, MarketOverviewDoc, EventsDoc, CorporateEvent, FinancialsDoc, MacroDoc, IntradayPoint, FundamentalsDoc, NewsItem } from "../types";
+import { isShort, shortFromDisplayTicker } from "./identity";
 
 // Firestore omits fields that were never written rather than storing an
 // explicit null, so raw doc data can carry `undefined` for fields CompanyDoc
 // types as `X | null`. Normalize at this boundary so every consumer can rely
 // on the type: absent means null, never undefined.
-function normalizeCompany(id: string, data: Omit<CompanyDoc, "id">): CompanyDoc {
+//
+// Post 2026-08 primary-key refactor: `id` MUST be the short form ("SCOM"),
+// never "SCOM.NR" / "SCOM_NR". If a legacy doc slips through we coerce it
+// so downstream Map lookups stay consistent — but the migration script
+// (pipeline/scripts/migrate_to_short_keys.py) should have cleaned this up
+// at the source.
+function normalizeCompany(rawId: string, data: Omit<CompanyDoc, "id">): CompanyDoc {
+  const id = isShort(rawId) ? rawId : shortFromDisplayTicker(rawId);
   return {
     ...data,
     id,
+    // Some legacy docs also carry a mismatched `short` field from an older
+    // seeder. Trust `id` (which we just normalized) as the canonical primary
+    // key and re-derive `short` from it.
+    short: id,
     current_price: data.current_price ?? null,
     change_pct_today: data.change_pct_today ?? null,
     signal: data.signal ?? null,

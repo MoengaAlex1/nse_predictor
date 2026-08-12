@@ -1,5 +1,6 @@
 import type { FC } from "react";
 import { Link } from "react-router-dom";
+import { shortFromDisplayTicker } from "../../lib/identity";
 import type { CompanyDoc, MarketOverviewDoc } from "../../types";
 
 type Props = {
@@ -59,7 +60,7 @@ function getRowsWithSource(
   if (market.most_active && market.most_active.length > 0) {
     const companyMap = new Map(companies.map(c => [c.id, c]));
     const rows = market.most_active
-      .map(a => companyMap.get(a.ticker))
+      .map(a => companyMap.get(shortFromDisplayTicker(a.ticker)))
       .filter((c): c is CompanyDoc => c != null);
     if (rows.length > 0) return { rows, fallback: false };
   }

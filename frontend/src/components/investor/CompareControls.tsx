@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import type { FC } from "react";
 import { useCompanies } from "../../hooks/useCompanies";
 import { fmtPct, arrow, trendClass } from "../../lib/format";
+import { shortFromDisplayTicker } from "../../lib/identity";
 import type { CompanyDoc } from "../../types";
 
 const XIcon = () => (
@@ -84,11 +85,14 @@ export const CompareControls: FC<CompareControlsProps> = ({
   const { data: companies = [] } = useCompanies();
 
   const atCap = compareTickers.length >= maxCompare;
+  // Post primary-key refactor: exclude by short-form id ("SCOM"), not the
+  // display ticker. Any of primary.ticker / compareTickers can arrive in
+  // either form ("SCOM" or "SCOM.NR") — shortFromDisplayTicker normalises.
   const excluded = new Set([
-    primary.ticker.toUpperCase(),
-    ...compareTickers.map((t) => t.toUpperCase()),
+    shortFromDisplayTicker(primary.ticker),
+    ...compareTickers.map(shortFromDisplayTicker),
   ]);
-  const eligible = companies.filter((c) => !excluded.has(c.ticker.toUpperCase()));
+  const eligible = companies.filter((c) => !excluded.has(c.id));
 
   const results = query.trim()
     ? eligible
@@ -101,7 +105,7 @@ export const CompareControls: FC<CompareControlsProps> = ({
           );
         })
         .slice(0, 6)
-    : suggested.filter((c) => !excluded.has(c.ticker.toUpperCase())).slice(0, 6);
+    : suggested.filter((c) => !excluded.has(c.id)).slice(0, 6);
 
   useEffect(() => {
     if (!open) return;

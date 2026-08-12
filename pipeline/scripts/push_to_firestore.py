@@ -1,33 +1,61 @@
 import os
+import logging
 from datetime import date, timedelta
 import firebase_admin
 from firebase_admin import storage as fb_storage
 
 from pipeline.scripts.firebase_client import get_firestore as _get_firestore
+from pipeline.src.identity import is_short, short_from_display_ticker, InvalidCompanyKeyError
+
+log = logging.getLogger(__name__)
 
 
 def get_db():
     return _get_firestore()
 
 
+def _normalize_or_warn(ticker: str, caller: str) -> str:
+    """
+    Enforce that every companies-collection doc-id is the short form.
+
+    If the caller hands us a legacy "SCOM.NR" / "SCOM_NR", we log a warning
+    and coerce to short — so partial refactors don't silently write to the
+    wrong key. Truly malformed ids raise loudly.
+    """
+    if is_short(ticker):
+        return ticker
+    try:
+        coerced = short_from_display_ticker(ticker)
+    except InvalidCompanyKeyError:
+        log.error("%s: refusing to write to non-short doc-id %r (unrecoverable)",
+                  caller, ticker)
+        raise
+    log.warning("%s: coerced non-short doc-id %r -> %r (please fix caller)",
+                caller, ticker, coerced)
+    return coerced
+
+
 def write_snapshot(db, ticker: str, date_str: str, data: dict) -> None:
+    tkr = _normalize_or_warn(ticker, "write_snapshot")
     (db.collection("companies")
-       .document(ticker)
+       .document(tkr)
        .collection("snapshots")
        .document(date_str)
        .set(data))
 
 
 def write_technicals(db, ticker: str, date_str: str, data: dict) -> None:
+    tkr = _normalize_or_warn(ticker, "write_technicals")
     (db.collection("companies")
-       .document(ticker)
+       .document(tkr)
        .collection("technicals")
        .document(date_str)
        .set(data))
 
 
 def update_company_public(db, ticker: str, data: dict) -> None:
-    db.collection("companies").document(ticker).set(data, merge=True)
+    tkr = _normalize_or_warn(ticker, "update_company_public")
+    db.collection("companies").document(tkr).set(data, merge=True)
 
 
 def prune_old_docs(db, ticker: str, subcollection: str, keep_days: int = 90) -> int:

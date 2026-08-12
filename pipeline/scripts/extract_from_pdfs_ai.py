@@ -471,6 +471,9 @@ def _extract_one(client, engine: str, pdf_path: Path) -> dict | None:
 
 
 def _write_annual_and_fundamentals(db, ticker: str, existing: dict, parsed: dict) -> None:
+    from src.identity import is_short, short_from_display_ticker
+    if not is_short(ticker):
+        ticker = short_from_display_ticker(ticker)
     doc_ref = db.collection("financials").document(ticker)
     annual_row = {
         "period":            parsed.get("period"),
@@ -516,6 +519,9 @@ def process_ticker_annual(
     """Process either the single most-recent annual PDF (default) or every
     financial-result PDF the scraper has seen for this ticker. Returns the
     number of PDFs successfully extracted."""
+    from src.identity import is_short, short_from_display_ticker
+    if not is_short(ticker):
+        ticker = short_from_display_ticker(ticker)
     doc_ref = db.collection("financials").document(ticker)
     snap = doc_ref.get()
     existing = snap.to_dict() if snap.exists else {}
@@ -572,6 +578,9 @@ def process_ticker_annual(
 def process_ticker_dividends(client, db, ticker: str, tmpdir: Path, dry_run: bool, engine: str = "regex") -> int:
     """Fill in amount_kes + ex_date + payment_date for dividend records that
     only have URL + title. Returns count of records updated."""
+    from src.identity import is_short, short_from_display_ticker
+    if not is_short(ticker):
+        ticker = short_from_display_ticker(ticker)
     doc_ref = db.collection("financials").document(ticker)
     snap = doc_ref.get()
     if not snap.exists:

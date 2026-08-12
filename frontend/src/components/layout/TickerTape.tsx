@@ -3,6 +3,7 @@ import type { FC } from "react";
 import { Link } from "react-router-dom";
 import { useMarketOverview } from "../../hooks/useMarket";
 import { useCompanies } from "../../hooks/useCompanies";
+import { shortFromDisplayTicker } from "../../lib/identity";
 import type { CompanyDoc } from "../../types";
 
 // Inline logo for the tape — CompanyLogo "sm" size (h-8 w-8) is too large
@@ -45,9 +46,10 @@ export const TickerTape: FC = () => {
 
   if (!market) return null;
 
-  // Key by c.id (bare ticker matching Firestore doc id) so the map matches
-  // market_overview.top_gainers[].ticker which is bare (no .NR suffix).
-  // Company.ticker carries the display .NR suffix so it wouldn't match.
+  // Post primary-key refactor: c.id is guaranteed to be the short form
+  // ("SCOM"), and market_overview.top_gainers[].ticker is written by the
+  // pipeline as the same short form. shortFromDisplayTicker() is a defensive
+  // coercion in case a legacy market_overview doc still carries "SCOM.NR".
   const companyMap = new Map(companies.map(c => [c.id, c]));
   const gainers = market.top_gainers.slice(0, 5);
   const losers = market.top_losers.slice(0, 5);
@@ -66,7 +68,7 @@ export const TickerTape: FC = () => {
       <span className="text-hint" aria-hidden="true">|</span>
 
       {gainers.map(g => {
-        const c = companyMap.get(g.ticker);
+        const c = companyMap.get(shortFromDisplayTicker(g.ticker));
         return (
           <Link
             key={`${prefix}-g-${g.ticker}`}
@@ -83,7 +85,7 @@ export const TickerTape: FC = () => {
       <span className="text-hint" aria-hidden="true">|</span>
 
       {losers.map(l => {
-        const c = companyMap.get(l.ticker);
+        const c = companyMap.get(shortFromDisplayTicker(l.ticker));
         return (
           <Link
             key={`${prefix}-l-${l.ticker}`}

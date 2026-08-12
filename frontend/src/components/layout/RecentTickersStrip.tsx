@@ -4,6 +4,7 @@ import { useRecentTickers } from "../../hooks/useRecentTickers";
 import { useCompanies } from "../../hooks/useCompanies";
 import { useMarketOverview } from "../../hooks/useMarket";
 import { fmtPct, fmtPrice, arrow, trendClass } from "../../lib/format";
+import { shortFromDisplayTicker } from "../../lib/identity";
 import type { CompanyDoc } from "../../types";
 
 type ChipProps = {
@@ -52,7 +53,9 @@ export const RecentTickersStrip: FC = () => {
   const { data: companies = [] } = useCompanies();
   const { data: market } = useMarketOverview();
 
-  const companyMap = new Map(companies.map((c) => [c.ticker, c]));
+  // Post primary-key refactor: c.id is the short form. Recents may still
+  // be stored in legacy display form from old sessions, so coerce at lookup.
+  const companyMap = new Map(companies.map((c) => [c.id, c]));
 
   const suggestedSeed = market
     ? [
@@ -61,7 +64,8 @@ export const RecentTickersStrip: FC = () => {
       ]
     : [];
 
-  const suggested = suggestedSeed.filter((s) => !recents.includes(s.ticker));
+  const recentIds = new Set(recents.map(shortFromDisplayTicker));
+  const suggested = suggestedSeed.filter((s) => !recentIds.has(shortFromDisplayTicker(s.ticker)));
 
   return (
     <div className="sticky top-[88px] z-30 h-9 border-b border-seam bg-canvas/95 backdrop-blur">
@@ -71,7 +75,7 @@ export const RecentTickersStrip: FC = () => {
         </span>
 
         {recents.length > 0 &&
-          recents.map((t) => <Chip key={`r-${t}`} ticker={t} meta={companyMap.get(t)} />)}
+          recents.map((t) => <Chip key={`r-${t}`} ticker={t} meta={companyMap.get(shortFromDisplayTicker(t))} />)}
 
         {recents.length > 0 && suggested.length > 0 && (
           <span className="h-4 w-px shrink-0 bg-seam" aria-hidden="true" />
@@ -82,7 +86,7 @@ export const RecentTickersStrip: FC = () => {
         )}
 
         {suggested.slice(0, 6).map((s) => (
-          <Chip key={`s-${s.ticker}`} ticker={s.ticker} meta={companyMap.get(s.ticker)} pct={s.pct} />
+          <Chip key={`s-${s.ticker}`} ticker={s.ticker} meta={companyMap.get(shortFromDisplayTicker(s.ticker))} pct={s.pct} />
         ))}
       </div>
     </div>
