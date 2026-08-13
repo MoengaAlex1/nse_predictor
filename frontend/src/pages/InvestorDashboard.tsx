@@ -16,6 +16,7 @@ import { TradingCard } from "../components/investor/TradingCard";
 import { ProfitabilityCard } from "../components/investor/ProfitabilityCard";
 import { FilingsPanel } from "../components/investor/FilingsPanel";
 import { CompanyProfileCard } from "../components/investor/CompanyProfileCard";
+import { ReturnsCalculator } from "../components/investor/ReturnsCalculator";
 import { OwnershipCard } from "../components/investor/OwnershipCard";
 import { LeadershipCard } from "../components/investor/LeadershipCard";
 import { BusinessMixCard } from "../components/investor/BusinessMixCard";
@@ -121,6 +122,13 @@ export const InvestorDashboard = () => {
           {company && (
             <CompanyProfileCard company={company} fundamentals={fundamentals} />
           )}
+
+          <ReturnsCalculator
+            ticker={company?.short ?? ticker}
+            history={history}
+            financials={financials}
+            currentPrice={currentPrice}
+          />
 
           {/* ── Investor-relations depth ────────────────────────────────────
               All four cards read from fundamentals/{short}, populated by
