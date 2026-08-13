@@ -1118,9 +1118,10 @@ export const CompanyDeepDive: FC = () => {
     chartEnd,
   );
 
-  // Map RTDB data to PricePoint format (c = close price)
+  // Map RTDB data to PricePoint format (c = close price). Drop c<=0
+  // rows too — legacy RTDB fills render as vertical spikes to the axis.
   const rtdbHistory: PricePoint[] = rtdbPrices
-    .filter((p) => p.c !== null && p.c !== undefined)
+    .filter((p) => p.c !== null && p.c !== undefined && (p.c as number) > 0)
     .map((p) => ({ date: p.date, price: p.c as number }));
 
   // RTDB data filtered to the currently selected date range (for TechnicalChart)

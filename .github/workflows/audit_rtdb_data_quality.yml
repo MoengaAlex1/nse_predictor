@@ -1,0 +1,59 @@
+name: RTDB data-quality audit + purge
+
+# Manually-triggered audit of the prices/ RTDB subtree.
+# Default: report-only (no writes). Toggle inputs to purge bad rows.
+
+on:
+  workflow_dispatch:
+    inputs:
+      purge_zeros:
+        description: "Null out o/h/l/c on rows with non-positive prices"
+        required: false
+        default: "false"
+      purge_outliers:
+        description: "Null out decimal-shift outlier rows (≥10x vs 5-day median)"
+        required: false
+        default: "false"
+
+jobs:
+  audit:
+    name: Audit + optional purge
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install deps
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Run audit
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL:             ${{ secrets.FIREBASE_RTDB_URL }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -o pipefail
+          FLAGS=""
+          if [ "${{ github.event.inputs.purge_zeros }}" = "true" ]; then
+            FLAGS="$FLAGS --purge-zeros"
+          fi
+          if [ "${{ github.event.inputs.purge_outliers }}" = "true" ]; then
+            FLAGS="$FLAGS --purge-outliers"
+          fi
+          echo "Running: python pipeline/scripts/audit_rtdb_zeros.py $FLAGS"
+          python pipeline/scripts/audit_rtdb_zeros.py $FLAGS 2>&1 | tee /tmp/rtdb_audit.log
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rtdb-audit-${{ github.run_id }}
+          path: /tmp/rtdb_audit.log
+          retention-days: 30

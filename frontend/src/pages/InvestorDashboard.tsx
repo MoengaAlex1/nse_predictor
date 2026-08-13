@@ -67,7 +67,13 @@ export const InvestorDashboard = () => {
   const history: PricePoint[] = useMemo(
     () =>
       rtdbPrices
-        .filter((p) => p.c != null)
+        // `p.c > 0` is deliberate: RTDB has legacy rows with c=0 from
+        // pre-cleaner fills. Rendering them would draw vertical spikes
+        // down to the x-axis (as seen on SMER, KQ, etc.) even though the
+        // stock never actually traded at zero. Null-only filter isn't
+        // enough — Firebase RTDB coerces None -> null on read but 0 is
+        // preserved as-is.
+        .filter((p) => p.c != null && (p.c as number) > 0)
         .map((p) => ({ date: p.date, price: p.c as number })),
     [rtdbPrices],
   );

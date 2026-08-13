@@ -21,10 +21,35 @@ def _clean(val) -> float | None:
 
 
 _FIELDS = ("o", "h", "l", "c", "v", "pc", "ch", "pch", "vv")
+# Fields where 0 is a bug, not a valid value. Rendering a price=0 point on the
+# chart produces the vertical drops-to-axis we've seen on SMER, KQ, EGAD etc.
+# Change and volume fields are excluded — 0 is a valid "unchanged" or
+# "no-trades-today" value there.
+_PRICE_FIELDS = frozenset(("o", "h", "l", "c", "pc"))
 
 
 def _build_node(fields: dict) -> dict:
-    return {k: _clean(fields.get(k)) for k in _FIELDS}
+    """
+    Build a Firebase RTDB node from raw scraper fields. Price fields (o, h,
+    l, c, pc) are coerced to None when they land at zero or negative — every
+    zero we've traced back was either a fill-forward bug or a missing scrape,
+    never an actual trade. Non-price fields keep their zeros (v=0 means "no
+    trades today", ch=0 means "flat close" — both are valid data points).
+    """
+    out: dict = {}
+    for k in _FIELDS:
+        val = _clean(fields.get(k))
+        if val is not None and k in _PRICE_FIELDS and val <= 0:
+            # Loud on the write path so we can trace the offending caller
+            # instead of silently corrupting the series.
+            log.warning(
+                "_build_node: dropping non-positive price %s=%s (would render "
+                "as vertical spike on chart)",
+                k, val,
+            )
+            val = None
+        out[k] = val
+    return out
 
 
 def write_price_node(root_ref, ticker: str, date_str: str, fields: dict,

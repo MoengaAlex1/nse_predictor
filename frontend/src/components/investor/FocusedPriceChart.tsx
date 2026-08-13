@@ -83,7 +83,9 @@ export const FocusedPriceChart: FC<FocusedPriceChartProps> = ({
   }
 
   const points: FocusedPricePoint[] = data
-    .filter((p) => p.c != null)
+    // Drop c=0 rows too — legacy RTDB fills that would render vertical
+    // drop-to-axis spikes on the area chart.
+    .filter((p) => p.c != null && (p.c as number) > 0)
     .map((p) => ({
       date: p.date,
       price: p.c as number,

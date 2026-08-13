@@ -209,7 +209,9 @@ const GRID_COLOR = "rgba(255,255,255,0.06)";
 export const TechnicalChart: FC<Props> = ({ data, height = 480, chartType = "candles" }) => {
   const chartData = useMemo<ChartRow[]>(() => {
     const valid = data.filter(
-      (p) => p.o != null && p.h != null && p.l != null && p.c != null,
+      // Drop c<=0 rows to prevent legacy zero-fills rendering as vertical
+      // wick spikes down to the axis on the candlestick view.
+      (p) => p.o != null && p.h != null && p.l != null && p.c != null && (p.c as number) > 0,
     );
     const closes = valid.map((p) => p.c as number);
     const sma20 = computeSMA(closes, 20);

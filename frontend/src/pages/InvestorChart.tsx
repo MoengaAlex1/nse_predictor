@@ -184,7 +184,7 @@ export const InvestorChart = () => {
       short: primaryShort,
       color: primaryLineColor,
       points: visiblePrimary
-        .filter((p) => p.c != null)
+        .filter((p) => p.c != null && (p.c as number) > 0)
         .map((p) => ({ date: p.date, price: p.c as number })),
     };
     const compareLinesArr = compareResults.map((r, i) => {
