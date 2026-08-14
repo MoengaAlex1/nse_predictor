@@ -88,7 +88,7 @@ export const LeftWatchlistRail: FC = () => {
     .slice(0, 6);
 
   return (
-    <aside className="flex flex-col gap-4 rounded-xl border border-rim bg-surface p-3">
+    <aside className="hidden lg:flex flex-col gap-4 rounded-xl border border-rim bg-surface p-3">
       <section>
         <div className="mb-2 flex items-baseline justify-between px-1">
           <h2 className="text-[10px] font-semibold uppercase tracking-wider text-muted">

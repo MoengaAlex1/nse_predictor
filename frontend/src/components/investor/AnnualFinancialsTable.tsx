@@ -133,14 +133,17 @@ export const AnnualFinancialsTable: FC<Props> = ({ financials }) => {
         <table className="min-w-full text-xs">
           <thead>
             <tr className="border-b border-seam text-[10px] uppercase tracking-wider text-hint">
+              {/* Mobile shows Fiscal | Revenue | Net Income | EPS | DPS (5 cols).
+                  Tablet (sm) adds YoY on Revenue + NI. Desktop (md) reveals
+                  all YoY columns + BVPS. */}
               <th className="px-3 py-2 text-left font-semibold">Fiscal Year</th>
-              <th className="px-3 py-2 text-right font-semibold">Revenue (KES mn)</th>
-              <th className="px-3 py-2 text-right font-semibold">YoY</th>
+              <th className="px-3 py-2 text-right font-semibold">Revenue<span className="hidden sm:inline"> (KES mn)</span></th>
+              <th className="hidden sm:table-cell px-3 py-2 text-right font-semibold">YoY</th>
               <th className="px-3 py-2 text-right font-semibold">Net Income</th>
-              <th className="px-3 py-2 text-right font-semibold">YoY</th>
-              <th className="px-3 py-2 text-right font-semibold">EPS (KES)</th>
-              <th className="px-3 py-2 text-right font-semibold">YoY</th>
-              <th className="px-3 py-2 text-right font-semibold">BVPS</th>
+              <th className="hidden sm:table-cell px-3 py-2 text-right font-semibold">YoY</th>
+              <th className="px-3 py-2 text-right font-semibold">EPS<span className="hidden sm:inline"> (KES)</span></th>
+              <th className="hidden md:table-cell px-3 py-2 text-right font-semibold">YoY</th>
+              <th className="hidden md:table-cell px-3 py-2 text-right font-semibold">BVPS</th>
               <th className="px-3 py-2 text-right font-semibold">DPS</th>
             </tr>
           </thead>
@@ -154,22 +157,22 @@ export const AnnualFinancialsTable: FC<Props> = ({ financials }) => {
                 <td className="px-3 py-2 text-right font-mono tabular-nums text-ink">
                   {r.revenue != null ? fmtCompact(r.revenue) : EM_DASH}
                 </td>
-                <td className="px-3 py-2 text-right font-mono tabular-nums">
+                <td className="hidden sm:table-cell px-3 py-2 text-right font-mono tabular-nums">
                   <YoyPill v={r.revYoY} />
                 </td>
                 <td className="px-3 py-2 text-right font-mono tabular-nums text-ink">
                   {r.netIncome != null ? fmtCompact(r.netIncome) : EM_DASH}
                 </td>
-                <td className="px-3 py-2 text-right font-mono tabular-nums">
+                <td className="hidden sm:table-cell px-3 py-2 text-right font-mono tabular-nums">
                   <YoyPill v={r.niYoY} />
                 </td>
                 <td className="px-3 py-2 text-right font-mono tabular-nums text-ink">
                   {r.eps != null ? r.eps.toFixed(2) : EM_DASH}
                 </td>
-                <td className="px-3 py-2 text-right font-mono tabular-nums">
+                <td className="hidden md:table-cell px-3 py-2 text-right font-mono tabular-nums">
                   <YoyPill v={r.epsYoY} />
                 </td>
-                <td className="px-3 py-2 text-right font-mono tabular-nums text-sub">
+                <td className="hidden md:table-cell px-3 py-2 text-right font-mono tabular-nums text-sub">
                   {r.bvps != null ? r.bvps.toFixed(2) : EM_DASH}
                 </td>
                 <td className="px-3 py-2 text-right font-mono tabular-nums text-sub">

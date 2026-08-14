@@ -84,7 +84,7 @@ export const RightStatsRail: FC<RightStatsRailProps> = ({
   const exDivDate = lastExDivDate(financials);
 
   return (
-    <aside className="flex flex-col gap-4 rounded-xl border border-rim bg-surface p-4">
+    <aside className="hidden lg:flex flex-col gap-4 rounded-xl border border-rim bg-surface p-4">
       <div>
         <div className="mb-2 flex items-baseline justify-between">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">

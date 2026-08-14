@@ -15,7 +15,7 @@ export const TimeframeTabs: FC<TimeframeTabsProps> = ({ value, onChange }) => (
           key={tf}
           type="button"
           onClick={() => onChange(tf)}
-          className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+          className={`min-h-[36px] rounded-md px-3 py-1.5 text-xs font-semibold transition-colors sm:min-h-0 sm:px-2.5 sm:py-1 ${
             active
               ? "bg-accent text-white dark:bg-accent/20 dark:text-accent"
               : "text-muted hover:text-ink"

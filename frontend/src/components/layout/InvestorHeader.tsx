@@ -62,10 +62,12 @@ type InvestorHeaderProps = {
 
 export const InvestorHeader: FC<InvestorHeaderProps> = ({ onMobileMenuOpen }) => (
   <header className="sticky top-0 z-50 h-12 border-b border-seam bg-canvas/95 backdrop-blur">
-    <div className="mx-auto grid h-full max-w-[1600px] grid-cols-[auto_1fr_auto] items-center gap-4 px-4 sm:px-6 lg:px-8">
+    <div className="mx-auto grid h-full max-w-[1600px] grid-cols-[auto_1fr_auto] items-center gap-2 px-3 sm:gap-4 sm:px-6 lg:px-8">
       <NseLogo />
 
       <div className="flex justify-center">
+        {/* Wider max on desktop, but never let it hog the whole mobile
+            header — leaves room for the hamburger on 320px devices. */}
         <div className="w-full max-w-2xl">
           <GlobalSearch targetRoute="chart" />
         </div>

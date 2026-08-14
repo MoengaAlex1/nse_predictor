@@ -234,8 +234,11 @@ export const InvestorChart = () => {
   );
 
   return (
-    <div className="mx-auto max-w-[1600px] px-4 py-4 sm:px-6 lg:px-8">
-      <div className="grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)]">
+    <div className="mx-auto max-w-[1600px] px-3 py-4 sm:px-6 lg:px-8">
+      {/* LeftWatchlistRail hides itself under lg — see the aside's
+          `hidden lg:flex`. On mobile this collapses to a single column
+          so the chart takes the full viewport width. */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[240px_minmax(0,1fr)]">
         <LeftWatchlistRail />
 
         <div className="flex flex-col gap-3">

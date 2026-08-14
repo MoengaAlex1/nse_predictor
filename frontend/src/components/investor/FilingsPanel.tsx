@@ -284,25 +284,30 @@ const RowLine: FC<{ row: FilingRow }> = ({ row }) => {
       href={row.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="grid grid-cols-[92px_1fr_112px_78px_28px] items-center gap-2 px-4 py-2 text-xs transition-colors hover:bg-raised/60"
+      // Mobile: two-line card (title on top, meta row underneath) so the
+      // date + badge + source don't force horizontal scroll on 375 px.
+      // sm+: the original 5-col grid keeps the desktop density.
+      className="group flex flex-col gap-1 px-4 py-2.5 text-xs transition-colors hover:bg-raised/60 sm:grid sm:grid-cols-[92px_1fr_112px_78px_28px] sm:items-center sm:gap-2 sm:py-2"
     >
-      <span className="font-mono text-[10px] tabular-nums text-hint">
-        {row.date || "—"}
-      </span>
-      <span className="min-w-0 truncate text-sub group-hover:text-ink" title={row.title}>
+      <span className="min-w-0 truncate text-sub group-hover:text-ink sm:order-2" title={row.title}>
         {row.title}
       </span>
-      <span>
-        <span className={`inline-block max-w-[104px] truncate rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${badge.cls}`}>
-          {badge.label}
+      <div className="flex flex-wrap items-center gap-2 sm:contents">
+        <span className="font-mono text-[10px] tabular-nums text-hint sm:order-1">
+          {row.date || "—"}
         </span>
-      </span>
-      <span className="text-[10px] uppercase tracking-wider text-hint">
-        {row.source === "bulletin" ? "BULLETIN" : "NSE"}
-      </span>
-      <span className="justify-self-end text-hint hover:text-accent" title="Open PDF">
-        <ExtIcon />
-      </span>
+        <span className="sm:order-3">
+          <span className={`inline-block max-w-[104px] truncate rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${badge.cls}`}>
+            {badge.label}
+          </span>
+        </span>
+        <span className="text-[10px] uppercase tracking-wider text-hint sm:order-4">
+          {row.source === "bulletin" ? "BULLETIN" : "NSE"}
+        </span>
+        <span className="ml-auto text-hint group-hover:text-accent sm:order-5 sm:justify-self-end sm:ml-0" title="Open PDF">
+          <ExtIcon />
+        </span>
+      </div>
     </a>
   );
 };

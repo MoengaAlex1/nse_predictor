@@ -123,14 +123,21 @@ const HeaderCell: FC<{
   dir: "asc" | "desc";
   onSort: (k: SortKey) => void;
   numeric?: boolean;
-}> = ({ label, sortKey, activeKey, dir, onSort, numeric }) => {
+  /** Hide the header cell on the given breakpoint and below. Used to trim
+   *  the table down to essentials on phones without dropping data. */
+  hideBelow?: "sm" | "md" | "lg";
+}> = ({ label, sortKey, activeKey, dir, onSort, numeric, hideBelow }) => {
   const active = activeKey === sortKey;
+  const hideClass = hideBelow === "lg" ? "hidden lg:table-cell"
+                  : hideBelow === "md" ? "hidden md:table-cell"
+                  : hideBelow === "sm" ? "hidden sm:table-cell"
+                  : "";
   return (
     <th
       onClick={() => onSort(sortKey)}
       className={`cursor-pointer whitespace-nowrap px-3 py-2 text-[10px] font-semibold uppercase tracking-wider transition-colors hover:text-ink ${
         active ? "text-ink" : "text-muted"
-      } ${numeric ? "text-right" : "text-left"}`}
+      } ${numeric ? "text-right" : "text-left"} ${hideClass}`}
     >
       {label}
       <SortIcon dir={active ? dir : null} />
@@ -154,7 +161,7 @@ const SectorPill: FC<{ label: string; count: number; active: boolean; onClick: (
   <button
     type="button"
     onClick={onClick}
-    className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium transition-colors ${
+    className={`flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors sm:min-h-0 sm:py-1 ${
       active
         ? "border-accent bg-accent/10 text-accent"
         : "border-rim bg-raised text-sub hover:border-sub/40 hover:text-ink"
@@ -311,15 +318,19 @@ export const Screener: FC = () => {
             <table className="w-full text-sm">
               <thead className="border-b border-seam bg-raised/40">
                 <tr>
+                  {/* Mobile shows only: Ticker | Price | Δ | Signal (4 cols).
+                      Tablet (sm) adds Market Cap + Div Yield (6 cols).
+                      Desktop (md) adds Sector + EPS + P/E (9 cols).
+                      Widescreen (lg) reveals Shares (all 10 cols). */}
                   <HeaderCell label="Ticker" sortKey="ticker" activeKey={sortKey} dir={sortDir} onSort={handleSort} />
-                  <HeaderCell label="Sector" sortKey="sector" activeKey={sortKey} dir={sortDir} onSort={handleSort} />
+                  <HeaderCell label="Sector" sortKey="sector" activeKey={sortKey} dir={sortDir} onSort={handleSort} hideBelow="md" />
                   <HeaderCell label="Price" sortKey="price" activeKey={sortKey} dir={sortDir} onSort={handleSort} numeric />
                   <HeaderCell label="Δ Today" sortKey="changePct" activeKey={sortKey} dir={sortDir} onSort={handleSort} numeric />
-                  <HeaderCell label="Market Cap" sortKey="marketCapKes" activeKey={sortKey} dir={sortDir} onSort={handleSort} numeric />
-                  <HeaderCell label="Shares (Mn)" sortKey="sharesMn" activeKey={sortKey} dir={sortDir} onSort={handleSort} numeric />
-                  <HeaderCell label="EPS (TTM)" sortKey="eps" activeKey={sortKey} dir={sortDir} onSort={handleSort} numeric />
-                  <HeaderCell label="P/E" sortKey="pe" activeKey={sortKey} dir={sortDir} onSort={handleSort} numeric />
-                  <HeaderCell label="Div Yield" sortKey="divYieldPct" activeKey={sortKey} dir={sortDir} onSort={handleSort} numeric />
+                  <HeaderCell label="Market Cap" sortKey="marketCapKes" activeKey={sortKey} dir={sortDir} onSort={handleSort} numeric hideBelow="sm" />
+                  <HeaderCell label="Shares (Mn)" sortKey="sharesMn" activeKey={sortKey} dir={sortDir} onSort={handleSort} numeric hideBelow="lg" />
+                  <HeaderCell label="EPS (TTM)" sortKey="eps" activeKey={sortKey} dir={sortDir} onSort={handleSort} numeric hideBelow="md" />
+                  <HeaderCell label="P/E" sortKey="pe" activeKey={sortKey} dir={sortDir} onSort={handleSort} numeric hideBelow="md" />
+                  <HeaderCell label="Div Yield" sortKey="divYieldPct" activeKey={sortKey} dir={sortDir} onSort={handleSort} numeric hideBelow="sm" />
                   <HeaderCell label="Signal" sortKey="signal" activeKey={sortKey} dir={sortDir} onSort={handleSort} />
                 </tr>
               </thead>
@@ -338,7 +349,7 @@ export const Screener: FC = () => {
                         </div>
                       </Link>
                     </td>
-                    <td className="px-3 py-2 text-xs text-sub">
+                    <td className="hidden md:table-cell px-3 py-2 text-xs text-sub">
                       <span className="truncate">{r.sector || EM_DASH}</span>
                     </td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums text-ink">
@@ -355,19 +366,19 @@ export const Screener: FC = () => {
                     <td className={`px-3 py-2 text-right font-mono tabular-nums font-semibold ${trendClass(r.changePct)}`}>
                       {r.changePct != null ? `${arrow(r.changePct >= 0)} ${fmtPct(r.changePct)}` : EM_DASH}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-ink">
+                    <td className="hidden sm:table-cell px-3 py-2 text-right font-mono tabular-nums text-ink">
                       {r.marketCapKes != null ? fmtCompactKes(r.marketCapKes) : EM_DASH}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-sub">
+                    <td className="hidden lg:table-cell px-3 py-2 text-right font-mono tabular-nums text-sub">
                       {r.sharesMn != null ? fmtCompact(r.sharesMn) : EM_DASH}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-ink" title={r.epsPeriod ?? undefined}>
+                    <td className="hidden md:table-cell px-3 py-2 text-right font-mono tabular-nums text-ink" title={r.epsPeriod ?? undefined}>
                       {r.eps != null ? r.eps.toFixed(2) : EM_DASH}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-ink">
+                    <td className="hidden md:table-cell px-3 py-2 text-right font-mono tabular-nums text-ink">
                       {r.pe != null ? `${r.pe.toFixed(1)}×` : EM_DASH}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-emerald-500">
+                    <td className="hidden sm:table-cell px-3 py-2 text-right font-mono tabular-nums text-emerald-500">
                       {r.divYieldPct != null ? `${r.divYieldPct.toFixed(2)}%` : EM_DASH}
                     </td>
                     <td className="px-3 py-2">

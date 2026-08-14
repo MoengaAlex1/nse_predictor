@@ -108,10 +108,16 @@ export const ExDateCalendarStrip: FC<Props> = ({ financials }) => {
         </div>
       </div>
 
-      <div
-        className="mt-3 grid gap-0.5"
-        style={{ gridTemplateColumns: "repeat(13, minmax(0, 1fr))" }}
-      >
+      {/* 13-col strip is too dense at 375 px (~29 px per month). On
+          mobile we allow horizontal scroll and hint at overflow with a
+          min-width so months are readable. On sm+ the grid fits inline. */}
+      <div className="mt-3 -mx-1 overflow-x-auto px-1 sm:mx-0 sm:overflow-visible sm:px-0">
+        <div
+          className="grid gap-0.5"
+          style={{
+            gridTemplateColumns: "repeat(13, minmax(48px, 1fr))",
+          }}
+        >
         {months.map((mo) => {
           const isCurrent = mo.key === todayKey;
           const marks = markersByMonth.get(mo.key) ?? [];
@@ -143,6 +149,7 @@ export const ExDateCalendarStrip: FC<Props> = ({ financials }) => {
             </div>
           );
         })}
+        </div>
       </div>
 
       <p className="mt-2 text-[10px] text-hint">

@@ -91,8 +91,12 @@ export const InvestorDashboard = () => {
     currentPrice != null && previousClose != null ? currentPrice - previousClose : null;
 
   return (
-    <div className="mx-auto max-w-[1600px] px-4 py-4 sm:px-6 lg:px-8">
-      <div className="grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)_320px]">
+    <div className="mx-auto max-w-[1600px] px-3 py-4 sm:px-6 lg:px-8">
+      {/* Mobile: single column, rails hide themselves (see LeftWatchlistRail
+          + RightStatsRail — both `hidden lg:flex`). Previously the grid was
+          lg-only, so on <1024px the rails collapsed to full-width above the
+          main content and pushed price/charts below the fold. */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[240px_minmax(0,1fr)_320px]">
         <LeftWatchlistRail />
 
         <div className="flex flex-col gap-3">
