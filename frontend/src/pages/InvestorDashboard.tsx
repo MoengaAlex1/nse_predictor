@@ -166,7 +166,11 @@ export const InvestorDashboard = () => {
             <ScoreRadarPanel />
           </div>
 
-          <div className="grid gap-3 md:grid-cols-3">
+          {/* 6-card row: 2 cols on phones (3 rows tall) → 3 cols on tablet
+              (2 rows) → 3 cols on desktop. Previously used only md:grid-cols-3
+              which produced a 6-row single column on mobile — 3× the scroll
+              depth of the current 2×3 layout. */}
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3">
             <AnalystGaugeCard />
             <ModelTargetCard />
             <EarningsForecastCard />
