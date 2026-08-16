@@ -24,6 +24,7 @@ import { EarningsForecastCard } from "../components/investor/EarningsForecastCar
 import { FinancialsValuationCard } from "../components/investor/FinancialsValuationCard";
 import { PriceRangeCard } from "../components/investor/PriceRangeCard";
 import { PriceMoveBanner } from "../components/investor/PriceMoveBanner";
+import { RadarScoreCard } from "../components/investor/RadarScoreCard";
 import { FinancialsPanel } from "../components/FinancialsPanel";
 import { FinancialNarrativeCard } from "../components/FinancialNarrativeCard";
 import { DeepAnalysisPanel } from "../components/DeepAnalysisPanel";
@@ -1352,6 +1353,19 @@ export const CompanyDeepDive: FC = () => {
                 macro={macro}
               />
             )}
+
+            {/*
+              Fundamental radar — 5 axes (Valuation / Health / Earnings /
+              Growth / Performance) each 0–6. Placed here (between price
+              analysis and the numeric financials table) so it acts as a
+              visual bridge: the reader has just seen WHY the price moved
+              and is about to see the fiscals that underpin the scores.
+            */}
+            <RadarScoreCard
+              company={company}
+              financials={financials}
+              currentPrice={bannerCurrent}
+            />
 
             {/* Valuation, financials, filings, news, AI signal */}
             <ValuationPanel
