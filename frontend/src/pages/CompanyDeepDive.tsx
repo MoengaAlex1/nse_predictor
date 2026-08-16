@@ -32,14 +32,23 @@ import { MarketQuotePanel } from "../components/MarketQuotePanel";
 import { NewsPriceChart } from "../components/charts/NewsPriceChart";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type RangeKey = "1D" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL" | "Custom";
+type RangeKey =
+  | "1D" | "5D" | "1M" | "3M" | "6M" | "YTD"
+  | "1Y" | "3Y" | "5Y" | "ALL" | "Custom";
+
+// Order mirrors MSN Money's ticker page (1D · 5D · 1M · 3M · YTD · 1Y · 3Y · 5Y ·
+// Max) with our extra 6M / ALL / Custom slotted where they fit naturally.
+// 5D uses 5 calendar days (≈ 5 trading days on NSE where sessions are M-F);
+// 3Y uses 3 * 365 = 1095, matching the pattern the existing 5Y already uses.
 const PRESETS: { label: RangeKey; days: number | null }[] = [
   { label: "1D",     days: 1    },
+  { label: "5D",     days: 5    },
   { label: "1M",     days: 30   },
   { label: "3M",     days: 90   },
   { label: "6M",     days: 180  },
   { label: "YTD",    days: -1   },
   { label: "1Y",     days: 365  },
+  { label: "3Y",     days: 1095 },
   { label: "5Y",     days: 1825 },
   { label: "ALL",    days: null },
   { label: "Custom", days: null },
@@ -1200,11 +1209,13 @@ export const CompanyDeepDive: FC = () => {
 
   const rangeLabel =
     range === "1D"     ? "Intraday"     :
+    range === "5D"     ? "5 Days"       :
     range === "1M"     ? "1 Month"      :
     range === "3M"     ? "3 Months"     :
     range === "6M"     ? "6 Months"     :
     range === "YTD"    ? "Year to Date" :
     range === "1Y"     ? "1 Year"       :
+    range === "3Y"     ? "3 Years"      :
     range === "5Y"     ? "5 Years"      :
     range === "ALL"    ? "All Time"     :
     "Custom Period";
