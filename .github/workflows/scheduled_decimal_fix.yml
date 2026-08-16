@@ -1,0 +1,128 @@
+name: Scheduled Decimal-Scale Fix (weekdays 17:00 EAT)
+
+# Auto-corrects decimal-shift price errors in RTDB every trading day, ~90 min
+# after the final 15:30 EAT settle scrape from price_scrape.yml. Handles both
+# directions (lost decimal → value 100x too high, added decimal → 100x too low)
+# and multiple magnitudes (10x, 100x, 1000x) — see fix_decimal_scale.py for the
+# ±4-month median anchor logic and window-majority guard.
+#
+# The Friday 2026-08-14 incident (CTUM + NBV showing wrong-decimal closes on
+# the dashboard) was NOT a detection failure — fix_decimal_scale.py would have
+# caught both — but a scheduling failure: the fixer was workflow_dispatch only,
+# so nothing ran until the next manual trigger. This workflow closes that gap.
+#
+# Every scheduled run writes to RTDB with --apply and uploads a backup artifact.
+# To undo a run, dispatch fix_decimal_scale.yml with restore_from_run set to
+# this run's ID.
+
+on:
+  schedule:
+    # 14:07 UTC = 17:07 EAT, Mon–Fri. Off the :00 minute to avoid the
+    # cross-Actions herd on the hour.
+    - cron: "7 14 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "true = report only, write nothing"
+        type: choice
+        required: false
+        default: "false"
+        options: ["false", "true"]
+      tickers:
+        description: "Comma-separated tickers (blank = all — the point of the daily run)"
+        required: false
+        default: ""
+
+concurrency:
+  group: scheduled-decimal-fix
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    name: Fix decimal-scale errors and cross-check vs NSE
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Fix decimal-scale errors (all companies)
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL:             ${{ secrets.FIREBASE_RTDB_URL }}
+        run: |
+          set -o pipefail
+          ARGS=""
+          T="${{ github.event.inputs.tickers }}"
+          if [ -n "$T" ]; then
+            IFS=',' read -ra L <<< "$T"
+            for t in "${L[@]}"; do
+              ARGS="$ARGS --ticker $(echo "$t" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+            done
+          fi
+          DRY="${{ github.event.inputs.dry_run }}"
+          if [ "$DRY" = "true" ]; then
+            echo "Dry-run — reporting only, no RTDB writes."
+            python pipeline/scripts/fix_decimal_scale.py $ARGS 2>&1 | tee /tmp/fix.log
+          else
+            ARGS="$ARGS --apply --backup decimal_scale_backup.json"
+            python pipeline/scripts/fix_decimal_scale.py $ARGS 2>&1 | tee /tmp/fix.log
+          fi
+
+      - name: Cross-check RTDB against live NSE website
+        if: always()
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL:             ${{ secrets.FIREBASE_RTDB_URL }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          # Report-only cross-check — surfaces any remaining discrepancies
+          # (non-power-of-ten typos, wrong-ticker rows) that the decimal rule
+          # cannot catch. Never writes, regardless of dry_run.
+          python pipeline/scripts/audit_prices_vs_nse.py --dry-run 2>&1 | tee /tmp/audit.log || true
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "### Scheduled decimal-scale fix — ${{ github.event_name }}"
+            echo ""
+            echo "- dry_run: \`${{ github.event.inputs.dry_run || 'false' }}\`"
+            echo "- tickers: \`${{ github.event.inputs.tickers || 'all' }}\`"
+            echo ""
+            echo "#### Fix log (last 60 lines)"
+            echo '```'
+            tail -60 /tmp/fix.log 2>/dev/null || echo "(no fix log)"
+            echo '```'
+            echo ""
+            echo "#### NSE cross-check (last 40 lines)"
+            echo '```'
+            tail -40 /tmp/audit.log 2>/dev/null || echo "(no audit log)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload backup and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scheduled-decimal-fix-${{ github.run_id }}
+          path: |
+            decimal_scale_backup.json
+            /tmp/fix.log
+            /tmp/audit.log
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Warn on failure
+        if: failure()
+        run: |
+          echo "::error::Scheduled decimal-scale fix failed — check the artifact and re-run manually via workflow_dispatch."
