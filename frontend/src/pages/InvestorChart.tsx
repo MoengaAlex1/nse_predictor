@@ -245,21 +245,19 @@ export const InvestorChart = () => {
           {/* ── Ticker header ────────────────────────────────────────────── */}
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rim bg-surface px-4 py-3">
             <div className="flex min-w-0 items-center gap-3">
-              {company && (
-                // Use company.id (Firestore short-form, e.g. "SGL") rather
-                // than the URL ticker ("SGL.NR") — logo files under
-                // public/logos are keyed by the short form, so any
-                // "_NR"/".NR"-suffixed ticker will 404 and fall through to
-                // the colored letter box, which for SGL shows blank because
-                // color/icon are unset on the doc.
-                <CompanyLogo
-                  id={company.id}
-                  short={company.short}
-                  color={company.color}
-                  icon={company.icon}
-                  size="lg"
-                />
-              )}
+              {/* Render CompanyLogo unconditionally — it now synthesises a
+                  deterministic colour + glyph from the id when `company` is
+                  null or its color/icon aren't populated (GLD, KAPC, PORT,
+                  SHKL have no Firestore doc but should still show a tile).
+                  Strip the .NR/_NR suffix so the filename lookup
+                  /logos/${id}.png matches how public/logos is keyed. */}
+              <CompanyLogo
+                id={company?.id ?? ticker.replace(/[._]NR$/, "")}
+                short={company?.short ?? ticker.replace(/[._]NR$/, "")}
+                color={company?.color}
+                icon={company?.icon}
+                size="lg"
+              />
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <h1 className="truncate text-base font-bold text-ink">{displayName}</h1>

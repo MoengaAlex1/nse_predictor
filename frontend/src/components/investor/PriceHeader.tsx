@@ -99,17 +99,15 @@ export const PriceHeader: FC<PriceHeaderProps> = ({
     <div className="rounded-xl border border-rim bg-surface p-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3">
-          {company && (
-            // id must be the Firestore short-form (SGL, SCOM) rather than
-            // the URL ticker (SGL.NR) so /logos/${id}.png resolves.
-            <CompanyLogo
-              id={company.id}
-              short={company.short}
-              color={company.color}
-              icon={company.icon}
-              size="lg"
-            />
-          )}
+          {/* Always render — CompanyLogo synthesises defaults when the
+              CompanyDoc is null or missing color/icon. */}
+          <CompanyLogo
+            id={company?.id ?? ticker.replace(/[._]NR$/, "")}
+            short={company?.short ?? ticker.replace(/[._]NR$/, "")}
+            color={company?.color}
+            icon={company?.icon}
+            size="lg"
+          />
           <div className="min-w-0">
             <div className="flex items-baseline gap-2">
               <h1 className="truncate text-lg font-bold text-ink">
