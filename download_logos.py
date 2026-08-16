@@ -35,12 +35,12 @@ DOMAIN_MAP = {
     "EVRD":  "eveready.co.ke",
     "FMLY":  "familybank.co.ke",
     "FTGH":  "flametreegroup.com",
-    "GLD":   None,
+    "GLD":   "newgold.co.za",       # NewGold ETF issued by Absa Capital
     "HAFR":  "homeafrika.com",
     "HFCK":  "hfgroup.co.ke",
     "IMH":   "imhkenya.com",
     "JUB":   "jubileeholdings.co.ke",
-    "KAPC":  None,
+    "KAPC":  "kapchoruateas.com",   # Kapchorua Tea Kenya PLC — subsidiary of Williamson Tea group
     "KCB":   "kcbgroup.com",
     "KEGN":  "kengen.co.ke",
     "KNRE":  "kenyare.co.ke",
@@ -91,7 +91,7 @@ FALLBACK_DOMAINS = {
     "KPLC":  ["kplc.co.ke"],
     "KQ":    ["kq.com"],
     "NCBA":  ["ncba.co.ke"],
-    "PORT":  ["lafarge.co.ke", "holcim.com"],
+    "PORT":  ["lafarge.co.ke", "holcim.com", "eapcc.com"],
     "SBIC":  ["standardbank.co.za"],
     "SCAN":  ["scangroup.co.ke"],
     "SCBK":  ["standardchartered.com", "sc.com/en"],
@@ -101,6 +101,9 @@ FALLBACK_DOMAINS = {
     "TOTL":  ["totalenergies.com", "total.co.ke"],
     "UNGA":  ["ungagroup.com"],
     "UCHM":  ["uchumisupermarkets.co.ke"],
+    "GLD":   ["newgoldetf.co.za", "absacib.com", "absa.africa"],
+    "KAPC":  ["kapchorua.com", "williamsontea.com"],
+    "SHKL":  ["shrikrishna.com"],
 }
 
 session = requests.Session()
