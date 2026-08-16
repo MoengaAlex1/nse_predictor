@@ -11,12 +11,6 @@ type Props = {
   fundamentals?: FundamentalsDoc | null;
 };
 
-type Field = {
-  label: string;
-  value: string | number | null | undefined;
-  fmt?: (v: number) => string;
-};
-
 function ProfileRow({ label, value }: { label: string; value: string | number | null }) {
   return (
     <div className="flex flex-col gap-0.5">
