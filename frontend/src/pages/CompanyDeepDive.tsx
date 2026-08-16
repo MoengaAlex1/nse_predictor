@@ -23,6 +23,7 @@ import { ModelTargetCard } from "../components/investor/ModelTargetCard";
 import { EarningsForecastCard } from "../components/investor/EarningsForecastCard";
 import { FinancialsValuationCard } from "../components/investor/FinancialsValuationCard";
 import { PriceRangeCard } from "../components/investor/PriceRangeCard";
+import { PriceMoveBanner } from "../components/investor/PriceMoveBanner";
 import { FinancialsPanel } from "../components/FinancialsPanel";
 import { FinancialNarrativeCard } from "../components/FinancialNarrativeCard";
 import { DeepAnalysisPanel } from "../components/DeepAnalysisPanel";
@@ -1207,9 +1208,30 @@ export const CompanyDeepDive: FC = () => {
     range === "ALL"    ? "All Time"     :
     "Custom Period";
 
+  // Freshest available price + change data for the alert banner. RTDB's
+  // latest bar carries the pc/pch pair that the CompanyDoc header often
+  // doesn't have populated for the current session, so we prefer RTDB when
+  // it exists and fall through to the doc-level fields otherwise. Same
+  // fallback ordering as PriceRangeCard.
+  const rtdbLatest = rtdbPrices.length > 0
+    ? rtdbPrices[rtdbPrices.length - 1]
+    : null;
+  const bannerCurrent = company.current_price ?? rtdbLatest?.c    ?? null;
+  const bannerPrev    =                          rtdbLatest?.pc   ?? null;
+  const bannerChange  = company.change_pct_today  ?? rtdbLatest?.pch  ?? null;
+  const bannerDate    = rtdbLatest?.date ?? company.price_date ?? null;
+
   return (
     <>
       <div className="space-y-4">
+        {/* ── Price-move alert banner — MSN-style, first thing on the page ─ */}
+        <PriceMoveBanner
+          currentPrice={bannerCurrent}
+          previousClose={bannerPrev}
+          changePct={bannerChange}
+          priceDate={bannerDate}
+        />
+
         {/* ── Trading terminal header ────────────────────────────────────── */}
         <div className="overflow-hidden rounded-xl border border-rim bg-surface shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-5">
