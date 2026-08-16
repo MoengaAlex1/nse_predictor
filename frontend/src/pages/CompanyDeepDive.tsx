@@ -22,6 +22,7 @@ import { AnalystGaugeCard } from "../components/investor/AnalystGaugeCard";
 import { ModelTargetCard } from "../components/investor/ModelTargetCard";
 import { EarningsForecastCard } from "../components/investor/EarningsForecastCard";
 import { FinancialsValuationCard } from "../components/investor/FinancialsValuationCard";
+import { PriceRangeCard } from "../components/investor/PriceRangeCard";
 import { FinancialsPanel } from "../components/FinancialsPanel";
 import { FinancialNarrativeCard } from "../components/FinancialNarrativeCard";
 import { DeepAnalysisPanel } from "../components/DeepAnalysisPanel";
@@ -1357,7 +1358,18 @@ export const CompanyDeepDive: FC = () => {
             match the main column's height when there isn't enough content.
           */}
           <aside className="space-y-4 lg:sticky lg:top-4 lg:h-fit lg:self-start">
-            {/* Quote snapshot — Day Range, 52W Range, market cap, EPS, etc. */}
+            {/* Day + 52W range sliders — MSN-style horizontal bands with the
+                current close plotted between low/high. Independent of the
+                QuoteSummaryPanel below (which returns null when there is no
+                current_price) so the sliders still render whenever any
+                price tier — RTDB, price_history, or last_known_price — has
+                data. */}
+            <PriceRangeCard
+              company={company}
+              latest={rtdbPrices.length > 0 ? rtdbPrices[rtdbPrices.length - 1] : null}
+            />
+
+            {/* Quote snapshot — mkt cap, P/E, P/B, EPS, dividend, etc. */}
             <QuoteSummaryPanel
               company={company}
               technicals={technicals}
