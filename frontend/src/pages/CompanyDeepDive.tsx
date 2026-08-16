@@ -1248,8 +1248,10 @@ export const CompanyDeepDive: FC = () => {
         <div className="overflow-hidden rounded-xl border border-rim bg-surface shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-5">
             <div className="flex items-start gap-4">
+              {/* id must be the Firestore short form (SGL, SCOM) not the
+                  URL ticker (SGL.NR) — see CompanyLogo lookup path. */}
               <CompanyLogo
-                id={ticker}
+                id={company.id}
                 short={company.short}
                 color={company.color}
                 icon={company.icon}

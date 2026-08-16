@@ -100,8 +100,10 @@ export const PriceHeader: FC<PriceHeaderProps> = ({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3">
           {company && (
+            // id must be the Firestore short-form (SGL, SCOM) rather than
+            // the URL ticker (SGL.NR) so /logos/${id}.png resolves.
             <CompanyLogo
-              id={ticker}
+              id={company.id}
               short={company.short}
               color={company.color}
               icon={company.icon}

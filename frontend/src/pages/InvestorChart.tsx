@@ -246,8 +246,14 @@ export const InvestorChart = () => {
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rim bg-surface px-4 py-3">
             <div className="flex min-w-0 items-center gap-3">
               {company && (
+                // Use company.id (Firestore short-form, e.g. "SGL") rather
+                // than the URL ticker ("SGL.NR") — logo files under
+                // public/logos are keyed by the short form, so any
+                // "_NR"/".NR"-suffixed ticker will 404 and fall through to
+                // the colored letter box, which for SGL shows blank because
+                // color/icon are unset on the doc.
                 <CompanyLogo
-                  id={ticker}
+                  id={company.id}
                   short={company.short}
                   color={company.color}
                   icon={company.icon}
