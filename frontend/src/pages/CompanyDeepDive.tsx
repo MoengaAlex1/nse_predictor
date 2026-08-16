@@ -1399,13 +1399,16 @@ export const CompanyDeepDive: FC = () => {
               can wire real data source-by-source without another layout pass.
             */}
             <div className="grid grid-cols-2 gap-3">
-              <AnalystGaugeCard />
+              <AnalystGaugeCard snapshot={snapshot} />
               <ModelTargetCard
                 snapshot={snapshot}
                 currentPrice={company.current_price}
               />
-              <EarningsForecastCard />
-              <FinancialsValuationCard />
+              <EarningsForecastCard fundamentals={fundamentals} />
+              <FinancialsValuationCard
+                financials={financials}
+                currentPrice={company.current_price}
+              />
             </div>
           </aside>
         </div>
