@@ -17,6 +17,11 @@ import { CompanyProfileCard } from "../components/investor/CompanyProfileCard";
 import { QuoteSummaryPanel } from "../components/investor/QuoteSummaryPanel";
 import { ValuationPanel } from "../components/investor/ValuationPanel";
 import { NewsPanel } from "../components/investor/NewsPanel";
+import { AIInsightsPanel } from "../components/investor/AIInsightsPanel";
+import { AnalystGaugeCard } from "../components/investor/AnalystGaugeCard";
+import { ModelTargetCard } from "../components/investor/ModelTargetCard";
+import { EarningsForecastCard } from "../components/investor/EarningsForecastCard";
+import { FinancialsValuationCard } from "../components/investor/FinancialsValuationCard";
 import { FinancialsPanel } from "../components/FinancialsPanel";
 import { FinancialNarrativeCard } from "../components/FinancialNarrativeCard";
 import { DeepAnalysisPanel } from "../components/DeepAnalysisPanel";
@@ -1274,101 +1279,129 @@ export const CompanyDeepDive: FC = () => {
           </div>
         </div>
 
-        {/* ── Company profile ───────────────────────────────────────────── */}
-        <CompanyProfileCard company={company} />
-
-        {/* ── Quote summary ─────────────────────────────────────────────── */}
-        <QuoteSummaryPanel
-          company={company}
-          technicals={technicals}
-          financials={financials ?? null}
-          snapshot={snapshot ?? null}
-        />
-
-        {/* ── Market quote (today's OHLCV from RTDB) ────────────────────── */}
-        {rtdbPrices.length > 0 && (
-          <MarketQuotePanel
-            latest={rtdbPrices[rtdbPrices.length - 1]}
-            currentPrice={company.current_price}
-          />
-        )}
-
-        {/* ── Stats strip — reacts to selected range ────────────────────── */}
-        <StatsStrip
-          data={visible.length > 0 ? visible : history}
-          range={range}
-          currentPrice={company.current_price}
-          technicals={technicals}
-        />
-
-        {/* ── Data quality banner (shows for gaps / limited / no history) ── */}
+        {/* ── Data quality banner — full width so problems land above the fold */}
         <DataQualityBanner history={history} />
 
-        {/* ── Trading chart ─────────────────────────────────────────────── */}
-        {(history.length > 1 || range === "1D") && (
-          <ChartSection
-            company={company}
-            technicals={technicals}
-            range={range}
-            setRange={setRange}
-            from={from}
-            setFrom={setFrom}
-            to={to}
-            setTo={setTo}
-            visible={visible}
-            rtdbData={rtdbVisible}
-            announcements={financials?.announcements ?? []}
-            intradayDate={company.intraday_date}
-            intradayDay={intradayDay}
-            setIntradayDay={setIntradayDay}
-            todayEAT={todayEAT}
-          />
-        )}
+        {/* ── Company profile — full width, then everything below splits 2/3+1/3 */}
+        <CompanyProfileCard company={company} />
 
-        {/* ── AI price explainer ────────────────────────────────────────── */}
-        {range !== "1D" && visible.length >= 2 && (
-          <PriceExplainer
-            company={company}
-            visible={visible}
-            technicals={technicals}
-            rangeLabel={rangeLabel}
-            events={events as CorporateEvent[]}
-            financials={financials}
-            macro={macro}
-          />
-        )}
+        {/*
+          Two-column layout: chart-first main column on the left, a sticky
+          decision-support sidebar on the right. Matches the MSN Money
+          convention where the price + chart are the primary object and the
+          numeric snapshot / model / analyst tiles sit beside them rather than
+          below. Collapses to a single stacked column below the lg breakpoint.
+        */}
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
 
-        {/* ── Company valuation ─────────────────────────────────────────── */}
-        <ValuationPanel
-          company={company}
-          financials={financials ?? null}
-          fundamentals={fundamentals ?? null}
-        />
+          {/* ── Main column ─────────────────────────────────────────────── */}
+          <div className="min-w-0 space-y-4">
+            {/* Trading chart */}
+            {(history.length > 1 || range === "1D") && (
+              <ChartSection
+                company={company}
+                technicals={technicals}
+                range={range}
+                setRange={setRange}
+                from={from}
+                setFrom={setFrom}
+                to={to}
+                setTo={setTo}
+                visible={visible}
+                rtdbData={rtdbVisible}
+                announcements={financials?.announcements ?? []}
+                intradayDate={company.intraday_date}
+                intradayDay={intradayDay}
+                setIntradayDay={setIntradayDay}
+                todayEAT={todayEAT}
+              />
+            )}
 
-        {/* ── Financial statements ──────────────────────────────────────── */}
-        <FinancialsPanel ticker={ticker} />
-        <FinancialNarrativeCard ticker={ticker} />
-        <DeepAnalysisPanel ticker={ticker} />
+            {/* AI price explainer */}
+            {range !== "1D" && visible.length >= 2 && (
+              <PriceExplainer
+                company={company}
+                visible={visible}
+                technicals={technicals}
+                rangeLabel={rangeLabel}
+                events={events as CorporateEvent[]}
+                financials={financials}
+                macro={macro}
+              />
+            )}
 
-        {/* ── NSE filings timeline ──────────────────────────────────────── */}
-        <FilingsTimeline financials={financials ?? undefined} />
+            {/* Valuation, financials, filings, news, AI signal */}
+            <ValuationPanel
+              company={company}
+              financials={financials ?? null}
+              fundamentals={fundamentals ?? null}
+            />
+            <FinancialsPanel ticker={ticker} />
+            <FinancialNarrativeCard ticker={ticker} />
+            <DeepAnalysisPanel ticker={ticker} />
+            <FilingsTimeline financials={financials ?? undefined} />
+            <NewsPanel financials={financials} newsItems={newsItems} />
+            <NewsPriceChart news={newsItems} rtdbPrices={rtdbPrices} />
+            <GatedContent
+              snapshot={snapshot}
+              snapLoading={snapLoading}
+              technicals={technicals}
+              techLoading={techLoading}
+            />
+          </div>
 
-        {/* ── News & press releases ─────────────────────────────────────── */}
-        <NewsPanel financials={financials} newsItems={newsItems} />
+          {/* ── Sidebar (right) ─────────────────────────────────────────
+            Sticky on lg+ so the numeric snapshot stays visible as the reader
+            scrolls the long analysis column. `lg:top-4` matches the outer
+            page padding; `lg:h-fit` prevents the sidebar from stretching to
+            match the main column's height when there isn't enough content.
+          */}
+          <aside className="space-y-4 lg:sticky lg:top-4 lg:h-fit lg:self-start">
+            {/* Quote snapshot — Day Range, 52W Range, market cap, EPS, etc. */}
+            <QuoteSummaryPanel
+              company={company}
+              technicals={technicals}
+              financials={financials ?? null}
+              snapshot={snapshot ?? null}
+            />
 
-        {/* ── News price impact chart ───────────────────────────────────── */}
-        <NewsPriceChart
-          news={newsItems}
-          rtdbPrices={rtdbPrices}
-        />
+            {/* Today's OHLCV from RTDB (only when we have live intraday) */}
+            {rtdbPrices.length > 0 && (
+              <MarketQuotePanel
+                latest={rtdbPrices[rtdbPrices.length - 1]}
+                currentPrice={company.current_price}
+              />
+            )}
 
-        {/* ── AI signal + technicals ────────────────────────────────────── */}
-        <GatedContent
-          snapshot={snapshot}
-          snapLoading={snapLoading}
-          technicals={technicals}
-          techLoading={techLoading}
-        />
+            {/* Range-sensitive stats (high / low / return over the selection) */}
+            <StatsStrip
+              data={visible.length > 0 ? visible : history}
+              range={range}
+              currentPrice={company.current_price}
+              technicals={technicals}
+            />
+
+            {/* AI-derived bullet insights from the loaded technicals + signal */}
+            <AIInsightsPanel
+              technicals={technicals}
+              snapshot={snapshot}
+              currentPrice={company.current_price}
+            />
+
+            {/*
+              MSN-style tile grid. Every card is a placeholder today — see the
+              memory feedback "labeled placeholders, never fabricated values":
+              they render "Coming soon" chips rather than mocked numbers so we
+              can wire real data source-by-source without another layout pass.
+            */}
+            <div className="grid grid-cols-2 gap-3">
+              <AnalystGaugeCard />
+              <ModelTargetCard />
+              <EarningsForecastCard />
+              <FinancialsValuationCard />
+            </div>
+          </aside>
+        </div>
       </div>
     </>
   );
