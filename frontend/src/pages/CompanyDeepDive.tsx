@@ -1365,11 +1365,15 @@ export const CompanyDeepDive: FC = () => {
               snapshot={snapshot ?? null}
             />
 
-            {/* Today's OHLCV from RTDB (only when we have live intraday) */}
+            {/* Today's OHLCV from RTDB (only when we have live intraday). The
+                `compact` variant renders as a vertical label→value list so the
+                columns don't get crushed inside the 360px sidebar the way the
+                8-column grid did. */}
             {rtdbPrices.length > 0 && (
               <MarketQuotePanel
                 latest={rtdbPrices[rtdbPrices.length - 1]}
                 currentPrice={company.current_price}
+                compact
               />
             )}
 
@@ -1396,7 +1400,10 @@ export const CompanyDeepDive: FC = () => {
             */}
             <div className="grid grid-cols-2 gap-3">
               <AnalystGaugeCard />
-              <ModelTargetCard />
+              <ModelTargetCard
+                snapshot={snapshot}
+                currentPrice={company.current_price}
+              />
               <EarningsForecastCard />
               <FinancialsValuationCard />
             </div>
