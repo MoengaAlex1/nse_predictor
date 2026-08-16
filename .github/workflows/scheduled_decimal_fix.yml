@@ -55,6 +55,21 @@ jobs:
       - name: Install dependencies
         run: pip install -r pipeline/requirements.txt
 
+      - name: Diagnostic — dump current RTDB state for requested tickers
+        if: ${{ github.event.inputs.tickers != '' }}
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL:             ${{ secrets.FIREBASE_RTDB_URL }}
+        run: |
+          set -o pipefail
+          T="${{ github.event.inputs.tickers }}"
+          IFS=',' read -ra L <<< "$T"
+          DUMP_ARGS=""
+          for t in "${L[@]}"; do
+            DUMP_ARGS="$DUMP_ARGS --ticker $(echo "$t" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+          done
+          python pipeline/scripts/clamp_rtdb_ohlc.py --dump $DUMP_ARGS 2>&1 | tee /tmp/diag.log
+
       - name: Fix decimal-scale errors (all companies)
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
@@ -78,6 +93,29 @@ jobs:
             python pipeline/scripts/fix_decimal_scale.py $ARGS 2>&1 | tee /tmp/fix.log
           fi
 
+      - name: Clamp per-field OHLC violations (Low/High shifted while O/C fine)
+        if: always()
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL:             ${{ secrets.FIREBASE_RTDB_URL }}
+        run: |
+          set -o pipefail
+          ARGS=""
+          T="${{ github.event.inputs.tickers }}"
+          if [ -n "$T" ]; then
+            IFS=',' read -ra L <<< "$T"
+            for t in "${L[@]}"; do
+              ARGS="$ARGS --ticker $(echo "$t" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+            done
+          fi
+          DRY="${{ github.event.inputs.dry_run }}"
+          if [ "$DRY" = "true" ]; then
+            python pipeline/scripts/clamp_rtdb_ohlc.py $ARGS 2>&1 | tee /tmp/clamp.log
+          else
+            ARGS="$ARGS --apply --backup rtdb_ohlc_backup.json"
+            python pipeline/scripts/clamp_rtdb_ohlc.py $ARGS 2>&1 | tee /tmp/clamp.log
+          fi
+
       - name: Cross-check RTDB against live NSE website
         if: always()
         env:
@@ -99,9 +137,19 @@ jobs:
             echo "- dry_run: \`${{ github.event.inputs.dry_run || 'false' }}\`"
             echo "- tickers: \`${{ github.event.inputs.tickers || 'all' }}\`"
             echo ""
-            echo "#### Fix log (last 60 lines)"
+            echo "#### Diagnostic dump (if --tickers passed)"
+            echo '```'
+            cat /tmp/diag.log 2>/dev/null || echo "(no diagnostic — full-market run)"
+            echo '```'
+            echo ""
+            echo "#### Row-level decimal fix (fix_decimal_scale.py) — last 60 lines"
             echo '```'
             tail -60 /tmp/fix.log 2>/dev/null || echo "(no fix log)"
+            echo '```'
+            echo ""
+            echo "#### Per-field OHLC clamp (clamp_rtdb_ohlc.py) — last 40 lines"
+            echo '```'
+            tail -40 /tmp/clamp.log 2>/dev/null || echo "(no clamp log)"
             echo '```'
             echo ""
             echo "#### NSE cross-check (last 40 lines)"
@@ -117,7 +165,10 @@ jobs:
           name: scheduled-decimal-fix-${{ github.run_id }}
           path: |
             decimal_scale_backup.json
+            rtdb_ohlc_backup.json
+            /tmp/diag.log
             /tmp/fix.log
+            /tmp/clamp.log
             /tmp/audit.log
           if-no-files-found: warn
           retention-days: 90
