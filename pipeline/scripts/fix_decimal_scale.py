@@ -86,6 +86,15 @@ SCALED_FIELDS = ("c", "o", "h", "l")
 # outnumbered, and short enough that a genuine trend does not distort the level.
 WINDOW_DAYS = 122
 
+# Length of the trailing-only trading-day window used as a second anchor. Four
+# months smooths over recent drift — CTUM ran 13-15 in April-June and 17-19 in
+# August 2026, giving a four-month median of 13.97 when the true August level
+# was 17. A row of 170 has ratio 12.16 against the four-month median (misses
+# the 15% tolerance around 10x) but ratio 10.00 against a trailing 30-day
+# median (fires cleanly). This anchor tracks the level the stock is *currently*
+# at, not the average of where it has been.
+SHORT_WINDOW_TRADING_DAYS = 30
+
 # Below this many surrounding rows there is not enough context to judge, so the
 # row is left alone rather than guessed at.
 MIN_WINDOW_ROWS = 5
@@ -170,6 +179,29 @@ def rebuild_prev_close(node: dict, corrections: dict[str, dict]) -> dict[str, di
             out[date] = row
         prev_close = close
     return out
+
+
+def local_level_short(rows: list[tuple[str, dict]], index: int,
+                      n: int = SHORT_WINDOW_TRADING_DAYS) -> float | None:
+    """
+    Median close over the trailing `n` trading days ending just before `index`.
+
+    Complements local_level() by tracking recent drift, which the ±4-month
+    window smooths over. Trailing-only (never looks past the row being judged)
+    so the anchor cannot be contaminated by the corrupt day itself or by a
+    later correction landing after it.
+
+    CTUM 2026-08-13 is the canonical case for this anchor: value 170 vs a
+    ±4-month median of 13.97 gives ratio 12.16 and misses the 15% tolerance
+    around 10x. The trailing-30-day median of ~17 gives ratio 10.00 exactly
+    and the row is correctly identified as a lost decimal.
+    """
+    start = max(0, index - n)
+    prior = [rows[k][1]["c"] for k in range(start, index)]
+    if len(prior) < MIN_WINDOW_ROWS:
+        return None
+    prior.sort()
+    return prior[len(prior) // 2]
 
 
 def local_level(rows: list[tuple[str, dict]], index: int) -> float | None:
@@ -274,13 +306,30 @@ def find_bad_rows(node: dict, floor: dict | None = None) -> list[dict]:
                         "factor": factor, "anchor": level, "reason": "outside verified range"})
             continue
 
-        factor = scale_error(close, level)
+        # Try the ±4-month median first (established), then the trailing 30-day
+        # median. Recent drift can lift the true level well above the four-month
+        # anchor — see local_level_short for the CTUM 2026-08-13 case where
+        # this second chance is the only reason the row gets caught.
+        factor: int | None = None
+        anchor: float | None = None
+        reason: str | None = None
+        for lvl, label in (
+            (level, "±4-month window"),
+            (local_level_short(rows, i), "trailing 30-day window"),
+        ):
+            if lvl is None:
+                continue
+            f = scale_error(close, lvl)
+            if f is None:
+                continue
+            if not _window_is_decisive(rows, i, lvl):
+                continue                # ambiguous — see _window_is_decisive
+            factor, anchor, reason = f, lvl, f"power-of-ten vs {label}"
+            break
         if factor is None:
             continue
-        if not _window_is_decisive(rows, i, level):
-            continue                    # ambiguous — see _window_is_decisive
         out.append({"date": date, "before": row, "after": correct_row(row, factor),
-                    "factor": factor, "anchor": level, "reason": "power-of-ten vs window"})
+                    "factor": factor, "anchor": anchor, "reason": reason})
     return out
 
 
