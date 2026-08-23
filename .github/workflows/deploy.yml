@@ -60,6 +60,14 @@ jobs:
           wranglerVersion: "4"
           command: pages deploy frontend/dist --project-name=nse-market-dashboard --branch=master
 
+      # Pages needs `/*  /index.html  200` in _redirects for SPA routing, but
+      # wrangler rejects that rule for Workers assets ("Infinite loop detected":
+      # html_handling would strip /index and re-trigger it). The Worker gets the
+      # same behaviour from assets.not_found_handling in wrangler.jsonc, so the
+      # file is only removed after Pages has already consumed it.
+      - name: Drop the Pages-only _redirects before the Worker deploy
+        run: rm -f frontend/dist/_redirects
+
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:
