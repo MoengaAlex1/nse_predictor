@@ -1,0 +1,24 @@
+{
+  // Cloudflare Worker serving the built Vite frontend as static assets.
+  //
+  // `directory` is resolved relative to THIS file, so it must point at the
+  // build output (frontend/dist), not the source tree (frontend). Pointing it
+  // at the source is what the Cloudflare autoconfig bot generated on
+  // 2026-07-28, and it served frontend/index.html verbatim — a dev template
+  // whose only script tag is /src/main.tsx. Browsers cannot parse raw TSX, so
+  // React never mounted and the site rendered blank.
+  //
+  // No trailing commas: wrangler's JSONC parser rejects them.
+  "name": "nse-predictor",
+  "compatibility_date": "2026-07-28",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "frontend/dist",
+    "not_found_handling": "single-page-application"
+  }
+}
