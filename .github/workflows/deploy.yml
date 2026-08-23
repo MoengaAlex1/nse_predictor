@@ -1,10 +1,12 @@
-name: Deploy Frontend to Cloudflare Pages
+name: Deploy Frontend to Cloudflare
 
 on:
   push:
     branches: [master]
     paths:
       - "frontend/**"
+      - "wrangler.jsonc"
+      - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
 jobs:
@@ -39,9 +41,25 @@ jobs:
           VITE_FIREBASE_DATABASE_URL: ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
         run: npm run build
 
+      # Guard: the Worker previously served the source tree, whose index.html
+      # points at /src/main.tsx and renders blank. Fail loudly rather than
+      # shipping that again.
+      - name: Verify build output
+        run: |
+          test -f frontend/dist/index.html
+          grep -q '/assets/index-.*\.js' frontend/dist/index.html
+          ! grep -q '/src/main.tsx' frontend/dist/index.html
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy frontend/dist --project-name=nse-market-dashboard --branch=master
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config wrangler.jsonc
