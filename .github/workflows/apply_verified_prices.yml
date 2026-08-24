@@ -84,7 +84,15 @@ jobs:
             echo "No price changes to commit."
           else
             git commit -m "chore: automated price sync $(date -u +'%Y-%m-%d %H:%M') UTC"
-            git push
+            # Long-running range backfills often finish after other commits
+            # have landed on master. Rebase onto latest before pushing, retry
+            # once if a second commit lands between fetch and push.
+            for attempt in 1 2 3; do
+              git fetch origin master
+              git rebase origin/master && git push && break
+              echo "Push attempt $attempt failed, retrying…"
+              sleep 5
+            done
           fi
 
       - name: Upload log
