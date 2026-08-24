@@ -117,6 +117,7 @@ COMPANY_TO_TICKER: dict[str, str] = {
 NSE_PHRASES: dict[str, str] = {
     # Agricultural
     "enagad":                        "EGAD",
+    "eaagads":                       "EGAD",   # OCR variant (300dpi reads double-a)
     "eangads":                       "EGAD",   # OCR variant
     "eacgads":                       "EGAD",   # OCR variant
     "eagads":                        "EGAD",   # OCR variant
@@ -140,6 +141,7 @@ NSE_PHRASES: dict[str, str] = {
     "hfck group":                    "HFCK",
     "hfcb group":                    "HFCK",   # OCR variant (K misread as B)
     "i&m group":                     "IMH",
+    "id&m group":                    "IMH",    # OCR variant (250dpi adds phantom 'd')
     "t&m group":                     "IMH",    # OCR variant (I misread as T)
     "4m group":                      "IMH",    # OCR variant (I misread as 4)
     "kcb group":                     "KCB",
@@ -164,6 +166,7 @@ NSE_PHRASES: dict[str, str] = {
     "tps eastern africa":            "TPSE",
     "uchumi supermarket":            "UCHM",
     "wpp scangroup":                 "SCAN",
+    "wfp scangroup":                 "SCAN",      # OCR variant (P misread as F)
     # Construction
     "e.a.portland":                  "PORT",
     "portland cement":               "PORT",
@@ -281,7 +284,12 @@ def _extract_numbers(line: str) -> list[float]:
     normalized = re.sub(r"(\d),(\d{1,2})(?!\d)", r"\1.\2", line)
     # Step 2: Dot-as-thousands separator (e.g. 5.105.845 → 5105845)
     cleaned = re.sub(r"(\d)\.(\d{3})(?=[.,\d])", r"\1\2", normalized)
-    tokens = re.findall(r"\b\d{1,3}(?:,\d{3})*(?:\.\d{1,4})?\b", cleaned)
+    # Step 3: extract numbers. Accept both grouped (1,234,567) and ungrouped
+    # (1234567) integer parts — OCR at 250 dpi frequently drops the thousands
+    # comma (e.g. KenGen's "2,841,537" reads as "2.841537"), and the old
+    # \d{1,3}(?:,\d{3})* pattern silently dropped every such number, which in
+    # turn made _is_data_line reject the whole row.
+    tokens = re.findall(r"\b\d+(?:,\d{3})*(?:\.\d{1,4})?\b", cleaned)
     result: list[float] = []
     for t in tokens:
         try:
@@ -403,8 +411,13 @@ def _match_line_ocr(line: str) -> str | None:
 
 
 def _is_data_line(line: str) -> bool:
-    """OCR data rows start with a numeric 52WK_HIGH value and have ≥6 numbers."""
-    stripped = line.strip()
+    """OCR data rows start with a numeric 52WK_HIGH value and have ≥6 numbers.
+
+    Tolerates common leading OCR noise chars ('[', '}', '|', '{') because
+    tesseract occasionally emits one when a row starts flush against a
+    table border (e.g. Family Bank OCR'd as '[50.00 22.00 Family Bank...').
+    """
+    stripped = line.strip().lstrip("[]{}|")
     if not stripped or not re.match(r"^\d", stripped):
         return False
     return len(_extract_numbers(stripped)) >= 6
@@ -641,7 +654,28 @@ def main() -> None:
             sys.exit(1)
 
     rows = extract_price_rows(pdf_bytes, resolution=args.resolution)
-    log.info("Extracted %d price rows from PDF", len(rows))
+    log.info("Extracted %d price rows from PDF at %d dpi", len(rows), args.resolution)
+
+    # Retry at higher DPI when the primary pass looks incomplete. NSE has
+    # ~55 tradable securities; anything under 50 means at least one row
+    # (typically SCOM, CGEN, or PORT) was blurred out at 250 dpi. Merge
+    # the two passes with primary winning ties so a good row isn't
+    # overwritten by a noisier one.
+    RETRY_DPI = 300
+    RETRY_THRESHOLD = 50
+    if args.resolution < RETRY_DPI and len(rows) < RETRY_THRESHOLD:
+        log.info("Only %d rows at %d dpi — re-OCRing at %d dpi",
+                 len(rows), args.resolution, RETRY_DPI)
+        retry_rows = extract_price_rows(pdf_bytes, resolution=RETRY_DPI)
+        log.info("Extracted %d price rows from PDF at %d dpi", len(retry_rows), RETRY_DPI)
+        # Merge: keep primary rows, add retry rows for tickers we didn't already get
+        by_ticker = {t: (t, f) for t, f in rows}
+        for t, f in retry_rows:
+            if t not in by_ticker:
+                by_ticker[t] = (t, f)
+                log.info("  RETRY_ADDED %s from %d dpi pass", t, RETRY_DPI)
+        rows = list(by_ticker.values())
+        log.info("After merge: %d unique tickers", len(rows))
 
     if not args.dry_run:
         # Import inside branch so dry-run never needs Firebase credentials
