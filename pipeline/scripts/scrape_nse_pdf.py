@@ -233,6 +233,7 @@ NSE_PHRASES: dict[str, str] = {
     # ETFs — skip
     "absa new gold":                 "__ETF__",
     "satrix msci":                   "__ETF__",
+    "satrix msct":                   "__ETF__",  # OCR variant (I misread as T)
 }
 
 # Scale-correction parameters for _fix_scale_vs_prev.
