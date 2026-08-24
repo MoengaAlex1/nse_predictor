@@ -203,6 +203,8 @@ NSE_PHRASES: dict[str, str] = {
     "nse plc":                       "NSE",
     # Manufacturing
     "b.o.c kenya":                   "BOC",
+    "b.0.c kenya":                   "BOC",       # OCR variant (O misread as 0)
+    "b.o.c. kenya":                  "BOC",       # OCR variant (extra dot after C)
     "boc kenya":                     "BOC",
     "british american tobacco":      "BAT",
     "carbacid":                      "CARB",
