@@ -1,0 +1,48 @@
+name: Debug OCR dump
+
+# Manual-only diagnostic: OCRs an NSE daily PDF and uploads the raw
+# per-line output as a workflow artifact so we can see WHY specific
+# tickers are being missed (unmatched phrase? failed data-line filter?
+# parse failure?). Not scheduled — dispatch from the Actions tab.
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Date to OCR (YYYY-MM-DD)"
+        required: true
+        default: "2026-08-21"
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - run: sudo apt-get install -y tesseract-ocr
+
+      - run: pip install -r pipeline/requirements.txt
+
+      - name: Dump OCR
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python pipeline/scripts/debug_ocr_dump.py \
+            --date "${{ github.event.inputs.date }}" \
+            > /tmp/ocr_dump.txt 2>&1
+          echo "Lines in dump: $(wc -l < /tmp/ocr_dump.txt)"
+          head -100 /tmp/ocr_dump.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ocr-dump-${{ github.event.inputs.date }}
+          path: /tmp/ocr_dump.txt
+          retention-days: 7
