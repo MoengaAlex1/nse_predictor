@@ -17,7 +17,15 @@ on:
   workflow_dispatch:
     inputs:
       date:
-        description: "Date to apply YYYY-MM-DD (blank = today)"
+        description: "Date to apply YYYY-MM-DD (blank = today; ignored if start_date is set)"
+        required: false
+        default: ""
+      start_date:
+        description: "Backfill range start YYYY-MM-DD (use with end_date)"
+        required: false
+        default: ""
+      end_date:
+        description: "Backfill range end YYYY-MM-DD (use with start_date)"
         required: false
         default: ""
 
@@ -32,7 +40,7 @@ jobs:
   apply:
     name: Apply verified prices to data/cleaned
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 180
 
     steps:
       - uses: actions/checkout@v4
@@ -54,9 +62,18 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           set -o pipefail
-          DATE_ARG="${{ github.event.inputs.date }}"
-          [ -z "$DATE_ARG" ] && DATE_ARG=$(date -u +%Y-%m-%d)
-          python pipeline/scripts/apply_verified_prices.py --date "$DATE_ARG" --no-next-day-check 2>&1 | tee /tmp/apply_verified.log
+          START="${{ github.event.inputs.start_date }}"
+          END="${{ github.event.inputs.end_date }}"
+          if [ -n "$START" ] && [ -n "$END" ]; then
+            echo "Range mode: $START → $END"
+            python pipeline/scripts/apply_verified_prices.py \
+              --start-date "$START" --end-date "$END" 2>&1 | tee /tmp/apply_verified.log
+          else
+            DATE_ARG="${{ github.event.inputs.date }}"
+            [ -z "$DATE_ARG" ] && DATE_ARG=$(date -u +%Y-%m-%d)
+            python pipeline/scripts/apply_verified_prices.py \
+              --date "$DATE_ARG" --no-next-day-check 2>&1 | tee /tmp/apply_verified.log
+          fi
 
       - name: Commit updated CSVs
         run: |
