@@ -40,7 +40,7 @@ jobs:
   apply:
     name: Apply verified prices to data/cleaned
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 350
 
     steps:
       - uses: actions/checkout@v4
