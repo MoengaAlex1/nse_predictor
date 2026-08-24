@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import requests
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -424,7 +425,15 @@ def main() -> None:
     if args.pdf:
         pdf_bytes = Path(args.pdf).read_bytes()
     else:
-        pdf_bytes = download_pdf(build_pdf_url(target_date))
+        try:
+            pdf_bytes = download_pdf(build_pdf_url(target_date))
+        except requests.HTTPError as exc:
+            # NSE publishes the daily PDF ~15:30-16:00 EAT. Earlier scheduled
+            # slots (or a late-publishing day) will 404 — exit 0 so the
+            # workflow reports success and later slots retry, rather than
+            # spamming the failed-runs list.
+            log.warning("PDF for %s not available yet: %s — skipping this run", target_date, exc)
+            return
 
     next_day_pdf_bytes = None
     if args.next_pdf:

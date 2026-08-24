@@ -9,9 +9,11 @@ name: Apply Verified Prices (Local CSV Sync)
 
 on:
   schedule:
-    # Same cadence as price_update.yml: every 30 min, 09:00-15:00 EAT, Mon-Fri
-    - cron: "0,30 6,7,8,9,10,11 * * 1-5"  # 06:00-11:30 UTC = 09:00-14:30 EAT
-    - cron: "0 12 * * 1-5"                  # 12:00 UTC = 15:00 EAT
+    # NSE daily equity statistics PDF doesn't exist until after 15:00 EAT close
+    # (typically published 15:30-16:00 EAT). Fire hourly from 16:00 → 19:00 EAT
+    # so if NSE publishes late a later slot picks it up. Idempotent — once one
+    # slot succeeds, later slots re-write the same values with no harm.
+    - cron: "0 13-16 * * 1-5"   # 13:00-16:00 UTC = 16:00-19:00 EAT, Mon-Fri
   workflow_dispatch:
     inputs:
       date:
