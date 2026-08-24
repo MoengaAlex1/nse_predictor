@@ -658,12 +658,15 @@ def main() -> None:
     log.info("Extracted %d price rows from PDF at %d dpi", len(rows), args.resolution)
 
     # Retry at higher DPI when the primary pass looks incomplete. NSE has
-    # ~55 tradable securities; anything under 50 means at least one row
-    # (typically SCOM, CGEN, or PORT) was blurred out at 250 dpi. Merge
-    # the two passes with primary winning ties so a good row isn't
-    # overwritten by a noisier one.
+    # ~60 tradable securities; anything under 60 means at least one row
+    # (typically SCOM, CGEN, DTK, or PORT) was blurred out at 250 dpi.
+    # Threshold intentionally set to the full expected count so we always
+    # try the second pass — the cost (~20s) is a tiny fraction of the
+    # workflow, and missing even one big-cap (SCOM) is far worse than a
+    # redundant OCR round. Merge with primary winning ties so a good row
+    # isn't overwritten by a noisier one.
     RETRY_DPI = 300
-    RETRY_THRESHOLD = 50
+    RETRY_THRESHOLD = 60
     if args.resolution < RETRY_DPI and len(rows) < RETRY_THRESHOLD:
         log.info("Only %d rows at %d dpi — re-OCRing at %d dpi",
                  len(rows), args.resolution, RETRY_DPI)
