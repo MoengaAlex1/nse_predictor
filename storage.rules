@@ -1,0 +1,22 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Archived NSE disclosure PDFs — public read.
+    // These are all originally sourced from nse.co.ke's public archive,
+    // so re-hosting them for search is a redistribution, not a new
+    // publication. Writes remain restricted to the pipeline's service
+    // account (which uses admin-SDK auth, bypassing these rules).
+    match /nse-pdfs/{ticker}/{yyyy_mm}/{sha}.pdf {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Everything else — locked down. Explicit allow rules per path
+    // above; anything not listed is denied.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

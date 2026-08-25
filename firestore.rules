@@ -62,6 +62,20 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Archived disclosures (audited reports, interim results, dividends
+    // notices, AGM circulars, etc.). Sourced from NSE's public archive
+    // and re-indexed here with full-text extraction so the frontend can
+    // do phrase search across every filing. Public read; writes only via
+    // pipeline SA (admin SDK bypasses rules).
+    match /disclosures/{ticker} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /disclosures/{ticker}/items/{sha} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // User watchlists — owner only
     match /users/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;

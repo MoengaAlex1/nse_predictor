@@ -1,0 +1,92 @@
+name: Archive NSE disclosure PDFs
+
+# Downloads every NSE-filed PDF referenced in financials/{ticker} into
+# Firebase Storage under nse-pdfs/{ticker}/{yyyy-mm}/{sha}.pdf, extracts
+# the text (native → OCR fallback), and indexes it into Firestore
+# `disclosures/{ticker}/items/{sha}` so the frontend can show full-text
+# search across audited reports, interim results, dividends, AGM notices,
+# and other corporate filings.
+#
+# Complements refresh_nse_disclosures.yml — that workflow catalogs
+# URL+title only. This one downloads + extracts.
+#
+# Schedules:
+#   - Weekly on Sunday 04:00 UTC (right after refresh_nse_disclosures at
+#     Sunday 03:00 UTC — so it picks up whatever the classifier just added).
+#   - Manual dispatch with per-ticker + kind filters for spot backfills.
+
+on:
+  schedule:
+    - cron: "0 4 * * 0"   # Sunday 04:00 UTC = 07:00 EAT
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: "Space-separated tickers (blank = all)"
+        required: false
+        default: ""
+      kinds:
+        description: "Space-separated kinds: financial_result corporate_action dividend agm"
+        required: false
+        default: ""
+      limit:
+        description: "Cap on URLs to process (blank = no cap)"
+        required: false
+        default: ""
+      force:
+        description: "Re-download even if already indexed"
+        required: false
+        default: "false"
+      dry_run:
+        description: "Skip Storage upload + Firestore write"
+        required: false
+        default: "false"
+
+concurrency:
+  group: archive-disclosures
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    # ~5000 PDFs × (~5s download + ~15s OCR) = ~28h worst case.
+    # This is a bounded, non-blocking backfill — long timeout is fine.
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install system tesseract for OCR fallback
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+
+      - name: Install Python deps
+        run: |
+          pip install -r pipeline/requirements.txt
+          pip install --upgrade PyMuPDF pdfplumber pytesseract Pillow
+
+      - name: Run archive_disclosures.py
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_STORAGE_BUCKET:       ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.tickers }}" ]; then
+            ARGS="$ARGS --tickers ${{ github.event.inputs.tickers }}"
+          fi
+          if [ -n "${{ github.event.inputs.kinds }}" ]; then
+            ARGS="$ARGS --kinds ${{ github.event.inputs.kinds }}"
+          fi
+          if [ -n "${{ github.event.inputs.limit }}" ]; then
+            ARGS="$ARGS --limit ${{ github.event.inputs.limit }}"
+          fi
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            ARGS="$ARGS --force"
+          fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python pipeline/scripts/archive_disclosures.py $ARGS
