@@ -4,11 +4,10 @@ service firebase.storage {
   match /b/{bucket}/o {
 
     // Archived NSE disclosure PDFs — public read.
-    // These are all originally sourced from nse.co.ke's public archive,
-    // so re-hosting them for search is a redistribution, not a new
-    // publication. Writes remain restricted to the pipeline's service
-    // account (which uses admin-SDK auth, bypassing these rules).
-    match /nse-pdfs/{ticker}/{yyyy_mm}/{sha}.pdf {
+    // Sourced from nse.co.ke's public archive, so re-hosting for search
+    // is a redistribution rather than a new publication. Writes go via
+    // admin SDK from the pipeline service account (bypasses rules).
+    match /nse-pdfs/{path=**} {
       allow read: if true;
       allow write: if false;
     }
