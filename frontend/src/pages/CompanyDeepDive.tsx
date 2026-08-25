@@ -443,10 +443,23 @@ const FilingsTimeline: FC<{ financials: FinancialsDoc | undefined }> = ({ financ
       }
     });
     (financials?.dividends ?? []).forEach((d) => {
-      const dd = d as unknown as { date?: string; url?: string; title?: string; type?: string };
-      if (dd.url && dd.title && dd.date) {
-        list.push({ date: dd.date, type: "dividend", title: dd.title, url: dd.url });
+      const date = d.announcement_date ?? (d as { date?: string }).date;
+      if (!date) return;
+      let title = d.title;
+      if (!title) {
+        // Synthesize a display title from the record — needed for dividends
+        // scraped from the NSE daily bulletin (scrape_nse_daily_bulletins.py),
+        // which capture amount/dates but no URL or headline.
+        const kind = (d.type ?? "dividend").replace(/^./, (c) => c.toUpperCase());
+        const amount = d.amount_kes != null ? `KES ${d.amount_kes.toFixed(2)}/share` : "declared";
+        const suffix = d.payment_date
+          ? ` · Pay ${d.payment_date}`
+          : d.ex_date
+          ? ` · Ex ${d.ex_date}`
+          : "";
+        title = `${kind} Dividend — ${amount}${suffix}`;
       }
+      list.push({ date, type: "dividend", title, url: d.url ?? "" });
     });
     return list.sort((a, b) => b.date.localeCompare(a.date));
   }, [financials]);
@@ -494,14 +507,8 @@ const FilingsTimeline: FC<{ financials: FinancialsDoc | undefined }> = ({ financ
       <div className="mt-3 space-y-1.5 max-h-[480px] overflow-y-auto pr-1">
         {filtered.map((entry, i) => {
           const cfg = FILING_TYPE[entry.type];
-          return (
-            <a
-              key={i}
-              href={entry.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-raised/60"
-            >
+          const body = (
+            <>
               <span className="shrink-0 font-mono text-[10px] text-hint pt-0.5 w-20">
                 {entry.date}
               </span>
@@ -513,8 +520,28 @@ const FilingsTimeline: FC<{ financials: FinancialsDoc | undefined }> = ({ financ
               <span className="flex-1 text-xs text-sub group-hover:text-ink leading-snug"
                 dangerouslySetInnerHTML={{ __html: entry.title.replace(/&#8211;/g, "–").replace(/&amp;/g, "&").replace(/&#8212;/g, "—") }}
               />
-              <span className="shrink-0 text-[10px] text-hint group-hover:text-accent">↗</span>
+              {entry.url && (
+                <span className="shrink-0 text-[10px] text-hint group-hover:text-accent">↗</span>
+              )}
+            </>
+          );
+          return entry.url ? (
+            <a
+              key={i}
+              href={entry.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-raised/60"
+            >
+              {body}
             </a>
+          ) : (
+            <div
+              key={i}
+              className="group flex items-start gap-3 rounded-lg px-3 py-2.5"
+            >
+              {body}
+            </div>
           );
         })}
       </div>
