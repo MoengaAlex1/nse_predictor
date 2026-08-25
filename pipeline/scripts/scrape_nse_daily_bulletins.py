@@ -62,11 +62,15 @@ UA_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/12
 _DATE = r"(\d{1,2}-[A-Za-z]{3}-\d{2,4})"
 _STATUS = r"(?:SUBJECT\s+TO\s+APPROVAL|N/A|-)"
 
-CORP_ACTION_RE = re.compile(
+_PREAMBLE = (
     # Company name — anything up to Ord/Ord.
     r"(?P<name>[A-Za-z][\w\s.,&()\-'/]+?)\s*(?:Ord|Ord\.|Ord[a-z]{0,4})\s*[\d.]+\s*[A-Za-z]{0,4}\s*[;:,]\s*"
     # ISIN — sometimes lowercased, may have OCR artifacts
     r"(?P<isin>[Kk][Ee]\d{6,12})\s*[;:,]\s*"
+)
+
+CORP_ACTION_RE = re.compile(
+    _PREAMBLE +
     # "announced a/an ... Dividend"
     r"announced\s+an?\s+(?P<type>[A-Za-z][A-Za-z\s&]{2,40}?)\s+Dividend"
     # Optional "and Special Dividend" trailing
@@ -84,6 +88,58 @@ CORP_ACTION_RE = re.compile(
     r"[^0-9]{0,120}?"
     r"[Pp]ayment\s+date\s*[;:,]?\s*"
     r"(?P<pay_date>" + _DATE + r"|" + _STATUS + r")",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Bonus / scrip issue: "announced a Bonus Issue of 1 new share for every 5..."
+# or "announced a Scrip Dividend of 1 for every 4 shares held"
+BONUS_ISSUE_RE = re.compile(
+    _PREAMBLE +
+    r"announced\s+an?\s+(?P<type>Bonus\s+(?:Issue|Share)|Scrip\s+(?:Issue|Dividend))"
+    r"[^0-9]{0,150}?"
+    r"(?P<new_shares>\d+)\s*"
+    r"(?::|for\s+every|new\s+shares?\s+for\s+every|:)\s*"
+    r"(?P<old_shares>\d+)"
+    r"[^0-9]{0,100}?"
+    r"on\s+(?P<ann_date>" + _DATE + r")"
+    r"(?:[^0-9]{0,150}?[Bb]ooks?\s*Closure\s*[;:,]?\s*(?P<ex_date>" + _DATE + r"|" + _STATUS + r"))?",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Rights issue: "announced a Rights Issue at KES 25.00 per share, ratio 1:4..."
+RIGHTS_ISSUE_RE = re.compile(
+    _PREAMBLE +
+    r"announced\s+an?\s+(?P<type>Rights\s+Issue)"
+    r"[^K]{0,150}?"
+    r"(?:at|price)\s*Kes\.?\s*(?P<price>\d+(?:\.\d+)?)"
+    r"[^0-9]{0,100}?"
+    r"(?:ratio|of)\s*(?P<new_shares>\d+)\s*(?::|for\s+every)\s*(?P<old_shares>\d+)"
+    r"[^0-9]{0,120}?"
+    r"on\s+(?P<ann_date>" + _DATE + r")"
+    r"(?:[^0-9]{0,150}?[Bb]ooks?\s*Closure\s*[;:,]?\s*(?P<ex_date>" + _DATE + r"|" + _STATUS + r"))?",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Share split: "announced a Share Split ratio 5:1..."
+SPLIT_RE = re.compile(
+    _PREAMBLE +
+    r"announced\s+an?\s+(?P<type>Share\s+Split|Stock\s+Split|Sub-?division)"
+    r"[^0-9]{0,100}?"
+    r"(?:ratio|of)\s*(?P<new_shares>\d+)\s*:\s*(?P<old_shares>\d+)"
+    r"[^0-9]{0,120}?"
+    r"on\s+(?P<ann_date>" + _DATE + r")"
+    r"(?:[^0-9]{0,150}?[Bb]ooks?\s*Closure\s*[;:,]?\s*(?P<ex_date>" + _DATE + r"|" + _STATUS + r"))?",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# AGM / EGM / SGM — no amount, no ratio; just a meeting date
+AGM_RE = re.compile(
+    _PREAMBLE +
+    r"(?:announced|convened|is\s+holding|scheduled|to\s+hold)\s+(?:the|its|an?)?\s*"
+    r"(?P<type>Annual\s+General\s+Meeting|AGM|Special\s+General\s+Meeting|SGM|"
+    r"Extraordinary\s+General\s+Meeting|EGM)"
+    r"[^0-9]{0,120}?"
+    r"on\s+(?P<meeting_date>" + _DATE + r")",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -166,6 +222,13 @@ def ocr_bulletin(pdf_bytes: bytes) -> str:
 # ---------------------------------------------------------------------------
 
 def extract_actions(text: str) -> list[dict]:
+    """Return a flat list of typed corporate action records.
+
+    Each record has a ``kind`` field routing where it lands in Firestore:
+      ``dividend`` → financials/{ticker}.dividends[]
+      ``bonus`` / ``scrip`` / ``rights`` / ``split`` / ``agm``
+                   → financials/{ticker}.corporate_actions[]
+    """
     # First isolate the CORPORATE ACTIONS block if present. NSE puts it in
     # the middle of the bulletin with market-summary table cells interleaved
     # into the OCR output — narrowing the search reduces both false positives
@@ -184,10 +247,19 @@ def extract_actions(text: str) -> list[dict]:
         if j > 100:  # keep at least first 100 chars (which is just the header)
             block = block[:j]
 
-    out = []
+    out: list[dict] = []
+    # Track which char-ranges each pattern already consumed so patterns
+    # don't double-emit a record when they overlap on the preamble.
+    consumed_spans: list[tuple[int, int]] = []
+
+    def overlaps(a: tuple[int, int]) -> bool:
+        return any(not (a[1] <= s or a[0] >= e) for s, e in consumed_spans)
+
+    # --- Dividends ---------------------------------------------------------
     for m in CORP_ACTION_RE.finditer(block):
         d = m.groupdict()
         rec = {
+            "kind":              "dividend",
             "name":              d["name"].strip(),
             "isin":              (d.get("isin") or "").strip() or None,
             "type":              d["type"].strip().lower().replace(" ", "-"),
@@ -203,6 +275,79 @@ def extract_actions(text: str) -> list[dict]:
         if "first" in rec["type"] and "final" in rec["type"]:
             rec["type"] = "final"
         out.append(rec)
+        consumed_spans.append(m.span())
+
+    # --- Bonus / scrip issues ---------------------------------------------
+    for m in BONUS_ISSUE_RE.finditer(block):
+        if overlaps(m.span()):
+            continue
+        d = m.groupdict()
+        kind = "scrip" if "scrip" in d["type"].lower() else "bonus"
+        out.append({
+            "kind":              kind,
+            "name":              d["name"].strip(),
+            "isin":              (d.get("isin") or "").strip() or None,
+            "type":              d["type"].strip().lower().replace(" ", "-"),
+            "ratio_new":         int(d["new_shares"]),
+            "ratio_old":         int(d["old_shares"]),
+            "announcement_date": parse_iso_date(d["ann_date"]),
+            "ex_date":           parse_iso_date(d.get("ex_date")),
+        })
+        consumed_spans.append(m.span())
+
+    # --- Rights issues -----------------------------------------------------
+    for m in RIGHTS_ISSUE_RE.finditer(block):
+        if overlaps(m.span()):
+            continue
+        d = m.groupdict()
+        out.append({
+            "kind":              "rights",
+            "name":              d["name"].strip(),
+            "isin":              (d.get("isin") or "").strip() or None,
+            "type":              "rights-issue",
+            "rights_price_kes":  float(d["price"]),
+            "ratio_new":         int(d["new_shares"]),
+            "ratio_old":         int(d["old_shares"]),
+            "announcement_date": parse_iso_date(d["ann_date"]),
+            "ex_date":           parse_iso_date(d.get("ex_date")),
+        })
+        consumed_spans.append(m.span())
+
+    # --- Share splits ------------------------------------------------------
+    for m in SPLIT_RE.finditer(block):
+        if overlaps(m.span()):
+            continue
+        d = m.groupdict()
+        out.append({
+            "kind":              "split",
+            "name":              d["name"].strip(),
+            "isin":              (d.get("isin") or "").strip() or None,
+            "type":              d["type"].strip().lower().replace(" ", "-"),
+            "ratio_new":         int(d["new_shares"]),
+            "ratio_old":         int(d["old_shares"]),
+            "announcement_date": parse_iso_date(d["ann_date"]),
+            "ex_date":           parse_iso_date(d.get("ex_date")),
+        })
+        consumed_spans.append(m.span())
+
+    # --- AGMs / EGMs -------------------------------------------------------
+    for m in AGM_RE.finditer(block):
+        if overlaps(m.span()):
+            continue
+        d = m.groupdict()
+        out.append({
+            "kind":              "agm",
+            "name":              d["name"].strip(),
+            "isin":              (d.get("isin") or "").strip() or None,
+            "type":              d["type"].strip().lower().replace(" ", "-"),
+            "meeting_date":      parse_iso_date(d["meeting_date"]),
+            # Use meeting_date as announcement_date so ordering works with
+            # the frontend's date-sort logic when no explicit ann_date is
+            # in the bulletin line.
+            "announcement_date": parse_iso_date(d["meeting_date"]),
+        })
+        consumed_spans.append(m.span())
+
     return out
 
 
@@ -281,45 +426,103 @@ def match_ticker(rec: dict, isin_map: dict[str, str]) -> str | None:
 # Firestore merge
 # ---------------------------------------------------------------------------
 
-def merge_dividends(db, ticker: str, incoming: list[dict], bulletin_date: str, url: str, dry_run: bool) -> int:
-    """Add each new dividend record. Dedup by (announcement_date, amount, type)."""
+def merge_actions(db, ticker: str, incoming: list[dict], bulletin_date: str, url: str, dry_run: bool) -> tuple[int, int]:
+    """Route each incoming record to dividends[] or corporate_actions[] by
+    kind, dedup, and merge into financials/{ticker}. Returns
+    (new_dividends, new_corporate_actions) counts."""
     doc_ref = db.collection("financials").document(ticker)
     snap = doc_ref.get()
     existing = snap.to_dict() if snap.exists else {}
     existing_divs = existing.get("dividends", []) or []
+    existing_actions = existing.get("corporate_actions", []) or []
 
-    def key(r):
+    def div_key(r):
         return (
             r.get("announcement_date") or "",
             round(float(r.get("amount_kes") or 0), 2),
             (r.get("type") or "").lower(),
         )
 
-    existing_keys = {key(r) for r in existing_divs if isinstance(r, dict)}
-    fresh: list[dict] = []
+    def action_key(r):
+        # Distinguish by (announcement_date, kind, type, ratio) — allows
+        # multiple actions per company per day if they have different shapes.
+        return (
+            r.get("announcement_date") or r.get("meeting_date") or "",
+            (r.get("kind") or "").lower(),
+            (r.get("type") or "").lower(),
+            r.get("ratio_new") or 0,
+            r.get("ratio_old") or 0,
+            r.get("rights_price_kes") or 0,
+        )
+
+    existing_div_keys = {div_key(r) for r in existing_divs if isinstance(r, dict)}
+    existing_action_keys = {action_key(r) for r in existing_actions if isinstance(r, dict)}
+
+    fresh_divs: list[dict] = []
+    fresh_actions: list[dict] = []
     now = datetime.now(timezone.utc).isoformat()
+
     for r in incoming:
-        if key(r) in existing_keys:
-            continue
-        existing_keys.add(key(r))
-        fresh.append({
-            "announcement_date": r["announcement_date"],
-            "ex_date":           r["ex_date"],
-            "payment_date":      r["payment_date"],
-            "amount_kes":        r["amount_kes"],
-            "type":              r["type"],
-            "isin":              r.get("isin"),
-            "source":            "nse-daily-bulletin",
-            "source_url":        url,
-            "first_seen_bulletin": bulletin_date,
-            "extracted_at":      now,
-        })
+        kind = r.get("kind", "dividend")
+        common = {
+            "isin":                 r.get("isin"),
+            "source":               "nse-daily-bulletin",
+            "source_url":           url,
+            "first_seen_bulletin":  bulletin_date,
+            "extracted_at":         now,
+        }
+        if kind == "dividend":
+            k = div_key(r)
+            if k in existing_div_keys:
+                continue
+            existing_div_keys.add(k)
+            fresh_divs.append({
+                "announcement_date": r["announcement_date"],
+                "ex_date":           r["ex_date"],
+                "payment_date":      r["payment_date"],
+                "amount_kes":        r["amount_kes"],
+                "type":              r["type"],
+                **common,
+            })
+        else:
+            k = action_key(r)
+            if k in existing_action_keys:
+                continue
+            existing_action_keys.add(k)
+            # `date` is what the frontend FilingsTimeline sorts on; use
+            # announcement_date (or meeting_date for AGMs) so entries land
+            # in the timeline chronologically.
+            display_date = r.get("announcement_date") or r.get("meeting_date")
+            fresh_actions.append({
+                "date":              display_date,
+                "kind":              kind,
+                "type":              r["type"],
+                "announcement_date": r.get("announcement_date"),
+                "ex_date":           r.get("ex_date"),
+                "meeting_date":      r.get("meeting_date"),
+                "ratio_new":         r.get("ratio_new"),
+                "ratio_old":         r.get("ratio_old"),
+                "rights_price_kes":  r.get("rights_price_kes"),
+                **common,
+            })
 
-    if fresh and not dry_run:
-        merged = sorted(existing_divs + fresh, key=lambda r: r.get("announcement_date", "") or "", reverse=True)
-        doc_ref.set({"dividends": merged}, merge=True)
+    if not dry_run and (fresh_divs or fresh_actions):
+        update: dict = {}
+        if fresh_divs:
+            merged_divs = sorted(existing_divs + fresh_divs, key=lambda r: r.get("announcement_date", "") or "", reverse=True)
+            update["dividends"] = merged_divs
+        if fresh_actions:
+            merged_actions = sorted(existing_actions + fresh_actions, key=lambda r: r.get("date", "") or "", reverse=True)
+            update["corporate_actions"] = merged_actions
+        doc_ref.set(update, merge=True)
 
-    return len(fresh)
+    return len(fresh_divs), len(fresh_actions)
+
+
+# Legacy alias — kept so any external caller still works.
+def merge_dividends(db, ticker: str, incoming: list[dict], bulletin_date: str, url: str, dry_run: bool) -> int:
+    divs, actions = merge_actions(db, ticker, incoming, bulletin_date, url, dry_run)
+    return divs + actions
 
 
 # ---------------------------------------------------------------------------
@@ -359,8 +562,9 @@ def main() -> None:
 
     total_found = 0
     total_records = 0
-    total_new = 0
-    dividends_per_ticker: dict[str, int] = {}
+    total_new_divs = 0
+    total_new_actions = 0
+    per_ticker: dict[str, dict[str, int]] = {}
     misses = 0
 
     for i, d in enumerate(days):
@@ -386,8 +590,8 @@ def main() -> None:
         records = extract_actions(text)
         if args.debug:
             print(f"  Records matched: {len(records)}")
-            for r in records[:5]:
-                print(f"    {r}")
+            for r in records[:10]:
+                print(f"    [{r.get('kind')}] {r}")
         if not records:
             continue
         total_records += len(records)
@@ -401,23 +605,28 @@ def main() -> None:
             by_ticker.setdefault(t, []).append(r)
 
         for tkr, recs in by_ticker.items():
-            n = merge_dividends(db, tkr, recs, d.isoformat(), url, args.dry_run)
-            if n:
-                dividends_per_ticker[tkr] = dividends_per_ticker.get(tkr, 0) + n
-                total_new += n
+            n_divs, n_actions = merge_actions(db, tkr, recs, d.isoformat(), url, args.dry_run)
+            if n_divs or n_actions:
+                bucket = per_ticker.setdefault(tkr, {"dividends": 0, "actions": 0})
+                bucket["dividends"] += n_divs
+                bucket["actions"] += n_actions
+                total_new_divs += n_divs
+                total_new_actions += n_actions
 
         if (i + 1) % 20 == 0:
-            print(f"  [{i+1}/{len(days)}] {d}: {total_found} bulletins found, {total_new} new dividends")
+            print(f"  [{i+1}/{len(days)}] {d}: {total_found} bulletins, "
+                  f"{total_new_divs} new dividends, {total_new_actions} new corp actions")
 
     verb = "would write" if args.dry_run else "wrote"
     print(f"\n=== Done ===")
     print(f"  Bulletins fetched: {total_found} / {len(days)} weekdays  ({misses} 404s)")
-    print(f"  Corporate actions parsed: {total_records}")
-    print(f"  Deduped {verb}: {total_new} new dividend records across {len(dividends_per_ticker)} tickers")
-    if dividends_per_ticker:
+    print(f"  Corporate action lines parsed: {total_records}")
+    print(f"  Deduped {verb}: {total_new_divs} new dividends + {total_new_actions} new corporate actions "
+          f"across {len(per_ticker)} tickers")
+    if per_ticker:
         print(f"\n  Top tickers by new records:")
-        for tkr, n in sorted(dividends_per_ticker.items(), key=lambda kv: -kv[1])[:15]:
-            print(f"    {tkr:6}  +{n}")
+        for tkr, counts in sorted(per_ticker.items(), key=lambda kv: -(kv[1]['dividends'] + kv[1]['actions']))[:15]:
+            print(f"    {tkr:6}  +{counts['dividends']} div  +{counts['actions']} action")
 
 
 if __name__ == "__main__":

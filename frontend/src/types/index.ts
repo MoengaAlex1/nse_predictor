@@ -147,11 +147,25 @@ export interface CorporateAction {
   details?: string;  // legacy format
   title?: string;    // new format (scraped from NSE)
   url?: string;      // new format (PDF link)
+  // Fields populated by scrape_nse_daily_bulletins.py for non-dividend
+  // actions (bonus, rights, split, AGM). All optional so legacy records
+  // stay valid.
+  isin?: string | null;
+  announcement_date?: string;              // when NSE announced the action
+  ex_date?: string | null;                 // Books Closure date
+  meeting_date?: string | null;            // AGM/SGM date
+  ratio_new?: number | null;               // e.g. 1 (in a "1 for 5" bonus)
+  ratio_old?: number | null;               // e.g. 5
+  rights_price_kes?: number | null;        // rights issue subscription price
+  source?: string;
+  source_url?: string;
+  first_seen_bulletin?: string;
+  extracted_at?: string;
 }
 
 export interface NSEAnnouncement {
   date: string;
-  type: "financial_result" | "corporate_action" | "dividend" | "agm";
+  type: "financial_result" | "corporate_action" | "dividend" | "agm" | "bonus" | "scrip" | "rights" | "split";
   title: string;
   url: string;
 }

@@ -423,6 +423,10 @@ const FILING_TYPE: Record<string, { label: string; pill: string }> = {
   financial_result: { label: "Results",     pill: "bg-sky-900/50 text-sky-300 border-sky-800/50" },
   dividend:         { label: "Dividend",    pill: "bg-emerald-900/50 text-emerald-300 border-emerald-800/50" },
   agm:              { label: "AGM",         pill: "bg-amber-900/50 text-amber-300 border-amber-800/50" },
+  bonus:            { label: "Bonus Issue", pill: "bg-purple-900/50 text-purple-300 border-purple-800/50" },
+  scrip:            { label: "Scrip Issue", pill: "bg-purple-900/50 text-purple-300 border-purple-800/50" },
+  rights:           { label: "Rights Issue", pill: "bg-blue-900/50 text-blue-300 border-blue-800/50" },
+  split:            { label: "Share Split", pill: "bg-teal-900/50 text-teal-300 border-teal-800/50" },
   corporate_action: { label: "Corp Action", pill: "bg-violet-900/50 text-violet-300 border-violet-800/50" },
 };
 
@@ -433,14 +437,57 @@ const FilingsTimeline: FC<{ financials: FinancialsDoc | undefined }> = ({ financ
     const list: NSEAnnouncement[] = [];
     (financials?.announcements ?? []).forEach((a) => list.push(a));
     (financials?.corporate_actions ?? []).forEach((a) => {
-      if (a.url && a.title) {
-        list.push({
-          date: a.date,
-          type: (a.type as NSEAnnouncement["type"]) || "corporate_action",
-          title: a.title,
-          url: a.url,
-        });
+      const date = a.date ?? a.announcement_date ?? a.meeting_date ?? undefined;
+      if (!date) return;
+      // Legacy scraped rows carry url+title. Structured rows (scraped from
+      // the daily bulletin via scrape_nse_daily_bulletins.py) carry a
+      // `kind` + typed fields (ratio_new, ratio_old, rights_price_kes,
+      // meeting_date). Synthesize a title when there isn't an explicit one.
+      const kind = (a as { kind?: string }).kind;
+      let type: string = a.type || "corporate_action";
+      let title = a.title;
+      if (!title) {
+        if (kind === "bonus" || kind === "scrip") {
+          type = kind;
+          const ratio = a.ratio_new != null && a.ratio_old != null
+            ? ` — ${a.ratio_new}:${a.ratio_old}`
+            : "";
+          const suffix = a.ex_date ? ` · Books Closure ${a.ex_date}` : "";
+          title = `${kind === "scrip" ? "Scrip" : "Bonus"} Issue${ratio}${suffix}`;
+        } else if (kind === "rights") {
+          type = "rights";
+          const ratio = a.ratio_new != null && a.ratio_old != null
+            ? ` — ${a.ratio_new}:${a.ratio_old}`
+            : "";
+          const price = a.rights_price_kes != null
+            ? ` @ KES ${a.rights_price_kes.toFixed(2)}`
+            : "";
+          const suffix = a.ex_date ? ` · Books Closure ${a.ex_date}` : "";
+          title = `Rights Issue${ratio}${price}${suffix}`;
+        } else if (kind === "split") {
+          type = "split";
+          const ratio = a.ratio_new != null && a.ratio_old != null
+            ? ` — ${a.ratio_new}:${a.ratio_old}`
+            : "";
+          title = `Share Split${ratio}`;
+        } else if (kind === "agm") {
+          type = "agm";
+          title = a.meeting_date
+            ? `Annual General Meeting on ${a.meeting_date}`
+            : "Annual General Meeting";
+        } else if (kind) {
+          type = kind;
+        }
       }
+      // Legacy filter: only entries WITH url+title landed pre-refactor.
+      // Now we also render structured entries without a URL.
+      if (!title && !a.url) return;
+      list.push({
+        date,
+        type: (type as NSEAnnouncement["type"]) || "corporate_action",
+        title: title ?? "Corporate action",
+        url: a.url ?? "",
+      });
     });
     (financials?.dividends ?? []).forEach((d) => {
       const date = d.announcement_date ?? (d as { date?: string }).date;
@@ -474,7 +521,7 @@ const FilingsTimeline: FC<{ financials: FinancialsDoc | undefined }> = ({ financ
 
   if (!entries.length) return null;
 
-  const tabKeys = ["all", "financial_result", "corporate_action", "agm", "dividend"];
+  const tabKeys = ["all", "financial_result", "dividend", "bonus", "scrip", "rights", "split", "agm", "corporate_action"];
 
   return (
     <Card className="border-rim bg-surface">
