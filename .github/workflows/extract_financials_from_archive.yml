@@ -1,0 +1,74 @@
+name: Extract financials from archived disclosures
+
+# M3: iterates disclosures/{ticker}/items/* (populated by
+# archive_disclosures.yml), runs the regex extractor over each PDF's
+# archived text, and merges structured FinancialResult records into
+# financials/{ticker}.annual[] and .interim[].
+#
+# Schedule: weekly Monday 05:00 UTC — a day after archive_disclosures
+# runs on Sunday 04:00, so it always sees the latest week's PDFs.
+# Manual dispatch for spot re-extraction with the optional Claude
+# fallback enabled.
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"   # Monday 05:00 UTC = 08:00 EAT
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: "Space-separated tickers (blank = all)"
+        required: false
+        default: ""
+      use_ai:
+        description: "Enable Claude fallback for low-confidence PDFs"
+        required: false
+        default: "false"
+      force:
+        description: "Re-extract even if record exists"
+        required: false
+        default: "false"
+      dry_run:
+        description: "Skip Firestore writes"
+        required: false
+        default: "false"
+
+concurrency:
+  group: extract-financials-archive
+  cancel-in-progress: false
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - run: pip install -r pipeline/requirements.txt
+
+      - name: Run extract_financials_from_archive.py
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL:             ${{ secrets.FIREBASE_RTDB_URL }}
+          FIREBASE_STORAGE_BUCKET:       ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          ANTHROPIC_API_KEY:             ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.tickers }}" ]; then
+            ARGS="$ARGS --tickers ${{ github.event.inputs.tickers }}"
+          fi
+          if [ "${{ github.event.inputs.use_ai }}" = "true" ]; then
+            ARGS="$ARGS --use-ai"
+          fi
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            ARGS="$ARGS --force"
+          fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python pipeline/scripts/extract_financials_from_archive.py $ARGS

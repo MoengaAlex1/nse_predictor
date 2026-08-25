@@ -121,6 +121,14 @@ export interface FinancialResult {
   net_income_kes_mn: number | null;
   eps: number | null;
   bvps: number | null;
+  // Extended by extract_financials_from_archive.py (M3). Optional so
+  // hand-curated legacy records without these fields stay valid.
+  dps_kes?: number | null;
+  source_disclosure_sha?: string;
+  source_url?: string;
+  extraction_method?: "regex" | "ai" | "manual";
+  confidence?: "none" | "low" | "medium" | "high" | "ai";
+  extracted_at?: string;
   notes?: string;
 }
 
@@ -172,6 +180,7 @@ export interface NSEAnnouncement {
 
 export interface FinancialsDoc {
   annual: FinancialResult[];
+  interim?: FinancialResult[];  // added by extract_financials_from_archive.py (M3)
   dividends: DividendEvent[];
   corporate_actions: CorporateAction[];
   announcements?: NSEAnnouncement[];
