@@ -24,7 +24,18 @@ def _init() -> None:
 
 def get_firestore():
     _init()
-    return firestore.client()
+    # Recent firebase-admin releases surface the "Invalid database id
+    # (default)" gRPC error when the SDK is left to infer the database
+    # from the environment. Passing an explicit database_id keeps the
+    # call working across SDK versions. Override with FIRESTORE_DATABASE_ID
+    # if the project uses a named (non-default) Firestore database.
+    db_id = os.environ.get("FIRESTORE_DATABASE_ID", "(default)")
+    try:
+        return firestore.client(database_id=db_id)
+    except TypeError:
+        # Older firebase-admin versions (< 6.something) don't accept the
+        # database_id kwarg — fall back to the plain call.
+        return firestore.client()
 
 
 def get_rtdb():
