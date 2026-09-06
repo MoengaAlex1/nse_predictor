@@ -4,12 +4,13 @@ import { useRecentTickers } from "../hooks/useRecentTickers";
 import { useCompany, useLatestTechnicals, useFinancials as useFinancialsDoc } from "../hooks/useCompany";
 import { useCompanies } from "../hooks/useCompanies";
 import { useQuote } from "../hooks/useQuotes";
+import { useSecurityShortcuts } from "../hooks/useSecurityShortcuts";
+import { SecurityHeader } from "../components/layout/SecurityHeader";
 import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
 import { useCompareSeries } from "../hooks/useCompareSeries";
 import { useWatchlist } from "../hooks/useWatchlist";
 import { usePeers } from "../hooks/usePeers";
 import { CompanyLogo } from "../components/ui/CompanyLogo";
-import { LeftWatchlistRail } from "../components/layout/LeftWatchlistRail";
 import { TimeframeTabs } from "../components/ui/TimeframeTabs";
 import { FocusedPriceChart } from "../components/investor/FocusedPriceChart";
 import { CompareChart, type CompareLine } from "../components/investor/CompareChart";
@@ -110,6 +111,7 @@ export const InvestorChart = () => {
   );
 
   const [timeframe, setTimeframe] = useState<TimeframeKey>("1M");
+  useSecurityShortcuts(cleaned, { onRange: setTimeframe });
   const [chartType, setChartType] = useState<"area" | "candles" | "indicators">("area");
 
   useEffect(() => {
@@ -237,12 +239,11 @@ export const InvestorChart = () => {
   );
 
   return (
-    <div className="mx-auto max-w-[1600px] px-3 py-4 sm:px-6 lg:px-8">
-      {/* LeftWatchlistRail hides itself under lg — see the aside's
-          `hidden lg:flex`. On mobile this collapses to a single column
-          so the chart takes the full viewport width. */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <LeftWatchlistRail />
+    <div>
+      {/* The watchlist rail and page padding now belong to TerminalShell —
+          this view only renders its own panel. */}
+      <SecurityHeader company={company} quote={quote} id={cleaned} />
+      <div className="grid grid-cols-1 gap-3">
 
         <div className="flex flex-col gap-3">
           {/* ── Ticker header ────────────────────────────────────────────── */}

@@ -11,6 +11,8 @@ import { TechnicalChart } from "../components/charts/TechnicalChart";
 import { PredictionChart } from "../components/charts/PredictionChart";
 import { PriceExplainer } from "../components/company/PriceExplainer";
 import { useQuote } from "../hooks/useQuotes";
+import { useSecurityShortcuts } from "../hooks/useSecurityShortcuts";
+import { SecurityHeader } from "../components/layout/SecurityHeader";
 import { useCompany, useLatestSnapshot, useLatestTechnicals, useCorporateEvents, useFinancials, useMacro, useIntradayDay, useFundamentals, useNews } from "../hooks/useCompany";
 import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
 import { useAdjustedHistory } from "../hooks/useHistory";
@@ -1175,6 +1177,7 @@ export const CompanyDeepDive: FC = () => {
   const { ticker = "" } = useParams<{ ticker: string }>();
   const { data: company, isLoading, isError } = useCompany(ticker);
   const { data: quote } = useQuote(ticker);
+  useSecurityShortcuts(ticker);
   const { data: snapshot, isLoading: snapLoading } = useLatestSnapshot(ticker);
   const { data: technicals, isLoading: techLoading } = useLatestTechnicals(ticker);
   const { data: events = [] } = useCorporateEvents(ticker);
@@ -1316,6 +1319,8 @@ export const CompanyDeepDive: FC = () => {
   return (
     <>
       <div className="space-y-4">
+        <SecurityHeader company={company} quote={quote} id={cleanTicker} />
+
         {/* ── Price-move alert banner — MSN-style, first thing on the page ─ */}
         <PriceMoveBanner
           currentPrice={bannerCurrent}

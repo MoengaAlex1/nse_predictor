@@ -68,6 +68,28 @@ export const GlobalSearch: FC<GlobalSearchProps> = ({ targetRoute = "company" })
     [navigate, close, targetRoute],
   );
 
+  // Global hotkeys (phase 1 task 4): Cmd/Ctrl-K opens the palette from
+  // anywhere, "/" focuses it. Both are ignored while the user is typing in
+  // another field so they cannot fire mid-input.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const typing =
+        el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+      if ((e.key === "k" || e.key === "K") && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setOpen(true);
+        return;
+      }
+      if (e.key === "/" && !typing && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        setOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // Click-outside to close
   useEffect(() => {
     if (!open) return;
