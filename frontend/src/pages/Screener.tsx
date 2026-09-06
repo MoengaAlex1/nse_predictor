@@ -3,6 +3,9 @@ import type { FC } from "react";
 import { Link } from "react-router-dom";
 import { useCompanies } from "../hooks/useCompanies";
 import { useAllFinancials, useAllFundamentals } from "../hooks/useScreener";
+import { useQuotesFor } from "../hooks/useQuotes";
+import type { Quote } from "../services/quotes";
+import { marketCap, priceEarnings, dividendYieldTtm, latestAnnualEps } from "../services/valuation";
 import { CompanyLogo } from "../components/ui/CompanyLogo";
 import { Spinner } from "../components/ui/Spinner";
 import { fmtCompact, fmtCompactKes, fmtPrice, fmtPct, arrow, trendClass, EM_DASH } from "../lib/format";
@@ -34,43 +37,28 @@ type ScreenerRow = {
 
 function buildRow(
   c: CompanyDoc,
+  quote: Quote | undefined,
   fin: FinancialsDoc | undefined,
   fund: FundamentalsDoc | undefined,
 ): ScreenerRow {
-  // Live price wins; otherwise fall back to the last known VWAP so Market
-  // Cap still computes for tickers with a thin intraday feed. Flagged as
-  // stale in the UI via a chip so users know the source.
-  const livePrice = c.current_price ?? null;
-  const fallbackPrice = c.last_known_price ?? null;
-  const price = livePrice ?? fallbackPrice;
-  const priceIsFallback = livePrice == null && fallbackPrice != null;
-  const changePct = c.change_pct_today ?? null;
+  // Price comes from the quotes service only. `companies.current_price` is
+  // null for all 61 tickers and `last_known_price` is a 2023-09-30 VWAP — that
+  // pair is what rendered EQTY at KES 37.60 here against a real close of
+  // 106.00. See docs/data-audit.md.
+  const price = quote?.close ?? null;
+  const priceIsFallback = quote != null && quote.source !== "trade";
+  const changePct = quote?.changePct ?? null;
   const sharesMn = fund?.shares_outstanding_mn ?? null;
-  const marketCap = price != null && sharesMn != null ? price * sharesMn * 1_000_000 : null;
+  const mcap = marketCap(price, sharesMn);
 
-  // Latest annual with positive EPS (audited > interim)
-  const annuals = fin?.annual ? [...fin.annual] : [];
-  annuals.sort((a, b) => (b.period_end ?? "").localeCompare(a.period_end ?? ""));
-  const latestAnnual = annuals.find((r) => r.eps != null && r.eps > 0);
-  const eps = latestAnnual?.eps ?? null;
-  const epsPeriod = latestAnnual?.period ?? null;
-  const pe = price != null && eps != null && eps > 0 ? price / eps : null;
+  const epsDated = latestAnnualEps(fin);
+  const eps = epsDated?.value ?? null;
+  const epsPeriod = epsDated?.fiscalPeriod ?? null;
+  const pe = priceEarnings(price, eps);
 
-  // TTM dividend yield = sum of last-365-days amount_kes ÷ price
-  let divYieldPct: number | null = null;
+  const divYieldPct = dividendYieldTtm(fin, price);
   let latestDivDate: string | null = null;
-  if (fin?.dividends && price != null && price > 0) {
-    const cutoff = new Date();
-    cutoff.setFullYear(cutoff.getFullYear() - 1);
-    const cutIso = cutoff.toISOString().slice(0, 10);
-    let total = 0;
-    fin.dividends.forEach((d) => {
-      if (d.announcement_date >= cutIso && d.type !== "none" && d.amount_kes != null) {
-        total += d.amount_kes;
-      }
-    });
-    if (total > 0) divYieldPct = (total / price) * 100;
-
+  if (fin?.dividends) {
     const dated = fin.dividends
       .filter((d) => d.type !== "none" && (d.ex_date || d.period_end || d.announcement_date))
       .sort((a, b) => {
@@ -91,14 +79,14 @@ function buildRow(
     icon: c.icon,
     price,
     priceIsFallback,
-    priceAsOf: priceIsFallback ? c.last_known_price_as_of ?? null : c.price_date ?? null,
+    priceAsOf: quote?.date ?? null,
     changePct,
     signal: c.signal,
     eps,
     epsPeriod,
     pe,
     sharesMn,
-    marketCapKes: marketCap,
+    marketCapKes: mcap,
     divYieldPct,
     latestDivDate,
   };
@@ -180,6 +168,8 @@ const SectorPill: FC<{ label: string; count: number; active: boolean; onClick: (
 
 export const Screener: FC = () => {
   const { data: companies = [], isLoading: coLoading } = useCompanies();
+  const tickers = useMemo(() => companies.map((c) => c.id), [companies]);
+  const { data: quotesMap } = useQuotesFor(tickers);
   const { data: financialsMap } = useAllFinancials();
   const { data: fundamentalsMap } = useAllFundamentals();
 
@@ -190,8 +180,9 @@ export const Screener: FC = () => {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const rows = useMemo<ScreenerRow[]>(() => {
-    return companies.map((c) => buildRow(c, financialsMap?.get(c.id), fundamentalsMap?.get(c.id)));
-  }, [companies, financialsMap, fundamentalsMap]);
+    return companies.map((c) =>
+      buildRow(c, quotesMap?.get(c.id), financialsMap?.get(c.id), fundamentalsMap?.get(c.id)));
+  }, [companies, quotesMap, financialsMap, fundamentalsMap]);
 
   const sectorCounts = useMemo(() => {
     const map = new Map<string, number>();
