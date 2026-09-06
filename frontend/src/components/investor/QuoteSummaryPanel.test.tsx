@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { QuoteSummaryPanel } from "./QuoteSummaryPanel";
 import type { CompanyDoc, TechnicalsDoc, FinancialsDoc, SnapshotDoc } from "../../types";
+import type { Quote } from "../../services/quotes";
 
 vi.mock("../../lib/firebase", () => ({ app: {}, db: {}, auth: {} }));
 
@@ -47,11 +48,19 @@ const baseTechnicals: TechnicalsDoc = {
   monthly_heatmap: {},
 };
 
+const baseQuote: Quote = {
+  ticker: "COOP", date: "2026-09-04",
+  open: 13.4, high: 13.6, low: 13.3, close: 13.5, prevClose: 13.34,
+  change: 0.16, changePct: 1.2, volume: 2_410_000, vwap: null,
+  isStale: false, staleDays: 0, source: "trade",
+};
+
 describe("QuoteSummaryPanel", () => {
   it("renders volume", () => {
     render(
       <QuoteSummaryPanel
         company={baseCompany}
+        quote={baseQuote}
         technicals={baseTechnicals}
         financials={null}
         snapshot={null}
@@ -64,6 +73,7 @@ describe("QuoteSummaryPanel", () => {
     render(
       <QuoteSummaryPanel
         company={baseCompany}
+        quote={baseQuote}
         technicals={baseTechnicals}
         financials={null}
         snapshot={null}
@@ -76,6 +86,7 @@ describe("QuoteSummaryPanel", () => {
     render(
       <QuoteSummaryPanel
         company={baseCompany}
+        quote={baseQuote}
         technicals={baseTechnicals}
         financials={null}
         snapshot={null}
@@ -105,6 +116,7 @@ describe("QuoteSummaryPanel", () => {
     render(
       <QuoteSummaryPanel
         company={baseCompany}
+        quote={baseQuote}
         technicals={baseTechnicals}
         financials={financials}
         snapshot={null}
@@ -125,6 +137,7 @@ describe("QuoteSummaryPanel", () => {
     render(
       <QuoteSummaryPanel
         company={baseCompany}
+        quote={baseQuote}
         technicals={baseTechnicals}
         financials={null}
         snapshot={snapshot}
@@ -134,10 +147,11 @@ describe("QuoteSummaryPanel", () => {
     expect(screen.getByText(/HOLD 1/i)).toBeInTheDocument();
   });
 
-  it("does not render when current_price is null", () => {
+  it("does not render when the quote has no close", () => {
     const { container } = render(
       <QuoteSummaryPanel
-        company={{ ...baseCompany, current_price: null }}
+        company={baseCompany}
+        quote={{ ...baseQuote, close: null }}
         technicals={baseTechnicals}
         financials={null}
         snapshot={null}

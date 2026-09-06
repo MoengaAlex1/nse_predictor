@@ -1,6 +1,7 @@
 import type { FC } from "react";
 import { getCompanyProfile } from "../../data/companyProfiles";
 import type { CompanyDoc, FinancialsDoc, SnapshotDoc, TechnicalsDoc } from "../../types";
+import type { Quote } from "../../services/quotes";
 
 const fmtVol = (n: number) =>
   n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2)}M` : n.toLocaleString();
@@ -24,6 +25,7 @@ const SECTOR_MEDIAN_PE: Record<string, number | null> = {
 
 interface Props {
   company: CompanyDoc;
+  quote: Quote | null | undefined;
   technicals: TechnicalsDoc | null | undefined;
   financials: FinancialsDoc | null | undefined;
   snapshot: SnapshotDoc | null | undefined;
@@ -40,10 +42,10 @@ const MetricChip: FC<{ label: string; value: string; accent?: string }> = ({
   </div>
 );
 
-export const QuoteSummaryPanel: FC<Props> = ({ company, technicals, financials, snapshot }) => {
-  if (company.current_price === null) return null;
+export const QuoteSummaryPanel: FC<Props> = ({ company, quote, technicals, financials, snapshot }) => {
+  if (quote?.close == null) return null;
 
-  const price = company.current_price;
+  const price = quote.close;
   const profile = getCompanyProfile(company.ticker);
 
   // 52W high/low from last 365 days of price_history

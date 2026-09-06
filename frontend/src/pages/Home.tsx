@@ -1,9 +1,11 @@
+import { useMemo } from "react";
 import type { FC } from "react";
 import { Link } from "react-router-dom";
 import { Spinner } from "../components/ui/Spinner";
 import { Card } from "../components/ui/Card";
 import { useMarketOverview } from "../hooks/useMarket";
 import { useCompanies } from "../hooks/useCompanies";
+import { useQuotesFor } from "../hooks/useQuotes";
 import { MarketSummaryStrip } from "../components/home/MarketSummaryStrip";
 import { MoversTable } from "../components/home/MoversTable";
 import { SentimentDonut } from "../components/home/SentimentDonut";
@@ -13,6 +15,8 @@ import { TopSignals } from "../components/home/TopSignals";
 export const Home: FC = () => {
   const { data: market, isLoading: marketLoading, isError: marketError } = useMarketOverview();
   const { data: companies = [] } = useCompanies();
+  const tickers = useMemo(() => companies.map((c) => c.id), [companies]);
+  const { data: quotes } = useQuotesFor(tickers);
 
   const isLoading = marketLoading;
   const isError = marketError;
@@ -50,9 +54,9 @@ export const Home: FC = () => {
             {/* Main column — movers */}
             <div className="space-y-4 lg:col-span-2">
               <div className="grid gap-4 sm:grid-cols-3">
-                <MoversTable type="gainers" market={market} companies={companies} />
-                <MoversTable type="losers" market={market} companies={companies} />
-                <MoversTable type="active" market={market} companies={companies} />
+                <MoversTable type="gainers" market={market} companies={companies} quotes={quotes} />
+                <MoversTable type="losers" market={market} companies={companies} quotes={quotes} />
+                <MoversTable type="active" market={market} companies={companies} quotes={quotes} />
               </div>
               <SectorPerformance market={market} />
             </div>
@@ -60,7 +64,7 @@ export const Home: FC = () => {
             {/* Sidebar — sentiment + signals */}
             <div className="space-y-4">
               <SentimentDonut market={market} />
-              <TopSignals companies={companies} />
+              <TopSignals companies={companies} quotes={quotes} />
             </div>
           </div>
 

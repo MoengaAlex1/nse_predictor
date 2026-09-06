@@ -6,6 +6,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { SignalBadge } from "../components/ui/Badge";
 import { CompanyLogo } from "../components/ui/CompanyLogo";
 import { useCompanies } from "../hooks/useCompanies";
+import { useQuote } from "../hooks/useQuotes";
 import { fmtDay } from "../lib/dateUtils";
 import type { CompanyDoc } from "../types";
 
@@ -180,7 +181,8 @@ const CompanyCard: FC<{ company: CompanyDoc; showSignal?: boolean }> = ({
   company,
   showSignal = true,
 }) => {
-  const change = company.change_pct_today;
+  const { data: quote } = useQuote(company.id);
+  const change = quote?.changePct ?? null;
   return (
     <Link to={`/chart/${company.id}`}>
       <Card className="h-full cursor-pointer transition-colors hover:border-sub/40">
@@ -203,9 +205,9 @@ const CompanyCard: FC<{ company: CompanyDoc; showSignal?: boolean }> = ({
         <div className="mt-3 flex items-end justify-between">
           <div>
             <p className="text-sm text-sub">{company.name}</p>
-            {typeof company.current_price === "number" && (
+            {quote?.close != null && (
               <p className="text-lg font-bold text-ink">
-                KES {company.current_price.toFixed(2)}
+                KES {quote.close.toFixed(2)}
               </p>
             )}
             {company.price_date && (

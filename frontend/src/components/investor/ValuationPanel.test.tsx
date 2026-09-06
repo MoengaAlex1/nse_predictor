@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ValuationPanel } from "./ValuationPanel";
 import type { CompanyDoc, FinancialsDoc } from "../../types";
+import type { Quote } from "../../services/quotes";
 
 vi.mock("../../lib/firebase", () => ({ app: {}, db: {}, auth: {} }));
 
@@ -59,41 +60,48 @@ const mockFinancials: FinancialsDoc = {
   announcements: [],
 };
 
+const baseQuote: Quote = {
+  ticker: "COOP", date: "2026-09-04",
+  open: 13.4, high: 13.6, low: 13.3, close: 13.5, prevClose: 13.34,
+  change: 0.16, changePct: 1.2, volume: 2_410_000, vwap: null,
+  isStale: false, staleDays: 0, source: "trade",
+};
+
 describe("ValuationPanel", () => {
   it("renders EPS from most recent annual result", () => {
-    render(<ValuationPanel company={mockCompany} financials={mockFinancials} fundamentals={null} />);
+    render(<ValuationPanel company={mockCompany} quote={baseQuote} financials={mockFinancials} fundamentals={null} />);
     expect(screen.getByText("1.63")).toBeInTheDocument();
   });
 
   it("renders P/E computed from current_price / eps", () => {
-    render(<ValuationPanel company={mockCompany} financials={mockFinancials} fundamentals={null} />);
+    render(<ValuationPanel company={mockCompany} quote={baseQuote} financials={mockFinancials} fundamentals={null} />);
     // 13.50 / 1.63 ≈ 8.3×
     expect(screen.getByText(/8\.[0-9]+×/)).toBeInTheDocument();
   });
 
   it("switches to Income tab on click", async () => {
     const user = userEvent.setup();
-    render(<ValuationPanel company={mockCompany} financials={mockFinancials} fundamentals={null} />);
+    render(<ValuationPanel company={mockCompany} quote={baseQuote} financials={mockFinancials} fundamentals={null} />);
     await user.click(screen.getByRole("button", { name: /Income/i }));
     expect(screen.getByText(/Net Income/i)).toBeInTheDocument();
   });
 
   it("switches to Dividends tab on click", async () => {
     const user = userEvent.setup();
-    render(<ValuationPanel company={mockCompany} financials={mockFinancials} fundamentals={null} />);
+    render(<ValuationPanel company={mockCompany} quote={baseQuote} financials={mockFinancials} fundamentals={null} />);
     await user.click(screen.getByRole("button", { name: /Dividends/i }));
     expect(screen.getByText(/0\.55/)).toBeInTheDocument();
   });
 
   it("shows sector comparison row for known sector", () => {
-    render(<ValuationPanel company={mockCompany} financials={mockFinancials} fundamentals={null} />);
+    render(<ValuationPanel company={mockCompany} quote={baseQuote} financials={mockFinancials} fundamentals={null} />);
     expect(screen.getByText(/Banking sector median/i)).toBeInTheDocument();
   });
 
   it("renders nothing when financials have no annual results", () => {
     const { container } = render(
       <ValuationPanel
-        company={mockCompany}
+        company={mockCompany} quote={baseQuote}
         financials={{ annual: [], dividends: [], corporate_actions: [] }}
         fundamentals={null}
       />,

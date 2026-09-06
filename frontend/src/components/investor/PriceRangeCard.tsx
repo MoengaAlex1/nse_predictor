@@ -1,10 +1,12 @@
 import type { FC } from "react";
 import { RangeSlider } from "./RangeSlider";
 import type { CompanyDoc } from "../../types";
+import type { Quote } from "../../services/quotes";
 import type { RtdbPricePoint } from "../../hooks/useHistoricalPrices";
 
 interface Props {
   company: CompanyDoc;
+  quote: Quote | null | undefined;
   /** Latest RTDB point for today's session — l/h/c/o feed the Day Range. */
   latest?: RtdbPricePoint | null;
 }
@@ -22,18 +24,20 @@ interface Props {
  * price_history entry, then last_known_price — so the sliders keep working
  * whenever ANY price signal is available.
  */
-export const PriceRangeCard: FC<Props> = ({ company, latest }) => {
+export const PriceRangeCard: FC<Props> = ({ company, quote, latest }) => {
   // Fall through the possible sources of "what price is the dot at?" in
   // priority order. RTDB is the most recent tier, price_history is the
   // canonical EOD close, last_known_price is the seed_last_vwap fallback.
   const historyLast = company.price_history?.length
     ? company.price_history[company.price_history.length - 1].price
     : null;
+  // The quotes service first; then the RTDB bar this card was handed, then
+  // the last price_history point. The `last_known_price` tier is gone — it is
+  // a VWAP dated 2023-09-30 and was placing the dot years off the range.
   const currentPrice: number | null =
-    company.current_price ??
+    quote?.close ??
     latest?.c ??
     historyLast ??
-    company.last_known_price ??
     null;
 
   // ── Day Range (from RTDB's latest bar) ────────────────────────────────

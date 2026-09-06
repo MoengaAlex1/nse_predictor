@@ -1,13 +1,16 @@
 import type { FC } from "react";
 import { Link } from "react-router-dom";
 import type { CompanyDoc } from "../../types";
+import type { Quote } from "../../services/quotes";
 
-type Props = { companies: CompanyDoc[] };
+type Props = { companies: CompanyDoc[]; quotes?: Map<string, Quote> };
 
-export const TopSignals: FC<Props> = ({ companies }) => {
+export const TopSignals: FC<Props> = ({ companies, quotes }) => {
+  // Price and change come from the quotes service; only `signal` still comes
+  // off the company doc.
   const picks = companies
-    .filter(c => c.signal === "BUY" && c.current_price != null)
-    .sort((a, b) => (b.change_pct_today ?? 0) - (a.change_pct_today ?? 0))
+    .filter(c => c.signal === "BUY" && quotes?.get(c.id)?.close != null)
+    .sort((a, b) => (quotes?.get(b.id)?.changePct ?? 0) - (quotes?.get(a.id)?.changePct ?? 0))
     .slice(0, 5);
 
   return (
@@ -36,8 +39,8 @@ export const TopSignals: FC<Props> = ({ companies }) => {
                     <p className="font-mono text-[10px] text-muted">{c.ticker}</p>
                   </div>
                   <div className="text-right">
-                    {c.current_price != null && (
-                      <p className="font-mono text-xs text-sub">KES {c.current_price.toFixed(2)}</p>
+                    {quotes?.get(c.id)?.close != null && (
+                      <p className="font-mono text-xs text-sub">KES {quotes.get(c.id)!.close!.toFixed(2)}</p>
                     )}
                     {pct != null && (
                       <p className={`font-mono text-xs font-semibold ${pct >= 0 ? "text-emerald-500" : "text-red-500"}`}>

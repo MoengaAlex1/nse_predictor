@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useRecentTickers } from "../hooks/useRecentTickers";
 import { useCompany, useLatestTechnicals, useLatestSnapshot, useFundamentals, useFinancials as useFinancialsDoc } from "../hooks/useCompany";
+import { useQuote } from "../hooks/useQuotes";
 import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
 import { PriceHeader } from "../components/investor/PriceHeader";
 import { PriceAreaChart } from "../components/investor/PriceAreaChart";
@@ -58,6 +59,7 @@ export const InvestorDashboard = () => {
   // and some with the doc id (SCOM), so we normalize once and use the
   // cleaned form for every Firestore + RTDB fetch.
   const { data: company } = useCompany(cleaned);
+  const { data: quote } = useQuote(cleaned);
   const { data: technicals } = useLatestTechnicals(cleaned);
   const { data: snapshot } = useLatestSnapshot(cleaned);
   const { data: fundamentals } = useFundamentals(cleaned);
@@ -85,8 +87,9 @@ export const InvestorDashboard = () => {
   const dayLow = latestRow?.l ?? null;
   const dayHigh = latestRow?.h ?? null;
 
-  const currentPrice = company?.current_price ?? latestRow?.c ?? null;
-  const changePct = company?.change_pct_today ?? latestRow?.pch ?? null;
+  // Price comes from the quotes service, never companies.current_price.
+  const currentPrice = quote?.close ?? null;
+  const changePct = quote?.changePct ?? null;
   const changeAbs =
     currentPrice != null && previousClose != null ? currentPrice - previousClose : null;
 
@@ -214,7 +217,7 @@ export const InvestorDashboard = () => {
         </div>
 
         <RightStatsRail
-          company={company}
+          quote={quote}
           technicals={technicals}
           fundamentals={fundamentals}
           financials={financials}

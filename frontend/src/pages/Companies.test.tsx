@@ -10,6 +10,20 @@ import type { CompanyDoc } from "../types";
 vi.mock("../hooks/useCompanies");
 vi.mock("../lib/auth", () => ({ initAuthListener: vi.fn(() => vi.fn()), logout: vi.fn() }));
 vi.mock("../lib/firebase", () => ({ app: {}, db: {}, auth: {} }));
+// CompanyCard resolves its own quote now. Stub the hook so the test does not
+// need a live RTDB handle; close mirrors the fixture's price per ticker.
+vi.mock("../hooks/useQuotes", () => ({
+  useQuote: (id: string) => ({
+    data: {
+      ticker: id, date: "2026-09-04",
+      open: null, high: null, low: null,
+      close: id === "SCOM_NR" ? 33.05 : id === "EABL_NR" ? 55.0 : null,
+      prevClose: null, change: null, changePct: null,
+      volume: null, vwap: null, isStale: false, staleDays: 0, source: "trade",
+    },
+  }),
+  useQuotesFor: () => ({ data: new Map() }),
+}));
 vi.mock("../store/useAuthStore", () => ({
   useAuthStore: vi.fn(() => ({ user: null, loading: false })),
 }));

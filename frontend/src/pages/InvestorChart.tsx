@@ -3,6 +3,7 @@ import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useRecentTickers } from "../hooks/useRecentTickers";
 import { useCompany, useLatestTechnicals, useFinancials as useFinancialsDoc } from "../hooks/useCompany";
 import { useCompanies } from "../hooks/useCompanies";
+import { useQuote } from "../hooks/useQuotes";
 import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
 import { useCompareSeries } from "../hooks/useCompareSeries";
 import { useWatchlist } from "../hooks/useWatchlist";
@@ -119,6 +120,7 @@ export const InvestorChart = () => {
   // the doc id (SCOM). Normalise once and use the cleaned form for every
   // Firestore + RTDB fetch — the doc id is the canonical key.
   const { data: company } = useCompany(cleaned);
+  const { data: quote } = useQuote(cleaned);
   const { data: technicals } = useLatestTechnicals(cleaned);
   const { data: financials } = useFinancialsDoc(cleaned);
   const { data: allCompanies = [] } = useCompanies();
@@ -132,9 +134,10 @@ export const InvestorChart = () => {
   );
 
   const latestRow = rtdbPrimary.length > 0 ? rtdbPrimary[rtdbPrimary.length - 1] : null;
-  const previousClose = latestRow?.pc ?? null;
-  const currentPrice = company?.current_price ?? latestRow?.c ?? null;
-  const changePct = company?.change_pct_today ?? latestRow?.pch ?? null;
+  const previousClose = quote?.prevClose ?? latestRow?.pc ?? null;
+  // Price comes from the quotes service, never companies.current_price.
+  const currentPrice = quote?.close ?? null;
+  const changePct = quote?.changePct ?? null;
   const changeAbs =
     currentPrice != null && previousClose != null ? currentPrice - previousClose : null;
   const up = changePct != null && changePct >= 0;

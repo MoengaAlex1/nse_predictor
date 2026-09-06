@@ -2,11 +2,13 @@ import type { FC } from "react";
 import { Link } from "react-router-dom";
 import { CompanyLogo } from "../ui/CompanyLogo";
 import { useCompanies } from "../../hooks/useCompanies";
+import { useQuotesFor } from "../../hooks/useQuotes";
 import { useWatchlist } from "../../hooks/useWatchlist";
 import { useMarketOverview } from "../../hooks/useMarket";
 import { fmtPrice, fmtPct, trendClass, EM_DASH } from "../../lib/format";
 import { shortFromDisplayTicker } from "../../lib/identity";
 import type { CompanyDoc } from "../../types";
+import type { Quote } from "../../services/quotes";
 
 // Tiny inline sparkline drawn from CompanyDoc.price_preview (7-day array
 // already denormalised into the companies collection — no extra fetch).
@@ -33,10 +35,11 @@ const MiniSparkline: FC<{ points: number[]; up: boolean }> = ({ points, up }) =>
 
 type RowProps = {
   company: CompanyDoc;
+  quote?: Quote;
 };
 
-const WatchlistRow: FC<RowProps> = ({ company }) => {
-  const pct = company.change_pct_today;
+const WatchlistRow: FC<RowProps> = ({ company, quote }) => {
+  const pct = quote?.changePct ?? null;
   const up = pct != null && pct >= 0;
   return (
     <Link
@@ -51,7 +54,7 @@ const WatchlistRow: FC<RowProps> = ({ company }) => {
       <MiniSparkline points={company.price_preview ?? []} up={up} />
       <div className="min-w-[56px] shrink-0 text-right">
         <p className="font-mono text-xs font-semibold text-ink tabular-nums">
-          {company.current_price != null ? fmtPrice(company.current_price) : EM_DASH}
+          {quote?.close != null ? fmtPrice(quote.close) : EM_DASH}
         </p>
         <p className={`font-mono text-[10px] tabular-nums ${trendClass(pct)}`}>
           {pct != null ? fmtPct(pct) : EM_DASH}
@@ -63,6 +66,7 @@ const WatchlistRow: FC<RowProps> = ({ company }) => {
 
 export const LeftWatchlistRail: FC = () => {
   const { data: companies = [] } = useCompanies();
+  const { data: quotes } = useQuotesFor(companies.map((c) => c.id));
   const { tickers: watchlistTickers, isAuthenticated } = useWatchlist();
   const { data: market } = useMarketOverview();
 
@@ -109,7 +113,7 @@ export const LeftWatchlistRail: FC = () => {
         ) : (
           <div className="flex flex-col gap-0.5">
             {watchlist.map((c) => (
-              <WatchlistRow key={c.ticker} company={c} />
+              <WatchlistRow key={c.ticker} company={c} quote={quotes?.get(c.id)} />
             ))}
           </div>
         )}
@@ -126,7 +130,7 @@ export const LeftWatchlistRail: FC = () => {
         ) : (
           <div className="flex flex-col gap-0.5">
             {suggested.map((c) => (
-              <WatchlistRow key={c.ticker} company={c} />
+              <WatchlistRow key={c.ticker} company={c} quote={quotes?.get(c.id)} />
             ))}
           </div>
         )}

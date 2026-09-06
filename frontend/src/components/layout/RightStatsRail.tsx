@@ -2,10 +2,12 @@ import type { FC } from "react";
 import { StatRow } from "../ui/StatRow";
 import { MiniRangeBar } from "../ui/MiniRangeBar";
 import { fmtCompact, fmtCompactKes, fmtPrice } from "../../lib/format";
-import type { CompanyDoc, TechnicalsDoc, FundamentalsDoc, FinancialsDoc } from "../../types";
+import type { TechnicalsDoc, FundamentalsDoc, FinancialsDoc } from "../../types";
+import type { Quote } from "../../services/quotes";
+import { marketCap, sharesOutstanding } from "../../services/valuation";
 
 type RightStatsRailProps = {
-  company: CompanyDoc | null | undefined;
+  quote: Quote | null | undefined;
   technicals: TechnicalsDoc | null | undefined;
   fundamentals: FundamentalsDoc | null | undefined;
   financials: FinancialsDoc | null | undefined;
@@ -62,7 +64,7 @@ function lastExDivDate(financials: FinancialsDoc | null | undefined): string | n
 }
 
 export const RightStatsRail: FC<RightStatsRailProps> = ({
-  company,
+  quote,
   technicals,
   fundamentals,
   financials,
@@ -70,13 +72,9 @@ export const RightStatsRail: FC<RightStatsRailProps> = ({
   dayHigh,
   previousClose,
 }) => {
-  const currentPrice = company?.current_price ?? null;
-
-  const sharesOutstanding =
-    fundamentals?.shares_outstanding_mn != null ? fundamentals.shares_outstanding_mn * 1_000_000 : null;
-
-  const marketCap =
-    currentPrice != null && sharesOutstanding != null ? currentPrice * sharesOutstanding : null;
+  const currentPrice = quote?.close ?? null;
+  const shares = sharesOutstanding(fundamentals?.shares_outstanding_mn);
+  const mcap = marketCap(currentPrice, fundamentals?.shares_outstanding_mn);
 
   const eps = ttmEps(financials);
   const pe = currentPrice != null && eps != null && eps > 0 ? currentPrice / eps : null;
@@ -113,14 +111,14 @@ export const RightStatsRail: FC<RightStatsRailProps> = ({
         />
         <StatRow
           label="Market Cap"
-          value={fmtCompactKes(marketCap)}
-          placeholder={marketCap == null}
+          value={fmtCompactKes(mcap)}
+          placeholder={mcap == null}
           hint="Current price × shares outstanding"
         />
         <StatRow
           label="Shares Outstanding"
-          value={fmtCompact(sharesOutstanding)}
-          placeholder={sharesOutstanding == null}
+          value={fmtCompact(shares)}
+          placeholder={shares == null}
         />
         <StatRow
           label="EPS (TTM)"

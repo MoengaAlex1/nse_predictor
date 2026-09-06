@@ -2,11 +2,13 @@ import type { FC } from "react";
 import { Link } from "react-router-dom";
 import { shortFromDisplayTicker } from "../../lib/identity";
 import type { CompanyDoc, MarketOverviewDoc } from "../../types";
+import type { Quote } from "../../services/quotes";
 
 type Props = {
   type: "gainers" | "losers" | "active";
   market: MarketOverviewDoc;
   companies: CompanyDoc[];
+  quotes?: Map<string, Quote>;
 };
 
 // "active" now shows "Most Active" ONLY when the daily pipeline has
@@ -72,7 +74,7 @@ function getRowsWithSource(
   };
 }
 
-export const MoversTable: FC<Props> = ({ type, market, companies }) => {
+export const MoversTable: FC<Props> = ({ type, market, companies, quotes }) => {
   const { rows, fallback } = getRowsWithSource(type, market, companies);
   const header = type === "active" && fallback ? "Biggest Movers" : HEADERS[type];
 
@@ -96,8 +98,8 @@ export const MoversTable: FC<Props> = ({ type, market, companies }) => {
                     <p className="font-mono text-[10px] text-muted">{company.ticker}</p>
                   </div>
                   <div className="text-right">
-                    {company.current_price != null && (
-                      <p className="font-mono text-xs text-sub">KES {company.current_price.toFixed(2)}</p>
+                    {quotes?.get(company.id)?.close != null && (
+                      <p className="font-mono text-xs text-sub">KES {quotes.get(company.id)!.close!.toFixed(2)}</p>
                     )}
                     {pct != null && (
                       <p className={`font-mono text-xs font-semibold ${pct >= 0 ? "text-emerald-500" : "text-red-500"}`}>
