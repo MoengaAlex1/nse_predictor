@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useRecentTickers } from "../hooks/useRecentTickers";
-import { useCompany, useLatestTechnicals, useFinancials as useFinancialsDoc } from "../hooks/useCompany";
+import { useCompany, useLatestTechnicals, useFundamentals, useFinancials as useFinancialsDoc } from "../hooks/useCompany";
 import { useCompanies } from "../hooks/useCompanies";
 import { useQuote } from "../hooks/useQuotes";
 import { useSecurityShortcuts } from "../hooks/useSecurityShortcuts";
+import { useAdjustedHistory } from "../hooks/useHistory";
+import { RightStatsRail } from "../components/layout/RightStatsRail";
 import { SecurityHeader } from "../components/layout/SecurityHeader";
 import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
 import { useCompareSeries } from "../hooks/useCompareSeries";
@@ -125,6 +127,8 @@ export const InvestorChart = () => {
   const { data: quote } = useQuote(cleaned);
   const { data: technicals } = useLatestTechnicals(cleaned);
   const { data: financials } = useFinancialsDoc(cleaned);
+  const { data: fundamentals } = useFundamentals(cleaned);
+  const { data: adjustedHistory } = useAdjustedHistory(cleaned, FETCH_START, todayIso());
   const { data: allCompanies = [] } = useCompanies();
   const { data: rtdbPrimary = [] } = useHistoricalPrices(cleaned, FETCH_START, todayIso());
   const compareResults = useCompareSeries(compareTickers, FETCH_START, todayIso());
@@ -243,7 +247,7 @@ export const InvestorChart = () => {
       {/* The watchlist rail and page padding now belong to TerminalShell —
           this view only renders its own panel. */}
       <SecurityHeader company={company} quote={quote} id={cleaned} />
-      <div className="grid grid-cols-1 gap-3">
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_280px]">
 
         <div className="flex flex-col gap-3">
           {/* ── Ticker header ────────────────────────────────────────────── */}
@@ -421,7 +425,7 @@ export const InvestorChart = () => {
                       </span>
                     )}
                     <Link
-                      to={`/dashboard/${ticker}`}
+                      to={`/company/${cleaned}`}
                       className="rounded border border-seam px-1.5 py-0.5 font-medium transition-colors hover:border-rim hover:text-ink"
                     >
                       Overview →
@@ -432,6 +436,18 @@ export const InvestorChart = () => {
             </div>
           </div>
         </div>
+
+        {/* Phase 2 task 1 — key stats column, the TradingView right rail. */}
+        <RightStatsRail
+          quote={quote}
+          history={adjustedHistory}
+          technicals={technicals}
+          fundamentals={fundamentals}
+          financials={financials}
+          dayLow={latestRow?.l ?? null}
+          dayHigh={latestRow?.h ?? null}
+          previousClose={previousClose}
+        />
       </div>
     </div>
   );

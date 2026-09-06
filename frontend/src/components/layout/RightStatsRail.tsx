@@ -3,11 +3,14 @@ import { StatRow } from "../ui/StatRow";
 import { MiniRangeBar } from "../ui/MiniRangeBar";
 import { fmtCompact, fmtCompactKes, fmtPrice } from "../../lib/format";
 import type { TechnicalsDoc, FundamentalsDoc, FinancialsDoc } from "../../types";
-import type { Quote } from "../../services/quotes";
+import type { Quote, Bar } from "../../services/quotes";
+import { fiftyTwoWeekRange } from "../../services/series";
 import { marketCap, sharesOutstandingDated, missingReason } from "../../services/valuation";
 
 type RightStatsRailProps = {
   quote: Quote | null | undefined;
+  /** Adjusted series — drives the 52-week range. */
+  history: Bar[] | undefined;
   technicals: TechnicalsDoc | null | undefined;
   fundamentals: FundamentalsDoc | null | undefined;
   financials: FinancialsDoc | null | undefined;
@@ -65,6 +68,7 @@ function lastExDivDate(financials: FinancialsDoc | null | undefined): string | n
 
 export const RightStatsRail: FC<RightStatsRailProps> = ({
   quote,
+  history,
   technicals,
   fundamentals,
   financials,
@@ -73,6 +77,13 @@ export const RightStatsRail: FC<RightStatsRailProps> = ({
   previousClose,
 }) => {
   const currentPrice = quote?.close ?? null;
+  const range52 = fiftyTwoWeekRange(history ?? []);
+
+  // Volume against its own 30-day average is the signal that matters on a thin
+  // market — a raw volume figure means little without the comparison.
+  const avgVol = technicals?.avg_volume_30d ?? null;
+  const volRatio =
+    quote?.volume != null && avgVol != null && avgVol > 0 ? quote.volume / avgVol : null;
   const sharesDated = sharesOutstandingDated(fundamentals);
   const mcap = marketCap(currentPrice, fundamentals?.shares_outstanding_mn);
 
@@ -98,16 +109,54 @@ export const RightStatsRail: FC<RightStatsRailProps> = ({
       </div>
 
       <div>
+        <div className="mb-2 flex items-baseline justify-between">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+            52 Week Range
+          </span>
+          {range52 && (
+            <span className="font-mono text-[10px] tabular-nums text-hint">
+              {fmtPrice(range52.low)} – {fmtPrice(range52.high)}
+            </span>
+          )}
+        </div>
+        <MiniRangeBar
+          low={range52?.low ?? null}
+          high={range52?.high ?? null}
+          current={currentPrice}
+        />
+        {range52 && (
+          <p className="mt-1 text-right text-[10px] text-hint">
+            {range52.observations} sessions
+          </p>
+        )}
+      </div>
+
+      <div>
         <StatRow
           label="Previous Close"
           value={fmtPrice(previousClose)}
           placeholder={previousClose == null}
         />
         <StatRow
+          label="Volume"
+          value={quote?.volume != null ? fmtCompact(quote.volume) : undefined}
+          reason="No volume reported for the latest session"
+        />
+        <StatRow
           label="Average Volume"
-          value={fmtCompact(technicals?.avg_volume_30d)}
-          placeholder={technicals?.avg_volume_30d == null}
+          value={fmtCompact(avgVol)}
+          placeholder={avgVol == null}
           hint="30-day trailing average"
+        />
+        <StatRow
+          label="Volume vs Average"
+          value={volRatio != null ? `${volRatio.toFixed(2)}×` : undefined}
+          reason={
+            avgVol == null
+              ? "No 30-day average volume computed for this security"
+              : "No volume reported for the latest session"
+          }
+          hint="Latest session volume ÷ 30-day average"
         />
         <StatRow
           label="Market Cap"
