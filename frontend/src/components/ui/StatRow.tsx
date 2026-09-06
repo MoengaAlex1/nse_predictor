@@ -6,18 +6,27 @@ type StatRowProps = {
   value?: ReactNode;
   hint?: string;
   placeholder?: boolean;
+  /**
+   * Why the value is missing. Shown as the em dash's tooltip so a blank row
+   * explains itself — "Coming soon" is only right for unbuilt features, not
+   * for data we tried to read and could not.
+   */
+  reason?: string;
 };
 
-export const StatRow: FC<StatRowProps> = ({ label, value, hint, placeholder }) => (
+export const StatRow: FC<StatRowProps> = ({ label, value, hint, placeholder, reason }) => {
+  const isMissing = placeholder || value == null;
+  return (
   <div className="flex items-baseline justify-between gap-3 border-b border-seam/60 py-1.5 last:border-b-0">
     <span className="truncate text-[11px] text-muted" title={hint}>
       {label}
     </span>
     <span
       className={`shrink-0 font-mono text-xs tabular-nums ${placeholder ? "text-hint" : "font-semibold text-ink"}`}
-      title={placeholder ? "Coming soon" : undefined}
+      title={isMissing ? (reason ?? "Coming soon") : undefined}
     >
-      {placeholder ? EM_DASH : (value ?? EM_DASH)}
+      {isMissing ? EM_DASH : value}
     </span>
   </div>
-);
+  );
+};

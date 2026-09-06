@@ -13,6 +13,7 @@ import { PriceExplainer } from "../components/company/PriceExplainer";
 import { useQuote } from "../hooks/useQuotes";
 import { useCompany, useLatestSnapshot, useLatestTechnicals, useCorporateEvents, useFinancials, useMacro, useIntradayDay, useFundamentals, useNews } from "../hooks/useCompany";
 import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
+import { useAdjustedHistory } from "../hooks/useHistory";
 import type { PricePoint, IntradayPoint, SnapshotDoc, TechnicalsDoc, CompanyDoc, CorporateEvent, FinancialsDoc, NSEAnnouncement } from "../types";
 import { CompanyProfileCard } from "../components/investor/CompanyProfileCard";
 import { QuoteSummaryPanel } from "../components/investor/QuoteSummaryPanel";
@@ -1210,6 +1211,8 @@ export const CompanyDeepDive: FC = () => {
     chartStart,
     chartEnd,
   );
+  // Adjusted series — the source for the 52-week range and any return.
+  const { data: adjustedHistory } = useAdjustedHistory(cleanTicker, chartStart, chartEnd);
 
   // Map RTDB data to PricePoint format (c = close price). Drop c<=0
   // rows too — legacy RTDB fills render as vertical spikes to the axis.
@@ -1494,6 +1497,7 @@ export const CompanyDeepDive: FC = () => {
             <PriceRangeCard
               company={company}
               quote={quote}
+              history={adjustedHistory}
               latest={rtdbPrices.length > 0 ? rtdbPrices[rtdbPrices.length - 1] : null}
             />
 
@@ -1501,6 +1505,7 @@ export const CompanyDeepDive: FC = () => {
             <QuoteSummaryPanel
               company={company}
               quote={quote}
+              history={adjustedHistory}
               technicals={technicals}
               financials={financials ?? null}
               snapshot={snapshot ?? null}

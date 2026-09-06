@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { QuoteSummaryPanel } from "./QuoteSummaryPanel";
 import type { CompanyDoc, TechnicalsDoc, FinancialsDoc, SnapshotDoc } from "../../types";
-import type { Quote } from "../../services/quotes";
+import type { Quote, Bar } from "../../services/quotes";
 
 vi.mock("../../lib/firebase", () => ({ app: {}, db: {}, auth: {} }));
 
@@ -55,12 +55,31 @@ const baseQuote: Quote = {
   isStale: false, staleDays: 0, source: "trade",
 };
 
+// Dates are relative to today so the 52-week window never rots. The previous
+// fixture pinned 2025-08-01, which drifted outside the trailing year and
+// silently changed the expected low from 10.80 to 13.50.
+const daysAgo = (n: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+};
+const mkBar = (date: string, close: number): Bar => ({
+  date, open: close, high: close, low: close, close, prevClose: close,
+  change: null, changePct: null, volume: 1000, vwap: null,
+});
+const baseHistory: Bar[] = [
+  mkBar(daysAgo(300), 10.8),
+  mkBar(daysAgo(200), 14.2),
+  mkBar(daysAgo(1), 13.5),
+];
+
 describe("QuoteSummaryPanel", () => {
   it("renders volume", () => {
     render(
       <QuoteSummaryPanel
         company={baseCompany}
         quote={baseQuote}
+        history={baseHistory}
         technicals={baseTechnicals}
         financials={null}
         snapshot={null}
@@ -74,6 +93,7 @@ describe("QuoteSummaryPanel", () => {
       <QuoteSummaryPanel
         company={baseCompany}
         quote={baseQuote}
+        history={baseHistory}
         technicals={baseTechnicals}
         financials={null}
         snapshot={null}
@@ -82,11 +102,12 @@ describe("QuoteSummaryPanel", () => {
     expect(screen.getByText(/14\.20/)).toBeInTheDocument();
   });
 
-  it("renders 52W low derived from price history", () => {
+  it("renders 52W low from the adjusted series", () => {
     render(
       <QuoteSummaryPanel
         company={baseCompany}
         quote={baseQuote}
+        history={baseHistory}
         technicals={baseTechnicals}
         financials={null}
         snapshot={null}
@@ -117,6 +138,7 @@ describe("QuoteSummaryPanel", () => {
       <QuoteSummaryPanel
         company={baseCompany}
         quote={baseQuote}
+        history={baseHistory}
         technicals={baseTechnicals}
         financials={financials}
         snapshot={null}
@@ -138,6 +160,7 @@ describe("QuoteSummaryPanel", () => {
       <QuoteSummaryPanel
         company={baseCompany}
         quote={baseQuote}
+        history={baseHistory}
         technicals={baseTechnicals}
         financials={null}
         snapshot={snapshot}
@@ -152,6 +175,7 @@ describe("QuoteSummaryPanel", () => {
       <QuoteSummaryPanel
         company={baseCompany}
         quote={{ ...baseQuote, close: null }}
+        history={baseHistory}
         technicals={baseTechnicals}
         financials={null}
         snapshot={null}

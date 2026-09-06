@@ -11,7 +11,7 @@
  * null as an em dash. `ValuationPanel.tsx:49` previously did
  * `current_price ?? 0`, which turned a null price into a real-looking 0.0x P/E.
  */
-import type { FinancialResult, FinancialsDoc } from "../types";
+import type { FinancialResult, FinancialsDoc, FundamentalsDoc } from "../types";
 
 /** A figure plus the period it came from, so the UI can always label it. */
 export interface Dated<T> {
@@ -38,6 +38,43 @@ export function marketCap(
 export function sharesOutstanding(sharesOutstandingMn: number | null | undefined): number | null {
   if (sharesOutstandingMn == null || sharesOutstandingMn <= 0) return null;
   return sharesOutstandingMn * 1_000_000;
+}
+
+/** Where a figure came from, so the UI can always attribute it. */
+export interface Sourced<T> extends Dated<T> {
+  source: string;
+}
+
+/**
+ * Share count with its as-of date and source (phase 0 task 4). One field per
+ * ticker, one place it is read. Returns null rather than a zero so a missing
+ * count renders as an em dash and market cap stays null with it.
+ */
+export function sharesOutstandingDated(
+  fundamentals: Pick<FundamentalsDoc, "shares_outstanding_mn" | "updated_at"> | null | undefined,
+  ticker?: string,
+): Sourced<number> | null {
+  const n = sharesOutstanding(fundamentals?.shares_outstanding_mn);
+  if (n == null) return null;
+  return {
+    value: n,
+    asOf: fundamentals?.updated_at ?? null,
+    fiscalPeriod: null,
+    source: ticker ? `fundamentals/${ticker}` : "fundamentals",
+  };
+}
+
+/** Why a figure is missing, for the em-dash tooltip (phase 0 task 5). */
+export function missingReason(
+  price: number | null | undefined,
+  input: number | null | undefined,
+  inputLabel: string,
+): string {
+  if (price == null) return "No price available for this security";
+  if (price <= 0) return "Price is not positive";
+  if (input == null) return `No ${inputLabel} reported`;
+  if (input <= 0) return `${inputLabel} is not positive, so the ratio is not meaningful`;
+  return "Not available";
 }
 
 /** Most recent annual result carrying a usable EPS. */

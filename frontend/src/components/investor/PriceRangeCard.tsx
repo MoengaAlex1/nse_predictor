@@ -1,12 +1,15 @@
 import type { FC } from "react";
 import { RangeSlider } from "./RangeSlider";
 import type { CompanyDoc } from "../../types";
-import type { Quote } from "../../services/quotes";
+import type { Quote, Bar } from "../../services/quotes";
+import { fiftyTwoWeekRange } from "../../services/series";
 import type { RtdbPricePoint } from "../../hooks/useHistoricalPrices";
 
 interface Props {
   company: CompanyDoc;
   quote: Quote | null | undefined;
+  /** Adjusted series from useAdjustedHistory. */
+  history: Bar[] | undefined;
   /** Latest RTDB point for today's session — l/h/c/o feed the Day Range. */
   latest?: RtdbPricePoint | null;
 }
@@ -24,7 +27,7 @@ interface Props {
  * price_history entry, then last_known_price — so the sliders keep working
  * whenever ANY price signal is available.
  */
-export const PriceRangeCard: FC<Props> = ({ company, quote, latest }) => {
+export const PriceRangeCard: FC<Props> = ({ company, quote, history, latest }) => {
   // Fall through the possible sources of "what price is the dot at?" in
   // priority order. RTDB is the most recent tier, price_history is the
   // canonical EOD close, last_known_price is the seed_last_vwap fallback.
@@ -48,15 +51,12 @@ export const PriceRangeCard: FC<Props> = ({ company, quote, latest }) => {
   const hasDayRange =
     dayLow != null && dayHigh != null && dayHigh > dayLow;
 
-  // ── 52-week range (trailing 365 days of price_history) ────────────────
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 365);
-  const cutoffStr = cutoff.toISOString().slice(0, 10);
-  const yearPrices = (company.price_history ?? [])
-    .filter((p) => p.date >= cutoffStr)
-    .map((p) => p.price);
-  const low52  = yearPrices.length > 0 ? Math.min(...yearPrices) : null;
-  const high52 = yearPrices.length > 0 ? Math.max(...yearPrices) : null;
+  // ── 52-week range, from the ADJUSTED RTDB series ──────────────────────
+  // Not companies.price_history: that array holds decimal-scale faults (EQTY
+  // reads 7,625.00 for a session RTDB closes at 76.25).
+  const range52 = fiftyTwoWeekRange(history ?? []);
+  const low52  = range52?.low  ?? null;
+  const high52 = range52?.high ?? null;
   const has52  = low52 != null && high52 != null && high52 > low52;
 
   // If neither range has data, don't render an empty card — the sidebar

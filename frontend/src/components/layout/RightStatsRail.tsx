@@ -4,7 +4,7 @@ import { MiniRangeBar } from "../ui/MiniRangeBar";
 import { fmtCompact, fmtCompactKes, fmtPrice } from "../../lib/format";
 import type { TechnicalsDoc, FundamentalsDoc, FinancialsDoc } from "../../types";
 import type { Quote } from "../../services/quotes";
-import { marketCap, sharesOutstanding } from "../../services/valuation";
+import { marketCap, sharesOutstandingDated, missingReason } from "../../services/valuation";
 
 type RightStatsRailProps = {
   quote: Quote | null | undefined;
@@ -73,7 +73,7 @@ export const RightStatsRail: FC<RightStatsRailProps> = ({
   previousClose,
 }) => {
   const currentPrice = quote?.close ?? null;
-  const shares = sharesOutstanding(fundamentals?.shares_outstanding_mn);
+  const sharesDated = sharesOutstandingDated(fundamentals);
   const mcap = marketCap(currentPrice, fundamentals?.shares_outstanding_mn);
 
   const eps = ttmEps(financials);
@@ -111,14 +111,15 @@ export const RightStatsRail: FC<RightStatsRailProps> = ({
         />
         <StatRow
           label="Market Cap"
-          value={fmtCompactKes(mcap)}
-          placeholder={mcap == null}
+          value={mcap != null ? fmtCompactKes(mcap) : undefined}
+          reason={missingReason(currentPrice, fundamentals?.shares_outstanding_mn, "share count")}
           hint="Current price × shares outstanding"
         />
         <StatRow
           label="Shares Outstanding"
-          value={fmtCompact(shares)}
-          placeholder={shares == null}
+          value={sharesDated ? fmtCompact(sharesDated.value) : undefined}
+          hint={sharesDated?.asOf ? `${sharesDated.source} · as of ${sharesDated.asOf}` : undefined}
+          reason="No share count reported for this security"
         />
         <StatRow
           label="EPS (TTM)"
