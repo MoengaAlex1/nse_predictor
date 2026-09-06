@@ -54,14 +54,20 @@ export const GlobalSearch: FC<GlobalSearchProps> = ({ targetRoute = "company" })
     setActiveIdx(-1);
   }, []);
 
+  // /company/:ticker feeds its param straight into a Firestore doc lookup
+  // (CompanyDeepDive -> useCompany -> doc(db, "companies", param)). Since the
+  // short-form primary-key refactor the only valid doc id is `c.id` ("SCOM");
+  // the `ticker` field is a display alias ("SCOM.NR") and no longer resolves.
+  // /chart and /dashboard normalise their own param via cleanTicker(), so they
+  // keep receiving the display form.
   const selectCompany = useCallback(
-    (ticker: string) => {
+    (company: Pick<CompanyDoc, "id" | "ticker">) => {
       const path =
         targetRoute === "chart"
-          ? `/chart/${ticker}`
+          ? `/chart/${company.ticker}`
           : targetRoute === "dashboard"
-          ? `/dashboard/${ticker}`
-          : `/company/${ticker}`;
+          ? `/dashboard/${company.ticker}`
+          : `/company/${company.id}`;
       navigate(path);
       close();
     },
@@ -96,7 +102,7 @@ export const GlobalSearch: FC<GlobalSearchProps> = ({ targetRoute = "company" })
       setActiveIdx(i => Math.max(i - 1, -1));
     }
     if (e.key === "Enter" && activeIdx >= 0 && results[activeIdx]) {
-      selectCompany(results[activeIdx].ticker);
+      selectCompany(results[activeIdx]);
     }
   };
 
@@ -152,7 +158,7 @@ export const GlobalSearch: FC<GlobalSearchProps> = ({ targetRoute = "company" })
                 <li key={c.ticker}>
                   <button
                     type="button"
-                    onClick={() => selectCompany(c.ticker)}
+                    onClick={() => selectCompany(c)}
                     className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${
                       i === activeIdx ? "bg-raised" : "hover:bg-raised/60"
                     }`}
