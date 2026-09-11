@@ -39,6 +39,15 @@ jobs:
           VITE_FIREBASE_DATABASE_URL: ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
         run: npm run build
 
+      # Phase 0 task 6. Fails the deploy on any ERROR-level finding: a component
+      # reading a price outside services/quotes.ts, or a data fault such as a
+      # bar moving >35% with no corporate action. Warnings do not block.
+      - name: Validate data and price wiring
+        working-directory: frontend
+        env:
+          VITE_FIREBASE_DATABASE_URL: ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
+        run: npm run validate:data
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:

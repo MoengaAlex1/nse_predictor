@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { sharesOutstanding } from "../../services/valuation";
 import type { FC } from "react";
 import { getCompanyProfile } from "../../data/companyProfiles";
 import type { CompanyDoc, FundamentalsDoc } from "../../types";
@@ -134,9 +135,10 @@ export const CompanyProfileCard: FC<Props> = ({ company, fundamentals }) => {
         />
         <ProfileRow
           label="Shares outstanding"
-          value={profile.shares_outstanding_mn != null
-            ? `${fmtCompact(profile.shares_outstanding_mn * 1_000_000)}`
-            : null}
+          value={(() => {
+            const n = sharesOutstanding(profile.shares_outstanding_mn);
+            return n == null ? null : `${fmtCompact(n)}`;
+          })()}
         />
       </div>
     </section>

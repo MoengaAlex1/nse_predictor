@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useRecentTickers } from "../hooks/useRecentTickers";
-import { useCompany, useLatestTechnicals, useFinancials as useFinancialsDoc } from "../hooks/useCompany";
+import { useCompany, useLatestTechnicals, useFundamentals, useFinancials as useFinancialsDoc } from "../hooks/useCompany";
 import { useCompanies } from "../hooks/useCompanies";
+import { useQuote } from "../hooks/useQuotes";
+import { useSecurityShortcuts } from "../hooks/useSecurityShortcuts";
+import { useAdjustedHistory } from "../hooks/useHistory";
+import { RightStatsRail } from "../components/layout/RightStatsRail";
+import { SecurityHeader } from "../components/layout/SecurityHeader";
 import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
 import { useCompareSeries } from "../hooks/useCompareSeries";
 import { useWatchlist } from "../hooks/useWatchlist";
 import { usePeers } from "../hooks/usePeers";
 import { CompanyLogo } from "../components/ui/CompanyLogo";
-import { LeftWatchlistRail } from "../components/layout/LeftWatchlistRail";
 import { TimeframeTabs } from "../components/ui/TimeframeTabs";
 import { FocusedPriceChart } from "../components/investor/FocusedPriceChart";
 import { CompareChart, type CompareLine } from "../components/investor/CompareChart";
@@ -109,6 +113,7 @@ export const InvestorChart = () => {
   );
 
   const [timeframe, setTimeframe] = useState<TimeframeKey>("1M");
+  useSecurityShortcuts(cleaned, { onRange: setTimeframe });
   const [chartType, setChartType] = useState<"area" | "candles" | "indicators">("area");
 
   useEffect(() => {
@@ -119,8 +124,11 @@ export const InvestorChart = () => {
   // the doc id (SCOM). Normalise once and use the cleaned form for every
   // Firestore + RTDB fetch — the doc id is the canonical key.
   const { data: company } = useCompany(cleaned);
+  const { data: quote } = useQuote(cleaned);
   const { data: technicals } = useLatestTechnicals(cleaned);
   const { data: financials } = useFinancialsDoc(cleaned);
+  const { data: fundamentals } = useFundamentals(cleaned);
+  const { data: adjustedHistory } = useAdjustedHistory(cleaned, FETCH_START, todayIso());
   const { data: allCompanies = [] } = useCompanies();
   const { data: rtdbPrimary = [] } = useHistoricalPrices(cleaned, FETCH_START, todayIso());
   const compareResults = useCompareSeries(compareTickers, FETCH_START, todayIso());
@@ -132,9 +140,10 @@ export const InvestorChart = () => {
   );
 
   const latestRow = rtdbPrimary.length > 0 ? rtdbPrimary[rtdbPrimary.length - 1] : null;
-  const previousClose = latestRow?.pc ?? null;
-  const currentPrice = company?.current_price ?? latestRow?.c ?? null;
-  const changePct = company?.change_pct_today ?? latestRow?.pch ?? null;
+  const previousClose = quote?.prevClose ?? latestRow?.pc ?? null;
+  // Price comes from the quotes service, never companies.current_price.
+  const currentPrice = quote?.close ?? null;
+  const changePct = quote?.changePct ?? null;
   const changeAbs =
     currentPrice != null && previousClose != null ? currentPrice - previousClose : null;
   const up = changePct != null && changePct >= 0;
@@ -234,12 +243,11 @@ export const InvestorChart = () => {
   );
 
   return (
-    <div className="mx-auto max-w-[1600px] px-3 py-4 sm:px-6 lg:px-8">
-      {/* LeftWatchlistRail hides itself under lg — see the aside's
-          `hidden lg:flex`. On mobile this collapses to a single column
-          so the chart takes the full viewport width. */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <LeftWatchlistRail />
+    <div>
+      {/* The watchlist rail and page padding now belong to TerminalShell —
+          this view only renders its own panel. */}
+      <SecurityHeader company={company} quote={quote} id={cleaned} />
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_280px]">
 
         <div className="flex flex-col gap-3">
           {/* ── Ticker header ────────────────────────────────────────────── */}
@@ -417,7 +425,7 @@ export const InvestorChart = () => {
                       </span>
                     )}
                     <Link
-                      to={`/dashboard/${ticker}`}
+                      to={`/company/${cleaned}`}
                       className="rounded border border-seam px-1.5 py-0.5 font-medium transition-colors hover:border-rim hover:text-ink"
                     >
                       Overview →
@@ -428,6 +436,18 @@ export const InvestorChart = () => {
             </div>
           </div>
         </div>
+
+        {/* Phase 2 task 1 — key stats column, the TradingView right rail. */}
+        <RightStatsRail
+          quote={quote}
+          history={adjustedHistory}
+          technicals={technicals}
+          fundamentals={fundamentals}
+          financials={financials}
+          dayLow={latestRow?.l ?? null}
+          dayHigh={latestRow?.h ?? null}
+          previousClose={previousClose}
+        />
       </div>
     </div>
   );

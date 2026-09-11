@@ -10,8 +10,12 @@ import { TradingChart } from "../components/charts/TradingChart";
 import { TechnicalChart } from "../components/charts/TechnicalChart";
 import { PredictionChart } from "../components/charts/PredictionChart";
 import { PriceExplainer } from "../components/company/PriceExplainer";
+import { useQuote } from "../hooks/useQuotes";
+import { useSecurityShortcuts } from "../hooks/useSecurityShortcuts";
+import { SecurityHeader } from "../components/layout/SecurityHeader";
 import { useCompany, useLatestSnapshot, useLatestTechnicals, useCorporateEvents, useFinancials, useMacro, useIntradayDay, useFundamentals, useNews } from "../hooks/useCompany";
 import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
+import { useAdjustedHistory } from "../hooks/useHistory";
 import type { PricePoint, IntradayPoint, SnapshotDoc, TechnicalsDoc, CompanyDoc, CorporateEvent, FinancialsDoc, NSEAnnouncement } from "../types";
 import { CompanyProfileCard } from "../components/investor/CompanyProfileCard";
 import { QuoteSummaryPanel } from "../components/investor/QuoteSummaryPanel";
@@ -1172,6 +1176,8 @@ const DataQualityBanner: FC<{ history: PricePoint[] }> = ({ history }) => {
 export const CompanyDeepDive: FC = () => {
   const { ticker = "" } = useParams<{ ticker: string }>();
   const { data: company, isLoading, isError } = useCompany(ticker);
+  const { data: quote } = useQuote(ticker);
+  useSecurityShortcuts(ticker);
   const { data: snapshot, isLoading: snapLoading } = useLatestSnapshot(ticker);
   const { data: technicals, isLoading: techLoading } = useLatestTechnicals(ticker);
   const { data: events = [] } = useCorporateEvents(ticker);
@@ -1208,6 +1214,8 @@ export const CompanyDeepDive: FC = () => {
     chartStart,
     chartEnd,
   );
+  // Adjusted series — the source for the 52-week range and any return.
+  const { data: adjustedHistory } = useAdjustedHistory(cleanTicker, chartStart, chartEnd);
 
   // Map RTDB data to PricePoint format (c = close price). Drop c<=0
   // rows too — legacy RTDB fills render as vertical spikes to the axis.
@@ -1302,14 +1310,17 @@ export const CompanyDeepDive: FC = () => {
   const rtdbLatest = rtdbPrices.length > 0
     ? rtdbPrices[rtdbPrices.length - 1]
     : null;
-  const bannerCurrent = company.current_price ?? rtdbLatest?.c    ?? null;
-  const bannerPrev    =                          rtdbLatest?.pc   ?? null;
-  const bannerChange  = company.change_pct_today  ?? rtdbLatest?.pch  ?? null;
+  // Price, prev close and change all come from the quotes service.
+  const bannerCurrent = quote?.close     ?? null;
+  const bannerPrev    = quote?.prevClose ?? rtdbLatest?.pc ?? null;
+  const bannerChange  = quote?.changePct ?? null;
   const bannerDate    = rtdbLatest?.date ?? company.price_date ?? null;
 
   return (
     <>
       <div className="space-y-4">
+        <SecurityHeader company={company} quote={quote} id={cleanTicker} />
+
         {/* ── Price-move alert banner — MSN-style, first thing on the page ─ */}
         <PriceMoveBanner
           currentPrice={bannerCurrent}
@@ -1354,10 +1365,10 @@ export const CompanyDeepDive: FC = () => {
 
             <div className="flex items-start gap-5">
               <div className="text-right">
-                {company.current_price !== null ? (
+                {quote?.close != null ? (
                   <>
                     <p className="font-mono text-4xl font-black tracking-tight text-ink">
-                      KES {company.current_price.toFixed(2)}
+                      KES {quote.close.toFixed(2)}
                     </p>
                     {change !== null && (
                       <div
@@ -1457,6 +1468,7 @@ export const CompanyDeepDive: FC = () => {
             {/* Valuation, financials, filings, news, AI signal */}
             <ValuationPanel
               company={company}
+              quote={quote}
               financials={financials ?? null}
               fundamentals={fundamentals ?? null}
             />
@@ -1489,12 +1501,16 @@ export const CompanyDeepDive: FC = () => {
                 data. */}
             <PriceRangeCard
               company={company}
+              quote={quote}
+              history={adjustedHistory}
               latest={rtdbPrices.length > 0 ? rtdbPrices[rtdbPrices.length - 1] : null}
             />
 
             {/* Quote snapshot — mkt cap, P/E, P/B, EPS, dividend, etc. */}
             <QuoteSummaryPanel
               company={company}
+              quote={quote}
+              history={adjustedHistory}
               technicals={technicals}
               financials={financials ?? null}
               snapshot={snapshot ?? null}
@@ -1507,7 +1523,7 @@ export const CompanyDeepDive: FC = () => {
             {rtdbPrices.length > 0 && (
               <MarketQuotePanel
                 latest={rtdbPrices[rtdbPrices.length - 1]}
-                currentPrice={company.current_price}
+                currentPrice={quote?.close ?? null}
                 compact
               />
             )}
@@ -1516,7 +1532,7 @@ export const CompanyDeepDive: FC = () => {
             <StatsStrip
               data={visible.length > 0 ? visible : history}
               range={range}
-              currentPrice={company.current_price}
+              currentPrice={quote?.close ?? null}
               technicals={technicals}
             />
 
@@ -1524,7 +1540,7 @@ export const CompanyDeepDive: FC = () => {
             <AIInsightsPanel
               technicals={technicals}
               snapshot={snapshot}
-              currentPrice={company.current_price}
+              currentPrice={quote?.close ?? null}
             />
 
             {/*
@@ -1537,12 +1553,12 @@ export const CompanyDeepDive: FC = () => {
               <AnalystGaugeCard snapshot={snapshot} />
               <ModelTargetCard
                 snapshot={snapshot}
-                currentPrice={company.current_price}
+                currentPrice={quote?.close ?? null}
               />
               <EarningsForecastCard fundamentals={fundamentals} />
               <FinancialsValuationCard
                 financials={financials}
-                currentPrice={company.current_price}
+                currentPrice={quote?.close ?? null}
               />
             </div>
           </aside>

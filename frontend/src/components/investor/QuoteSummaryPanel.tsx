@@ -1,6 +1,8 @@
 import type { FC } from "react";
 import { getCompanyProfile } from "../../data/companyProfiles";
 import type { CompanyDoc, FinancialsDoc, SnapshotDoc, TechnicalsDoc } from "../../types";
+import type { Quote, Bar } from "../../services/quotes";
+import { fiftyTwoWeekRange, positionInRange } from "../../services/series";
 
 const fmtVol = (n: number) =>
   n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2)}M` : n.toLocaleString();
@@ -24,6 +26,9 @@ const SECTOR_MEDIAN_PE: Record<string, number | null> = {
 
 interface Props {
   company: CompanyDoc;
+  quote: Quote | null | undefined;
+  /** Adjusted series from useAdjustedHistory. */
+  history: Bar[] | undefined;
   technicals: TechnicalsDoc | null | undefined;
   financials: FinancialsDoc | null | undefined;
   snapshot: SnapshotDoc | null | undefined;
@@ -40,25 +45,19 @@ const MetricChip: FC<{ label: string; value: string; accent?: string }> = ({
   </div>
 );
 
-export const QuoteSummaryPanel: FC<Props> = ({ company, technicals, financials, snapshot }) => {
-  if (company.current_price === null) return null;
+export const QuoteSummaryPanel: FC<Props> = ({ company, quote, history, technicals, financials, snapshot }) => {
+  if (quote?.close == null) return null;
 
-  const price = company.current_price;
+  const price = quote.close;
   const profile = getCompanyProfile(company.ticker);
 
-  // 52W high/low from last 365 days of price_history
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 365);
-  const cutoffStr = cutoff.toISOString().slice(0, 10);
-  const yearPrices = (company.price_history ?? [])
-    .filter((p) => p.date >= cutoffStr)
-    .map((p) => p.price);
-  const high52 = yearPrices.length > 0 ? Math.max(...yearPrices) : null;
-  const low52 = yearPrices.length > 0 ? Math.min(...yearPrices) : null;
-  const rangePos =
-    high52 !== null && low52 !== null && high52 !== low52
-      ? Math.round(((price - low52) / (high52 - low52)) * 100)
-      : null;
+  // 52W range from the ADJUSTED RTDB series. companies.price_history carries
+  // decimal-scale faults — EQTY reads a 7,625.00 high there for a session that
+  // closed at 76.25 in RTDB.
+  const range52 = fiftyTwoWeekRange(history ?? []);
+  const high52 = range52?.high ?? null;
+  const low52 = range52?.low ?? null;
+  const rangePos = positionInRange(price, range52);
 
   // Fundamentals
   const latestAnnual = financials?.annual?.[0] ?? null;

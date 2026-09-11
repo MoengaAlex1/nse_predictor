@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type { FC } from "react";
 import type { CompanyDoc, FinancialsDoc, FundamentalsDoc, FinancialResult } from "../../types";
+import type { Quote } from "../../services/quotes";
+import { priceEarnings, priceToBook } from "../../services/valuation";
 import { getCompanyProfile } from "../../data/companyProfiles";
 
 type Tab = "valuation" | "income" | "dividends";
@@ -37,16 +39,19 @@ const TabBtn: FC<{ label: string; active: boolean; onClick: () => void }> = ({ l
 
 interface Props {
   company: CompanyDoc;
+  quote: Quote | null | undefined;
   financials: FinancialsDoc | null | undefined;
   fundamentals: FundamentalsDoc | null | undefined;
 }
 
-export const ValuationPanel: FC<Props> = ({ company, financials, fundamentals }) => {
+export const ValuationPanel: FC<Props> = ({ company, quote, financials, fundamentals }) => {
   const [tab, setTab] = useState<Tab>("valuation");
 
   if (!financials?.annual?.length) return null;
 
-  const price = company.current_price ?? 0;
+  // Was `company.current_price ?? 0`, which turned a null price into a
+  // real-looking 0.0x P/E. Null now stays null and renders as an em dash.
+  const price = quote?.close ?? null;
   const profile = getCompanyProfile(company.ticker);
   const sharesMn = fundamentals?.shares_outstanding_mn ?? profile.shares_outstanding_mn;
 
@@ -58,7 +63,7 @@ export const ValuationPanel: FC<Props> = ({ company, financials, fundamentals })
   const forwardPeriod = estimates[0]?.period ?? null;
 
   const sectorMedianPE = SECTOR_MEDIAN_PE[company.sector] ?? null;
-  const currentPE = annuals[0]?.eps && annuals[0].eps > 0 ? price / annuals[0].eps : null;
+  const currentPE = priceEarnings(price, annuals[0]?.eps ?? null);
   const sectorDiff =
     currentPE && sectorMedianPE
       ? ((currentPE - sectorMedianPE) / sectorMedianPE) * 100
@@ -110,7 +115,7 @@ export const ValuationPanel: FC<Props> = ({ company, financials, fundamentals })
                   </tr>
                   <tr className="hover:bg-raised/20 transition-colors">
                     <td className="px-3 py-2.5 font-medium text-sub">P/E Ratio</td>
-                    {annuals.map((r) => <td key={r.period} className="px-3 py-2.5 text-right font-mono text-ink">{r.eps && r.eps > 0 ? `${(price / r.eps).toFixed(1)}×` : "—"}</td>)}
+                    {annuals.map((r) => <td key={r.period} className="px-3 py-2.5 text-right font-mono text-ink">{(() => { const v = priceEarnings(price, r.eps); return v == null ? "—" : `${v.toFixed(1)}×`; })()}</td>)}
                     {forwardPeriod && <td className="px-3 py-2.5 text-right font-mono text-sky-500/80">{fmt(estimates[0]?.pe_forward ?? null, "×")} <span className="text-[10px] text-hint">est.</span></td>}
                   </tr>
                   <tr className="hover:bg-raised/20 transition-colors">
@@ -120,7 +125,7 @@ export const ValuationPanel: FC<Props> = ({ company, financials, fundamentals })
                   </tr>
                   <tr className="hover:bg-raised/20 transition-colors">
                     <td className="px-3 py-2.5 font-medium text-sub">P/Book</td>
-                    {annuals.map((r) => <td key={r.period} className="px-3 py-2.5 text-right font-mono text-ink">{r.bvps && r.bvps > 0 ? `${(price / r.bvps).toFixed(2)}×` : "—"}</td>)}
+                    {annuals.map((r) => <td key={r.period} className="px-3 py-2.5 text-right font-mono text-ink">{(() => { const v = priceToBook(price, r.bvps); return v == null ? "—" : `${v.toFixed(2)}×`; })()}</td>)}
                     {forwardPeriod && <td className="px-3 py-2.5 text-right font-mono text-hint">—</td>}
                   </tr>
                   <tr className="hover:bg-raised/20 transition-colors">
@@ -197,7 +202,7 @@ export const ValuationPanel: FC<Props> = ({ company, financials, fundamentals })
                 <tbody className="divide-y divide-seam/50">
                   {financials.dividends.slice(0, 8).map((d, i) => {
                     const amt = d.amount_kes;
-                    const yld = amt != null && price > 0 ? ((amt / price) * 100).toFixed(1) : null;
+                    const yld = amt != null && price != null && price > 0 ? ((amt / price) * 100).toFixed(1) : null;
                     return (
                       <tr key={i} className={`hover:bg-raised/20 transition-colors ${i === 0 ? "bg-emerald-950/10" : ""}`}>
                         <td className="px-3 py-2.5 font-medium text-sub capitalize">{d.type}</td>

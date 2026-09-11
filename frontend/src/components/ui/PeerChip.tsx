@@ -3,13 +3,15 @@ import { Link } from "react-router-dom";
 import { CompanyLogo } from "./CompanyLogo";
 import { fmtPrice, fmtPct, arrow, trendClass, EM_DASH } from "../../lib/format";
 import type { CompanyDoc } from "../../types";
+import type { Quote } from "../../services/quotes";
 
 type PeerChipProps = {
   peer: CompanyDoc;
+  quote?: Quote;
 };
 
-export const PeerChip: FC<PeerChipProps> = ({ peer }) => {
-  const pct = peer.change_pct_today;
+export const PeerChip: FC<PeerChipProps> = ({ peer, quote }) => {
+  const pct = quote?.changePct ?? null;
   const up = pct != null && pct >= 0;
 
   return (
@@ -24,7 +26,7 @@ export const PeerChip: FC<PeerChipProps> = ({ peer }) => {
       </div>
       <div className="shrink-0 text-right">
         <p className="font-mono text-xs font-semibold text-ink tabular-nums">
-          {peer.current_price != null ? fmtPrice(peer.current_price) : EM_DASH}
+          {quote?.close != null ? fmtPrice(quote.close) : EM_DASH}
         </p>
         <p className={`font-mono text-[10px] tabular-nums ${trendClass(pct)}`}>
           {pct != null ? `${arrow(up)} ${fmtPct(pct)}` : EM_DASH}

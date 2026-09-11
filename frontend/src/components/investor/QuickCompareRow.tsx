@@ -1,6 +1,7 @@
 import type { FC } from "react";
 import { PeerChip } from "../ui/PeerChip";
 import { usePeers } from "../../hooks/usePeers";
+import { useQuotesFor } from "../../hooks/useQuotes";
 
 type QuickCompareRowProps = {
   ticker: string;
@@ -9,6 +10,7 @@ type QuickCompareRowProps = {
 
 export const QuickCompareRow: FC<QuickCompareRowProps> = ({ ticker, sector }) => {
   const peers = usePeers(ticker, sector);
+  const { data: quotes } = useQuotesFor(peers.map((p) => p.id));
 
   if (peers.length === 0) {
     return (
@@ -31,7 +33,7 @@ export const QuickCompareRow: FC<QuickCompareRowProps> = ({ ticker, sector }) =>
       </div>
       <div className="flex gap-2 overflow-x-auto scrollbar-none">
         {peers.map((p) => (
-          <PeerChip key={p.ticker} peer={p} />
+          <PeerChip key={p.ticker} peer={p} quote={quotes?.get(p.id)} />
         ))}
       </div>
     </div>
