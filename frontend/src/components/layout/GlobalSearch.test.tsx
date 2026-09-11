@@ -3,7 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 
 const mockCompany = {
-  id: "SCOM.NR", ticker: "SCOM.NR", short: "Safaricom", color: "#22c55e",
+  // Post primary-key refactor these two differ: `id` is the Firestore doc id,
+  // `ticker` is a display alias. Keep them distinct so the routing assertions
+  // below actually prove which one each route receives.
+  id: "SCOM", ticker: "SCOM.NR", short: "Safaricom", color: "#22c55e",
   icon: "📱", name: "Safaricom PLC", sector: "Telecommunication and Technology",
   current_price: 14.5, change_pct_today: 3.2, signal: "BUY" as const,
   price_history: [], price_preview: [], price_date: null, last_updated: null, csv: "",
@@ -70,6 +73,24 @@ describe("GlobalSearch", () => {
     await user.type(screen.getByPlaceholderText("Search companies…"), "SCOM");
     await user.keyboard("{ArrowDown}");
     await user.keyboard("{Enter}");
-    expect(mockNavigate).toHaveBeenCalledWith("/company/SCOM.NR");
+    expect(mockNavigate).toHaveBeenCalledWith("/company/SCOM");
+  });
+
+  it("navigates to the doc id, not the display ticker, when a result is clicked", async () => {
+    const user = userEvent.setup();
+    wrap(<GlobalSearch />);
+    await user.click(screen.getByTitle("Search companies"));
+    await user.type(screen.getByPlaceholderText("Search companies…"), "SCOM");
+    await user.click(screen.getByText("Safaricom PLC"));
+    expect(mockNavigate).toHaveBeenCalledWith("/company/SCOM");
+  });
+
+  it("still routes the chart variant on the display ticker", async () => {
+    const user = userEvent.setup();
+    wrap(<GlobalSearch targetRoute="chart" />);
+    await user.click(screen.getByTitle("Search companies"));
+    await user.type(screen.getByPlaceholderText("Search companies…"), "SCOM");
+    await user.click(screen.getByText("Safaricom PLC"));
+    expect(mockNavigate).toHaveBeenCalledWith("/chart/SCOM.NR");
   });
 });
