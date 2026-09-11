@@ -59,3 +59,8 @@ run_all_output.txt
 .vscode/
 .idea/
 *.swp
+
+# wrangler
+.wrangler
+.dev.vars*
+!.dev.vars.example
