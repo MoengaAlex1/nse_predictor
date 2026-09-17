@@ -321,24 +321,31 @@ def main() -> None:
             nse20 = idx.get("NSE20") or {}
             doc_ref = db.collection("market_overview").document(TODAY_EAT)
 
-            # Seed today's doc with the schema the frontend requires so
-            # that the intraday push can never leave the app with a
-            # partial doc that crashes readers. Only runs when today's
-            # doc does not yet exist — the nightly aggregator overwrites
-            # with real movers/sectors/signals when it runs at 18:30 EAT.
-            if not doc_ref.get().exists:
-                doc_ref.set({
-                    "date":                TODAY_EAT,
-                    "top_gainers":         [],
-                    "top_losers":          [],
-                    "most_active":         [],
-                    "signal_distribution": {"BUY": 0, "HOLD": 0, "SELL": 0},
-                    "sector_performance": {},
-                    "indices":             {},
-                    "nse20_value":         None,
-                    "nse20_change_pct":    None,
-                }, merge=False)
-                log.info("Seeded fresh market_overview/%s with empty defaults", TODAY_EAT)
+            # Fill in any schema fields the frontend requires that are
+            # missing from today's doc. Handles two scenarios:
+            #  1. Fresh trading day, aggregator hasn't run yet — doc is
+            #     absent, so every default gets written.
+            #  2. A prior intraday tick wrote a partial doc BEFORE this
+            #     defensive block existed — heal it by filling in only
+            #     the missing keys so we never clobber real data the
+            #     aggregator may have already written for other fields.
+            _defaults: dict[str, object] = {
+                "date":                TODAY_EAT,
+                "top_gainers":         [],
+                "top_losers":          [],
+                "most_active":         [],
+                "signal_distribution": {"BUY": 0, "HOLD": 0, "SELL": 0},
+                "sector_performance": {},
+            }
+            snap = doc_ref.get()
+            existing = snap.to_dict() if snap.exists else {}
+            missing = {k: v for k, v in _defaults.items() if k not in existing}
+            if missing:
+                doc_ref.set(missing, merge=True)
+                log.info(
+                    "market_overview/%s: filled missing default fields: %s",
+                    TODAY_EAT, sorted(missing.keys()),
+                )
 
             payload: dict[str, object] = {
                 "date":               TODAY_EAT,
