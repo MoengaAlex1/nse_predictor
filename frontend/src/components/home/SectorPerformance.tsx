@@ -4,7 +4,8 @@ import type { MarketOverviewDoc } from "../../types";
 type Props = { market: MarketOverviewDoc };
 
 export const SectorPerformance: FC<Props> = ({ market }) => {
-  const sectors = Object.entries(market.sector_performance);
+  // Defensive: intraday-only market_overview docs may lack sector_performance.
+  const sectors = Object.entries(market.sector_performance ?? {});
   if (sectors.length === 0) return null;
 
   const sorted = [...sectors].sort(([, a], [, b]) => b - a);

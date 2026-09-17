@@ -59,8 +59,8 @@ export const RecentTickersStrip: FC = () => {
 
   const suggestedSeed = market
     ? [
-        ...market.top_gainers.slice(0, 4).map((g) => ({ ticker: g.ticker, pct: g.change_pct })),
-        ...market.top_losers.slice(0, 3).map((l) => ({ ticker: l.ticker, pct: l.change_pct })),
+        ...(market.top_gainers ?? []).slice(0, 4).map((g) => ({ ticker: g.ticker, pct: g.change_pct })),
+        ...(market.top_losers  ?? []).slice(0, 3).map((l) => ({ ticker: l.ticker, pct: l.change_pct })),
       ]
     : [];
 

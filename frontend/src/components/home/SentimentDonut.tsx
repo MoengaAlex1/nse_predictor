@@ -11,7 +11,8 @@ const SEGMENTS = [
 ];
 
 export const SentimentDonut: FC<Props> = ({ market }) => {
-  const dist = market.signal_distribution;
+  // Defensive: intraday-only market_overview docs may lack signal_distribution.
+  const dist = market.signal_distribution ?? { BUY: 0, HOLD: 0, SELL: 0 };
   const total = dist.BUY + dist.HOLD + dist.SELL;
   const data = SEGMENTS.map(s => ({ name: s.key, value: dist[s.key], color: s.color })).filter(d => d.value > 0);
   const dominant = data.length > 0 ? data.reduce((a, b) => a.value > b.value ? a : b) : null;

@@ -76,8 +76,8 @@ export const LeftWatchlistRail: FC = () => {
 
   const suggestedTickers = market
     ? [
-        ...market.top_gainers.slice(0, 4).map((g) => g.ticker),
-        ...market.top_losers.slice(0, 3).map((l) => l.ticker),
+        ...(market.top_gainers ?? []).slice(0, 4).map((g) => g.ticker),
+        ...(market.top_losers  ?? []).slice(0, 3).map((l) => l.ticker),
       ]
     : [];
   const watchlistIds = new Set(watchlistTickers.map((t) => shortFromDisplayTicker(t)));

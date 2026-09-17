@@ -307,21 +307,48 @@ def main() -> None:
     # preserves the movers / signal_distribution / sector_performance
     # fields written by the nightly aggregator. If the NSE page is down
     # we leave the existing indices in place instead of clobbering with {}.
+    #
+    # IMPORTANT: on the first intraday tick of a fresh trading day the
+    # aggregator hasn't run yet, so today's doc does not exist. A pure-
+    # indices merge would then CREATE a partial doc lacking the arrays
+    # the frontend TickerTape/RecentTickers/etc. call .slice() on —
+    # crashing the whole app. We seed safe defaults for those fields
+    # using firestore.SERVER_TIMESTAMP-equivalent init only when the
+    # doc doesn't exist yet.
     try:
         idx = fetch_market_indices()
         if idx:
             nse20 = idx.get("NSE20") or {}
+            doc_ref = db.collection("market_overview").document(TODAY_EAT)
+
+            # Seed today's doc with the schema the frontend requires so
+            # that the intraday push can never leave the app with a
+            # partial doc that crashes readers. Only runs when today's
+            # doc does not yet exist — the nightly aggregator overwrites
+            # with real movers/sectors/signals when it runs at 18:30 EAT.
+            if not doc_ref.get().exists:
+                doc_ref.set({
+                    "date":                TODAY_EAT,
+                    "top_gainers":         [],
+                    "top_losers":          [],
+                    "most_active":         [],
+                    "signal_distribution": {"BUY": 0, "HOLD": 0, "SELL": 0},
+                    "sector_performance": {},
+                    "indices":             {},
+                    "nse20_value":         None,
+                    "nse20_change_pct":    None,
+                }, merge=False)
+                log.info("Seeded fresh market_overview/%s with empty defaults", TODAY_EAT)
+
             payload: dict[str, object] = {
-                "date":          TODAY_EAT,
-                "indices":       idx,
+                "date":               TODAY_EAT,
+                "indices":            idx,
                 "indices_updated_at": _NOW_EAT.isoformat(),
             }
             if nse20.get("value") is not None:
                 payload["nse20_value"]      = nse20["value"]
                 payload["nse20_change_pct"] = nse20["change_pct"]
-            (db.collection("market_overview")
-                .document(TODAY_EAT)
-                .set(payload, merge=True))
+            doc_ref.set(payload, merge=True)
             log.info(
                 "indices refreshed: NASI %.2f | NSE20 %.2f | NSE10 %.2f | NSE25 %.2f | BSI %.2f | M.CAP %.2fB",
                 (idx.get("NASI")   or {}).get("value") or 0.0,

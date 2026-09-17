@@ -51,8 +51,10 @@ export const TickerTape: FC = () => {
   // pipeline as the same short form. shortFromDisplayTicker() is a defensive
   // coercion in case a legacy market_overview doc still carries "SCOM.NR".
   const companyMap = new Map(companies.map(c => [c.id, c]));
-  const gainers = market.top_gainers.slice(0, 5);
-  const losers = market.top_losers.slice(0, 5);
+  // Defensive: intraday-only market_overview docs (written between market open
+  // and the 18:30 EAT aggregator run) may lack top_gainers / top_losers.
+  const gainers = (market.top_gainers ?? []).slice(0, 5);
+  const losers = (market.top_losers ?? []).slice(0, 5);
 
   // Accepts a prefix so the duplicate copy has unique React keys
   const renderItems = (prefix: string) => (

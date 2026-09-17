@@ -31,7 +31,9 @@ function computeLiveFreshness(companies: CompanyDoc[]): {
 export const MarketSummaryStrip: FC<Props> = ({ market, companies }) => {
   const nseVal = market.nse20_value != null ? market.nse20_value.toFixed(2) : "N/A";
   const nsePct = market.nse20_change_pct;
-  const { BUY, HOLD, SELL } = market.signal_distribution;
+  // Defensive: intraday-only market_overview docs (before the 18:30 EAT
+  // aggregator run) may lack signal_distribution.
+  const { BUY = 0, HOLD = 0, SELL = 0 } = market.signal_distribution ?? {};
 
   const live = computeLiveFreshness(companies);
   const liveTime = live
