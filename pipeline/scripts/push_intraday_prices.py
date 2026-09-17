@@ -48,6 +48,7 @@ from scripts.push_to_firestore import (
     download_model_from_storage,
 )
 from scripts.scrape_nse_prices import CSVS_TMP, _load_local_csv, _clean_df
+from src.analysis.indices import fetch_market_indices
 from config import load_companies
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -300,6 +301,40 @@ def main() -> None:
 
     n_live = sum(v for k, v in source_tally.items() if k in _LIVE_SOURCES)
     n_eod  = sum(v for k, v in source_tally.items() if k in _EOD_SOURCES)
+
+    # Refresh the indices panel on today's market_overview doc so the
+    # heatmap moves through the day, not just at 18:30 EAT. merge=True
+    # preserves the movers / signal_distribution / sector_performance
+    # fields written by the nightly aggregator. If the NSE page is down
+    # we leave the existing indices in place instead of clobbering with {}.
+    try:
+        idx = fetch_market_indices()
+        if idx:
+            nse20 = idx.get("NSE20") or {}
+            payload: dict[str, object] = {
+                "date":          TODAY_EAT,
+                "indices":       idx,
+                "indices_updated_at": _NOW_EAT.isoformat(),
+            }
+            if nse20.get("value") is not None:
+                payload["nse20_value"]      = nse20["value"]
+                payload["nse20_change_pct"] = nse20["change_pct"]
+            (db.collection("market_overview")
+                .document(TODAY_EAT)
+                .set(payload, merge=True))
+            log.info(
+                "indices refreshed: NASI %.2f | NSE20 %.2f | NSE10 %.2f | NSE25 %.2f | BSI %.2f | M.CAP %.2fB",
+                (idx.get("NASI")   or {}).get("value") or 0.0,
+                (idx.get("NSE20")  or {}).get("value") or 0.0,
+                (idx.get("NSE10")  or {}).get("value") or 0.0,
+                (idx.get("NSE25")  or {}).get("value") or 0.0,
+                (idx.get("NSEBSI") or {}).get("value") or 0.0,
+                (idx.get("MCAP")   or {}).get("value") or 0.0,
+            )
+        else:
+            log.warning("indices refresh skipped — fetch_market_indices returned nothing")
+    except Exception as exc:
+        log.warning("indices refresh failed: %s", exc)
 
     log.info("Push complete: %d/%d companies updated in Firestore.", pushed, len(companies))
     log.info("=== Freshness watchdog ===")

@@ -5,6 +5,7 @@ import { Card } from "../components/ui/Card";
 import { useMarketOverview } from "../hooks/useMarket";
 import { useCompanies } from "../hooks/useCompanies";
 import { MarketSummaryStrip } from "../components/home/MarketSummaryStrip";
+import { MarketHeatmap } from "../components/home/MarketHeatmap";
 import { MoversTable } from "../components/home/MoversTable";
 import { SentimentDonut } from "../components/home/SentimentDonut";
 import { SectorPerformance } from "../components/home/SectorPerformance";
@@ -45,6 +46,8 @@ export const Home: FC = () => {
       {market && (
         <>
           <MarketSummaryStrip market={market} companies={companies} />
+
+          <MarketHeatmap market={market} companies={companies} />
 
           <div className="grid gap-6 lg:grid-cols-3">
             {/* Main column — movers */}

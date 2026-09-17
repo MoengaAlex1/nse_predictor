@@ -1,8 +1,21 @@
 # pipeline/src/analysis/market.py
 """Shared market-overview aggregation used by inference and daily-update."""
 
+import logging
 
-def aggregate_market_overview(results: list[dict], date_str: str) -> dict:
+# Relative import so the module works both when the pipeline runs with
+# `pipeline/` on sys.path (production, `from src.analysis... import ...`)
+# and when the test suite imports `pipeline.src.analysis.market` directly.
+from .indices import fetch_market_indices
+
+log = logging.getLogger(__name__)
+
+
+def aggregate_market_overview(
+    results: list[dict],
+    date_str: str,
+    indices: dict[str, dict] | None = None,
+) -> dict:
     """Aggregate per-company inference results into a market-level summary.
 
     Parameters
@@ -18,6 +31,14 @@ def aggregate_market_overview(results: list[dict], date_str: str) -> dict:
     Adds most_active — top 5 tickers by day's traded volume, with turnover
     computed as volume × current_price. Home page's "Most Active" box reads
     from this field.
+
+    indices:
+        Optional. Live NSE market-statistics readings keyed by canonical
+        short (NASI, NSE20, NSE25, NSE10, NSEBSI, MCAP, ...). When None,
+        this function calls fetch_market_indices() itself; when an empty
+        dict is passed the indices field is written as {} (used by tests
+        so we don't hit the live NSE site). Home page's Market Heatmap
+        reads market.indices.
     """
     rows: list[tuple[str, float]] = []
     volume_rows: list[tuple[str, int, float, float]] = []  # (tkr, volume, price, change_pct)
@@ -56,6 +77,14 @@ def aggregate_market_overview(results: list[dict], date_str: str) -> dict:
         for t, v, p, cp in volume_rows[:5]
     ]
 
+    # Fetch live indices unless caller pre-supplied them (tests pass {} to
+    # avoid the network call). None → do the fetch; {} → treat as "nothing
+    # available today" and skip.
+    if indices is None:
+        indices = fetch_market_indices() or {}
+
+    nse20 = indices.get("NSE20") or {}
+
     return {
         "date":                date_str,
         "top_gainers":         top_gainers,
@@ -63,6 +92,14 @@ def aggregate_market_overview(results: list[dict], date_str: str) -> dict:
         "most_active":         most_active,
         "signal_distribution": signals,
         "sector_performance":  {},
-        "nse20_value":         None,
-        "nse20_change_pct":    None,
+        # Full six-index panel (NASI, NSE 20, NSE 25, NSE 10, NSE BSI, M.CAP)
+        # plus turnover/volume/deals if the NSE feed included them. Consumed
+        # by frontend MarketHeatmap. Empty dict means the feed was unreachable
+        # at write-time — the UI shows nothing rather than fabricating values.
+        "indices":             indices,
+        # Legacy fields, kept for existing TickerTape / MarketSummaryStrip
+        # readers. Populated from indices.NSE20 when present so we never
+        # again ship a doc with NSE20 unset but indices carrying it.
+        "nse20_value":         nse20.get("value"),
+        "nse20_change_pct":    nse20.get("change_pct"),
     }

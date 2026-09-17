@@ -209,6 +209,14 @@ export interface MacroDoc {
   macro_events: MacroEvent[];
 }
 
+export interface IndexReading {
+  key: string;              // canonical: NASI / NSE20 / NSE25 / NSE10 / NSEBSI / MCAP
+  label: string;            // display: "NASI" / "NSE 20" / "M.CAP" ...
+  value: number;            // today's index level (or M.CAP in KES billions)
+  change_points: number;    // signed raw delta vs. previous close in index units
+  change_pct: number;       // signed % change (0 for turnover/deals rows)
+}
+
 export interface MarketOverviewDoc {
   date: string;
   top_gainers: { ticker: string; change_pct: number }[];
@@ -222,6 +230,12 @@ export interface MarketOverviewDoc {
   sector_performance: Record<string, number>;
   nse20_value: number | null;
   nse20_change_pct: number | null;
+  // Live NSE indices (NASI, NSE 20, NSE 10, NSE 25, NSE BSI, M.CAP)
+  // written by pipeline/src/analysis/indices.py. Refreshed intraday by
+  // push_intraday_prices.py. May be absent on legacy docs — consumers
+  // must default to {} and render only the keys that are present.
+  indices?: Record<string, IndexReading>;
+  indices_updated_at?: string;
 }
 
 export interface FundamentalsEstimate {
