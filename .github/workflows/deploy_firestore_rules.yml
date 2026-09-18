@@ -1,4 +1,4 @@
-name: Deploy Firestore + Storage rules
+name: Deploy Firestore + Storage + RTDB rules
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
     paths:
       - "firestore.rules"
       - "storage.rules"
+      - "database.rules.json"
       - "firebase.json"
       - ".github/workflows/deploy_firestore_rules.yml"
       - "pipeline/scripts/deploy_firestore_rules.py"
@@ -25,9 +26,10 @@ jobs:
       - name: Install deps
         run: pip install google-auth requests
 
-      - name: Deploy Firestore + Storage rules via REST API
+      - name: Deploy Firestore + Storage + RTDB rules via REST API
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
           FIREBASE_PROJECT_ID:           nse-market-dashboard
           FIREBASE_STORAGE_BUCKET:       ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          FIREBASE_DATABASE_URL:         ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
         run: python pipeline/scripts/deploy_firestore_rules.py

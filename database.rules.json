@@ -4,6 +4,10 @@
       ".read": true,
       ".write": "auth != null"
     },
+    "prices_latest": {
+      ".read": true,
+      ".write": "auth != null"
+    },
     ".read": "auth != null",
     ".write": "auth != null"
   }

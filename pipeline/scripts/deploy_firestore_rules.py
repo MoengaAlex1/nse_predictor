@@ -23,12 +23,19 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).parent.parent.parent
 FIRESTORE_RULES_FILE = REPO_ROOT / "firestore.rules"
 STORAGE_RULES_FILE   = REPO_ROOT / "storage.rules"
+DATABASE_RULES_FILE  = REPO_ROOT / "database.rules.json"
 
 # Backward-compat alias — nothing external should be using it, but keep
 # defined in case a caller still expects the old name.
 RULES_FILE = FIRESTORE_RULES_FILE
 
-SCOPES = ["https://www.googleapis.com/auth/firebase"]
+# Firebase Rules API scope covers Firestore + Storage; RTDB rules use the
+# firebase.database scope on the RTDB REST endpoint itself.
+SCOPES = [
+    "https://www.googleapis.com/auth/firebase",
+    "https://www.googleapis.com/auth/firebase.database",
+    "https://www.googleapis.com/auth/userinfo.email",
+]
 
 
 def get_access_token() -> str:
@@ -85,15 +92,51 @@ def _deploy_ruleset(
     print(f"  ← published, ruleset now live")
 
 
+def _deploy_database_rules(*, project_id: str, headers: dict) -> None:
+    """Push database.rules.json to Realtime Database via its REST endpoint.
+
+    RTDB rules live outside the Firebase Rules API — they're managed on the
+    per-namespace REST endpoint `.settings/rules.json`. We assume the default
+    namespace is `{project_id}-default-rtdb`; override with FIREBASE_DATABASE_URL
+    for a custom instance.
+    """
+    import requests
+    if not DATABASE_RULES_FILE.exists():
+        raise SystemExit(f"Missing {DATABASE_RULES_FILE}")
+
+    db_url_env = os.environ.get("FIREBASE_DATABASE_URL", "").strip()
+    if db_url_env:
+        base = db_url_env.rstrip("/")
+    else:
+        base = f"https://{project_id}-default-rtdb.firebaseio.com"
+
+    url = f"{base}/.settings/rules.json"
+    rules_text = DATABASE_RULES_FILE.read_text(encoding="utf-8")
+
+    print(f"\n→ [database] Publishing rules to {base}")
+    r = requests.put(url, headers=headers, data=rules_text.encode("utf-8"), timeout=30)
+    if r.status_code >= 400:
+        raise SystemExit(f"[database] Rules PUT failed {r.status_code}: {r.text}")
+    print(f"  ← published, rules now live")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--firestore-only", action="store_true",
                         help="Deploy only firestore.rules")
     parser.add_argument("--storage-only", action="store_true",
                         help="Deploy only storage.rules")
+    parser.add_argument("--database-only", action="store_true",
+                        help="Deploy only database.rules.json (RTDB)")
     args = parser.parse_args()
-    do_firestore = not args.storage_only
-    do_storage   = not args.firestore_only
+    # Default: deploy all three surfaces. Any --*-only narrows the set.
+    only_flags = [args.firestore_only, args.storage_only, args.database_only]
+    if any(only_flags):
+        do_firestore = args.firestore_only
+        do_storage   = args.storage_only
+        do_database  = args.database_only
+    else:
+        do_firestore = do_storage = do_database = True
 
     sa_raw = os.environ["FIREBASE_SERVICE_ACCOUNT_JSON"].strip()
     project_id = project_id_from_env(sa_raw)
@@ -135,6 +178,14 @@ def main() -> None:
             project_id=project_id, headers=headers, base=base,
             filename_hint="storage.rules",
         )
+
+    # ── Realtime Database ────────────────────────────────────────────────
+    # RTDB rules live on a completely different REST surface
+    # (.settings/rules.json on the database URL), so we can't reuse
+    # _deploy_ruleset. The token scoped above already carries the
+    # firebase.database scope needed for the PUT.
+    if do_database:
+        _deploy_database_rules(project_id=project_id, headers=headers)
 
     print("\n=== Rules deployed ===")
 

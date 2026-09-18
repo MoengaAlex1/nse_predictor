@@ -94,6 +94,12 @@ def bulk_write_prices(root_ref, ticker: str, records: dict, batch_size: int = 50
     Uses each record's `pc` if present, otherwise falls back to the previously-
     written close in this batch. Set guard_decimal_scale=False for backfills
     that legitimately contain large gaps.
+
+    Also maintains `prices_latest/{TICKER}` — a per-ticker mirror of the most
+    recent row plus its date. The React grid views (Home, Companies, Screener,
+    MarketHeatmap) fetch this mirror in one RTDB round-trip instead of doing
+    a per-doc Firestore read, so a company's tile always shows the same price
+    the CompanyDeepDive chart shows.
     """
     from pipeline.scripts.fix_decimal_scale import is_safe_to_write
 
@@ -102,6 +108,8 @@ def bulk_write_prices(root_ref, ticker: str, records: dict, batch_size: int = 50
     total = 0
     skipped = 0
     prev_close: float | None = None
+    latest_date: str | None = None
+    latest_node: dict | None = None
 
     for date_str in sorted(records):
         fields = records[date_str]
@@ -120,6 +128,8 @@ def bulk_write_prices(root_ref, ticker: str, records: dict, batch_size: int = 50
 
         node = _build_node(fields)
         batch[f"prices/{short}/{date_str}"] = node
+        latest_date = date_str
+        latest_node = node
         if close is not None and close > 0:
             prev_close = close
         if len(batch) >= batch_size:
@@ -131,7 +141,32 @@ def bulk_write_prices(root_ref, ticker: str, records: dict, batch_size: int = 50
         total += len(batch)
     if skipped:
         log.warning("bulk_write_prices: skipped %d row(s) for %s (decimal-scale guard)", skipped, short)
+
+    # Mirror the latest surviving row into prices_latest/{TICKER}. We only
+    # overwrite the mirror when the batch's newest date is >= the mirror's
+    # current date, so a backfill of older history can't rewind the mirror.
+    if latest_date is not None and latest_node is not None:
+        _maybe_update_latest_mirror(root_ref, short, latest_date, latest_node)
+
     return total
+
+
+def _maybe_update_latest_mirror(root_ref, short: str, date_str: str, node: dict) -> None:
+    """Write prices_latest/{short} when `date_str` is on-or-after the mirror's
+    current `date`. Best-effort — a network error skips the mirror update
+    silently rather than failing the whole batch (which already succeeded).
+    """
+    try:
+        existing = root_ref.child(f"prices_latest/{short}/date").get()
+    except Exception as e:  # noqa: BLE001 — mirror is advisory, don't fail the write
+        log.warning("mirror read failed for %s: %s (skipping mirror update)", short, e)
+        return
+    if isinstance(existing, str) and existing > date_str:
+        return
+    try:
+        root_ref.update({f"prices_latest/{short}": {"date": date_str, **node}})
+    except Exception as e:  # noqa: BLE001
+        log.warning("mirror write failed for %s %s: %s", short, date_str, e)
 
 
 def bulk_delete_prices(root_ref, ticker: str, dates, batch_size: int = 500) -> int:

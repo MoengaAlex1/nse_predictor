@@ -7,9 +7,41 @@ import {
   orderBy,
   limit,
 } from "firebase/firestore";
+import { ref, get } from "firebase/database";
 import { db } from "./firebase";
+import { rtdb } from "./rtdb";
 import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, MarketOverviewDoc, EventsDoc, CorporateEvent, FinancialsDoc, MacroDoc, IntradayPoint, FundamentalsDoc, NewsItem } from "../types";
 import { isShort, shortFromDisplayTicker } from "./identity";
+
+// Shape of a `prices_latest/{TICKER}` mirror node — written by
+// pipeline/scripts/firebase_rtdb.bulk_write_prices after every batch, so
+// the grid views (Home, Companies, Screener, MarketHeatmap) can read one
+// value per ticker instead of paying a per-doc Firestore round-trip.
+interface PricesLatestNode {
+  date: string;
+  c: number | null;
+  pc: number | null;
+  pch: number | null;
+  ch: number | null;
+}
+
+/**
+ * Fetch every ticker's most recent RTDB row in ONE round-trip. Returns a
+ * ticker -> latest-row map keyed by the short id (SCOM, EQTY, ...). Any
+ * ticker missing from the mirror (fresh ticker with no daily-update run
+ * yet) simply won't appear — callers fall back to Firestore for it.
+ */
+async function fetchPricesLatestMirror(): Promise<Map<string, PricesLatestNode>> {
+  try {
+    const snap = await get(ref(rtdb, "prices_latest"));
+    if (!snap.exists()) return new Map();
+    const val = snap.val() as Record<string, PricesLatestNode>;
+    return new Map(Object.entries(val));
+  } catch {
+    // RTDB unreachable — fall back to Firestore-only.
+    return new Map();
+  }
+}
 
 // Firestore omits fields that were never written rather than storing an
 // explicit null, so raw doc data can carry `undefined` for fields CompanyDoc
@@ -39,8 +71,31 @@ function normalizeCompany(rawId: string, data: Omit<CompanyDoc, "id">): CompanyD
 }
 
 export async function fetchAllCompanies(): Promise<CompanyDoc[]> {
-  const snap = await getDocs(collection(db, "companies"));
-  return snap.docs.map((d) => normalizeCompany(d.id, d.data() as Omit<CompanyDoc, "id">));
+  // Fetch Firestore companies and the RTDB latest-price mirror concurrently.
+  // If the RTDB mirror has a fresher date than Firestore's price_date, we
+  // stamp current_price/change_pct_today/price_date/previous close from
+  // the mirror onto the CompanyDoc — so Home/Screener/Companies tiles show
+  // the same price the CompanyDeepDive chart does (single-channel reads).
+  const [snap, mirror] = await Promise.all([
+    getDocs(collection(db, "companies")),
+    fetchPricesLatestMirror(),
+  ]);
+  return snap.docs.map((d) => {
+    const base = normalizeCompany(d.id, d.data() as Omit<CompanyDoc, "id">);
+    const latest = mirror.get(base.id);
+    if (!latest) return base;
+    // Only override if RTDB is at least as fresh as the Firestore snapshot.
+    // Firestore's price_date can be null (bare doc); an RTDB mirror always
+    // carries a date, so a null Firestore date always yields to the mirror.
+    const fsDate = base.price_date ?? "";
+    if (latest.date < fsDate) return base;
+    return {
+      ...base,
+      current_price: latest.c ?? base.current_price,
+      change_pct_today: latest.pch ?? base.change_pct_today,
+      price_date: latest.date,
+    };
+  });
 }
 
 // Batch collection fetches for the market screener. One round-trip per
@@ -62,10 +117,27 @@ export async function fetchAllFundamentals(): Promise<Map<string, FundamentalsDo
 }
 
 export async function fetchCompany(safeTicker: string): Promise<CompanyDoc | null> {
-  const ref = doc(db, "companies", safeTicker);
-  const snap = await getDoc(ref);
+  // Same single-channel merge as fetchAllCompanies but for one ticker. Home
+  // uses fetchAllCompanies, the deep-dive uses fetchCompany, and both should
+  // see identical prices — this keeps the two paths symmetric.
+  const [snap, mirrorSnap] = await Promise.all([
+    getDoc(doc(db, "companies", safeTicker)),
+    get(ref(rtdb, `prices_latest/${safeTicker}`)).catch(() => null),
+  ]);
   if (!snap.exists()) return null;
-  return normalizeCompany(snap.id, snap.data() as Omit<CompanyDoc, "id">);
+  const base = normalizeCompany(snap.id, snap.data() as Omit<CompanyDoc, "id">);
+  const latest = mirrorSnap?.exists()
+    ? (mirrorSnap.val() as PricesLatestNode)
+    : null;
+  if (!latest) return base;
+  const fsDate = base.price_date ?? "";
+  if (latest.date < fsDate) return base;
+  return {
+    ...base,
+    current_price: latest.c ?? base.current_price,
+    change_pct_today: latest.pch ?? base.change_pct_today,
+    price_date: latest.date,
+  };
 }
 
 // These collections are keyed by date, so "latest" is the highest-sorting doc.
