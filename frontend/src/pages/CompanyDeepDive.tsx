@@ -1211,9 +1211,37 @@ export const CompanyDeepDive: FC = () => {
 
   // Map RTDB data to PricePoint format (c = close price). Drop c<=0
   // rows too — legacy RTDB fills render as vertical spikes to the axis.
-  const rtdbHistory: PricePoint[] = rtdbPrices
-    .filter((p) => p.c !== null && p.c !== undefined && (p.c as number) > 0)
-    .map((p) => ({ date: p.date, price: p.c as number }));
+  //
+  // Additional safety net for OCR decimal-shift errors that slipped past the
+  // backend guard (BRIT 2026-08-19 was pushed as c=0.18 vs a prior close of
+  // 18.30, and the chart cratered to the axis). Anything that is ≥50% off
+  // BOTH its stored pc AND the previous rendered close is a decimal shift,
+  // not a real move — the NSE band is ±10% and even circuit-breaker halts
+  // never approach 50%. Drop the point so the chart holds its shape.
+  const rtdbHistory: PricePoint[] = (() => {
+    const sorted = [...rtdbPrices].sort((a, b) => a.date.localeCompare(b.date));
+    const out: PricePoint[] = [];
+    let lastGood: number | null = null;
+    for (const p of sorted) {
+      const c = p.c as number | null | undefined;
+      if (c === null || c === undefined || c <= 0) continue;
+      const pc = p.pc as number | null | undefined;
+      const anchor = typeof pc === "number" && pc > 0 ? pc : lastGood;
+      if (anchor !== null && anchor > 0) {
+        const ratio = c / anchor;
+        if (ratio < 0.5 || ratio > 2.0) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[chart-guard] Dropping ${cleanTicker} ${p.date}: close=${c} vs anchor=${anchor} — decimal-scale error, ignored`,
+          );
+          continue;
+        }
+      }
+      out.push({ date: p.date, price: c });
+      lastGood = c;
+    }
+    return out;
+  })();
 
   // RTDB data filtered to the currently selected date range (for TechnicalChart)
   const rtdbVisible = useMemo(() => {

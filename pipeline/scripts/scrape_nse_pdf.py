@@ -608,7 +608,13 @@ def write_to_rtdb(root_ref, date_str: str, rows: list[tuple[str, dict]], dry_run
             "vv":  fields["value"],
         }
         if not dry_run:
-            write_price_node(root_ref, ticker, date_str, node)
+            # Pass prev_close so write_price_node's is_safe_to_write guard fires
+            # when the OCR row survived _fix_scale_vs_prev but is still a decimal
+            # shift vs the PDF's authoritative previous close (BRIT 2026-08-19).
+            write_price_node(
+                root_ref, ticker, date_str, node,
+                previous_close=fields.get("prev_close"),
+            )
         log.info("  %s: close=%.2f vol=%.0f", ticker, fields["close"], fields["volume"])
         written += 1
     if unknown:

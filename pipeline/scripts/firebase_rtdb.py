@@ -82,14 +82,46 @@ def write_price_node(root_ref, ticker: str, date_str: str, fields: dict,
     root_ref.update({f"prices/{short}/{date_str}": node})
 
 
-def bulk_write_prices(root_ref, ticker: str, records: dict, batch_size: int = 500) -> int:
-    """Write many date→fields records in batches. Returns total nodes written."""
+def bulk_write_prices(root_ref, ticker: str, records: dict, batch_size: int = 500,
+                      guard_decimal_scale: bool = True) -> int:
+    """Write many date→fields records in batches. Returns total nodes written.
+
+    When `guard_decimal_scale` is True (default), each row is checked against
+    the CHRONOLOGICALLY-preceding row's close. A close that is a power-of-ten
+    off from its predecessor is an OCR decimal shift, not a price move — the
+    row is skipped and a warning is logged instead of poisoning the series.
+
+    Uses each record's `pc` if present, otherwise falls back to the previously-
+    written close in this batch. Set guard_decimal_scale=False for backfills
+    that legitimately contain large gaps.
+    """
+    from pipeline.scripts.fix_decimal_scale import is_safe_to_write
+
     short = to_short_ticker(ticker)
     batch: dict = {}
     total = 0
-    for date_str, fields in records.items():
+    skipped = 0
+    prev_close: float | None = None
+
+    for date_str in sorted(records):
+        fields = records[date_str]
+        close = _clean(fields.get("c"))
+        anchor = _clean(fields.get("pc")) if fields.get("pc") is not None else prev_close
+
+        if guard_decimal_scale and close is not None and anchor is not None:
+            if not is_safe_to_write(close, anchor):
+                log.warning(
+                    "bulk_write_prices REJECTED %s %s: close %s is a decimal-"
+                    "scale error vs anchor %s — not written",
+                    short, date_str, close, anchor,
+                )
+                skipped += 1
+                continue
+
         node = _build_node(fields)
         batch[f"prices/{short}/{date_str}"] = node
+        if close is not None and close > 0:
+            prev_close = close
         if len(batch) >= batch_size:
             root_ref.update(batch)
             total += len(batch)
@@ -97,4 +129,6 @@ def bulk_write_prices(root_ref, ticker: str, records: dict, batch_size: int = 50
     if batch:
         root_ref.update(batch)
         total += len(batch)
+    if skipped:
+        log.warning("bulk_write_prices: skipped %d row(s) for %s (decimal-scale guard)", skipped, short)
     return total

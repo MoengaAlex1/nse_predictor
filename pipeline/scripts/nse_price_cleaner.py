@@ -460,7 +460,15 @@ def push_ticker_to_rtdb(root_ref, csv_path: Path) -> int:
 
     Sets stale-date nodes to None (Firebase deletes them) so old bad prices
     do not linger in RTDB after being quarantined in the CSV.
+
+    Every row is checked against its previous solid close with
+    ``fix_decimal_scale.is_safe_to_write`` before write. A close that is a
+    power-of-ten off from the prior day is an OCR decimal shift, not a real
+    move — the row is skipped so it can't reintroduce the collapse-to-zero
+    shape (e.g. BRIT 2026-08-19 close=0.18 vs prior 18.30).
     """
+    from pipeline.scripts.fix_decimal_scale import is_safe_to_write
+
     ticker = csv_path.stem.replace("_cleaned", "")
     short = ticker.split("_")[0].upper()
 
@@ -492,12 +500,32 @@ def push_ticker_to_rtdb(root_ref, csv_path: Path) -> int:
 
     batch: dict = {}
     total = 0
+    rejected = 0
 
     # Write clean rows
     for i, row in clean_df.iterrows():
         date_str = row["Date"].strftime("%Y-%m-%d")
         close = float(row["Close"]) if pd.notna(row.get("Close")) else None
         prev_close = float(clean_df.iloc[i - 1]["Close"]) if i > 0 and pd.notna(clean_df.iloc[i - 1]["Close"]) else None
+
+        # Decimal-scale guard: refuse to write a row whose close is a power-of-ten
+        # off from the prior day. The cleaner's own spike detectors should have
+        # caught this upstream — this is belt-and-suspenders for the write path.
+        if close is not None and close > 0 and prev_close is not None and prev_close > 0:
+            if not is_safe_to_write(close, prev_close):
+                log.warning(
+                    "  %s %s: REJECTED — close %.4f is a decimal-scale error vs prev %.4f",
+                    short, date_str, close, prev_close,
+                )
+                # Push a delete so any pre-existing bad value in RTDB is removed
+                batch[f"prices/{short}/{date_str}"] = None
+                rejected += 1
+                if len(batch) >= 450:
+                    root_ref.update(batch)
+                    total += len(batch)
+                    batch = {}
+                continue
+
         ch = round(close - prev_close, 4) if close is not None and prev_close is not None else None
         pch = round((ch / prev_close) * 100, 4) if ch is not None and prev_close else None
         node = {
@@ -528,6 +556,10 @@ def push_ticker_to_rtdb(root_ref, csv_path: Path) -> int:
     if batch:
         root_ref.update(batch)
         total += len(batch)
+
+    if rejected:
+        log.warning("  %s: decimal-scale guard rejected %d row(s) on push",
+                    short, rejected)
 
     return total
 
