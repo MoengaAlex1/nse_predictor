@@ -200,15 +200,13 @@ def push_company(company: dict, db, sources_map: dict[str, str]) -> dict:
 
     current_price = round(float(df["Close"].iloc[-1]), 4)
 
-    # change_pct_today: last two distinct close prices
+    # Canonical change_pct_today formula — same helper used by
+    # run_daily_update and run_inference so the three writers can never
+    # emit different numbers for the same (current, previous) pair.
+    from pipeline.scripts.firebase_rtdb import compute_change_pct
     closes = df["Close"].dropna()
-    if len(closes) >= 2:
-        prev = float(closes.iloc[-2])
-        change_pct = float((current_price - prev) / prev * 100) if prev > 0 else 0.0
-        # Cap at NSE circuit-breaker +/- 15%
-        change_pct = max(-15.0, min(15.0, change_pct))
-    else:
-        change_pct = 0.0
+    prev = float(closes.iloc[-2]) if len(closes) >= 2 else None
+    change_pct = compute_change_pct(current_price, prev)
 
     # Build intraday_today: accumulate snapshots throughout the trading day
     intraday_today = _build_intraday_today(db, doc_id, current_price)

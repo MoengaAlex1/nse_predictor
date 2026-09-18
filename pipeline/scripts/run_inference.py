@@ -364,8 +364,13 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
             "arima_next":        round(arima_next, 4),
         }
 
-        change_pct = float(cleaned_df["Close"].pct_change().iloc[-1] * 100)
-        change_pct = max(-15.0, min(15.0, change_pct))  # cap at ±15% (NSE circuit breaker is ±9.9%)
+        # Canonical change_pct_today formula — shared with push_intraday_prices
+        # and run_daily_update. Uses the last two DISTINCT closes so a
+        # forward-filled weekend gap doesn't collapse the number to 0.
+        from pipeline.scripts.firebase_rtdb import compute_change_pct
+        _real_closes = cleaned_df["Close"].dropna()
+        _prev_price = float(_real_closes.iloc[-2]) if len(_real_closes) >= 2 else None
+        change_pct = compute_change_pct(current_price, _prev_price)
         price_history = [
             {"date": str(idx.date()), "price": round(float(val), 4)}
             for idx, val in cleaned_df["Close"].items()

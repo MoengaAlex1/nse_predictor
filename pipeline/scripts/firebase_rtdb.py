@@ -4,10 +4,37 @@ import re
 
 log = logging.getLogger(__name__)
 
+# Display cap for change_pct_today. NSE's circuit breaker is ±9.9% but the
+# scraped tiers occasionally emit >100% moves on OCR mishaps that the
+# decimal-scale guard hasn't caught yet. Capping at ±15% keeps a rogue
+# number from ever rendering as a giant red bar in the UI while staying
+# clear of the real circuit-breaker range.
+CHANGE_PCT_CAP = 15.0
+
 
 def to_short_ticker(ticker: str) -> str:
     """SCOM.NR or SCOM_NR → SCOM. Splits on first dot or underscore separator."""
     return re.split(r"[._]", ticker)[0].upper()
+
+
+def compute_change_pct(current: float | None, previous: float | None,
+                       cap: float | None = CHANGE_PCT_CAP) -> float:
+    """Canonical formula for change_pct_today. Single source of truth for
+    every Firestore writer (push_intraday_prices, run_daily_update,
+    run_inference). Callers must supply the last two *distinct* closes so
+    the value doesn't collapse to 0 across forward-filled weekend gaps.
+
+    Returns 0.0 when previous is missing / non-positive. Cap is applied
+    symmetrically around 0 if supplied; pass cap=None for uncapped output
+    (analytics / audit code). The default cap matches CHANGE_PCT_CAP so
+    every writer produces the same value from the same inputs.
+    """
+    if current is None or previous is None or previous <= 0:
+        return 0.0
+    pct = (current - previous) / previous * 100.0
+    if cap is not None:
+        pct = max(-cap, min(cap, pct))
+    return pct
 
 
 def _clean(val) -> float | None:
