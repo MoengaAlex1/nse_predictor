@@ -85,12 +85,39 @@ def upload_model_to_storage(local_path: str, storage_path: str) -> None:
 
 
 def download_model_from_storage(storage_path: str, local_path: str) -> bool:
+    """Fetch a file from Firebase Storage to local disk. Returns False on
+    'not present' and on infra-level failures we can degrade past (billing
+    disabled, transient 5xx). The caller decides whether the missing file
+    is fatal or has a fallback (run_inference.py uses the repo-checked-in
+    CSVs when Storage is unreachable).
+    """
+    from google.api_core import exceptions as gexc
+
     bucket = fb_storage.bucket()
     blob = bucket.blob(storage_path)
-    if not blob.exists():
+    try:
+        if not blob.exists():
+            return False
+    except gexc.Forbidden as e:
+        # 403 covers "billing disabled", "IAM revoked", "bucket in a project
+        # you can no longer read" — all cases where retrying won't help and
+        # the whole pipeline shouldn't abort. Log loudly so ops sees it.
+        import logging
+        logging.getLogger(__name__).error(
+            "Storage 403 for %s — falling back to repo copy. Reason: %s",
+            storage_path, e,
+        )
         return False
     parent = os.path.dirname(local_path)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    blob.download_to_filename(local_path)
+    try:
+        blob.download_to_filename(local_path)
+    except gexc.Forbidden as e:
+        import logging
+        logging.getLogger(__name__).error(
+            "Storage 403 on download of %s — falling back to repo copy. Reason: %s",
+            storage_path, e,
+        )
+        return False
     return True
