@@ -23,6 +23,7 @@ interface PricesLatestNode {
   pc: number | null;
   pch: number | null;
   ch: number | null;
+  v: number | null;
 }
 
 /**
@@ -94,6 +95,7 @@ export async function fetchAllCompanies(): Promise<CompanyDoc[]> {
       current_price: latest.c ?? base.current_price,
       change_pct_today: latest.pch ?? base.change_pct_today,
       price_date: latest.date,
+      volume_today: latest.v ?? null,
     };
   });
 }

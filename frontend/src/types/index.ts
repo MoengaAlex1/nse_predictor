@@ -49,6 +49,12 @@ export interface CompanyDoc {
   ceo?: string | null;
   employees?: number | null;
   ir_enriched_at?: string | null;
+
+  // Volume for `price_date`, merged in from the RTDB `prices_latest` mirror
+  // by fetchAllCompanies. Zero means the ticker had no trades on that day
+  // (common on ETFs and thinly-traded small caps). Null means the mirror
+  // didn't carry a volume field — treat as unknown, not zero.
+  volume_today?: number | null;
 }
 
 export interface SnapshotDoc {

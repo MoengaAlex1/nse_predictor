@@ -67,6 +67,58 @@ function formatIndex(v: number | null | undefined): string {
   return v.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function formatVolume(v: number | null | undefined): string {
+  if (v == null) return "";
+  if (v === 0) return "0 shares";
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1)}M`;
+  if (v >= 1_000) return `${Math.round(v / 1_000)}k`;
+  return `${Math.round(v)}`;
+}
+
+// Days between an ISO date string and today. Returns Infinity when the input
+// is malformed so callers can treat it as "very stale". Using UTC dates keeps
+// the calculation stable across timezone boundaries — the +/-3h EAT offset
+// never crosses a date line in practice for our use case.
+function ageInDays(iso: string | null | undefined): number {
+  if (!iso) return Infinity;
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return Infinity;
+  const days = (Date.now() - then) / 86_400_000;
+  return Math.floor(days);
+}
+
+// Build the small caption that appears under each tile's price. This is
+// the trust-signal — it distinguishes:
+//   - "Flat · 4.9M" (real trading, price genuinely unchanged)
+//   - "Flat · 0 shares" (no trades today, price is yesterday's close)
+//   - "Stale · Jul 24" (data hasn't refreshed in a while)
+// so a "Flat" tile can no longer read as "broken" when it's honest.
+function tileCaption(c: {
+  change_pct_today: number | null | undefined;
+  volume_today?: number | null;
+  price_date: string | null | undefined;
+}): { text: string; tone: "muted" | "warn" | "stale" } {
+  const age = ageInDays(c.price_date);
+  if (age > 5) {
+    // Data older than a trading week — surface the age instead of volume.
+    const label = c.price_date ? new Date(c.price_date).toLocaleDateString("en-KE", {
+      month: "short", day: "numeric",
+    }) : "no date";
+    return { text: `Stale · ${label}`, tone: "stale" };
+  }
+  const v = c.volume_today;
+  const flat = c.change_pct_today != null && Math.abs(c.change_pct_today) < 0.005;
+  if (v === 0) {
+    return { text: flat ? "No trades today" : "0 shares", tone: "warn" };
+  }
+  if (v != null && v > 0) {
+    return { text: formatVolume(v), tone: "muted" };
+  }
+  // Volume unknown (mirror doesn't have it yet) — leave blank rather than
+  // making up a placeholder that reads as "0 trades".
+  return { text: "", tone: "muted" };
+}
+
 export const MarketHeatmap: FC<Props> = ({ market, companies }) => {
   const sorted = [...companies].sort((a, b) => a.short.localeCompare(b.short));
 
@@ -143,12 +195,22 @@ export const MarketHeatmap: FC<Props> = ({ market, companies }) => {
       <div className="grid grid-cols-3 gap-1.5 p-3 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9">
         {sorted.map(c => {
           const b = bucketFor(c.change_pct_today, 5);
+          const caption = tileCaption(c);
+          const captionClass =
+            caption.tone === "stale" ? "text-amber-400"
+            : caption.tone === "warn" ? "text-hint italic"
+            : "text-sub";
+          const tooltipParts = [
+            `${c.short} · ${c.name}`,
+            c.price_date ? `Price as of ${c.price_date}` : null,
+            c.volume_today != null ? `Volume: ${c.volume_today.toLocaleString("en-KE")} shares` : null,
+          ].filter(Boolean);
           return (
             <Link
               key={c.id || c.ticker}
               to={`/chart/${c.ticker}`}
               className={`group flex min-h-[76px] flex-col rounded-md border p-2 transition-transform hover:scale-[1.03] ${TILE_BG[b]}`}
-              title={`${c.short} · ${c.name}`}
+              title={tooltipParts.join(" · ")}
             >
               <p className="text-[11px] font-bold leading-tight text-ink">{c.short}</p>
               <p className="truncate text-[9px] leading-tight text-sub">{c.name}</p>
@@ -158,6 +220,11 @@ export const MarketHeatmap: FC<Props> = ({ market, companies }) => {
               <p className="font-mono text-[9px] leading-tight text-sub">
                 KSh {formatPrice(c.current_price)}
               </p>
+              {caption.text && (
+                <p className={`font-mono text-[9px] leading-tight ${captionClass}`}>
+                  {caption.text}
+                </p>
+              )}
             </Link>
           );
         })}
