@@ -78,6 +78,15 @@ OC_PLAUSIBILITY_MAX_DRIFT = 0.25
 # way.
 TRAILING_DAYS = 30
 
+# NSE circuit-breaker band. A Low below (1 - band) * min(O,C) or a High above
+# (1 + band) * max(O,C) can't have been reached intraday because trading would
+# have halted first. Rows that violate this get clamped to min/max(O,C) — a
+# conservative floor/ceiling that at least respects the constraint the market
+# structure guarantees. Anchor value should track NSE's actual circuit-breaker
+# rule (currently ±10%); we use 0.10 with a small buffer for round-trip float
+# noise.
+NSE_CIRCUIT_BREAKER = 0.11
+
 # Minimum window rows before the trailing median is trusted as an anchor.
 MIN_TRAILING_ROWS = 5
 
@@ -212,7 +221,15 @@ def find_violations(node: dict) -> list[dict]:
         low_wrong  = l > min(o, c)
         high_wrong = h < max(o, c)
         crossed    = l > h
-        if not (low_wrong or high_wrong or crossed):
+        # Circuit-breaker plausibility: NSE halts trading at ±10% intraday,
+        # so a Low more than 11% below min(O,C) — or a High more than 11%
+        # above max(O,C) — could not have been reached. Catches KCB 2026-09-16
+        # (Low=25.0 vs Close=84.25, a ratio no live trade could produce).
+        oc_lo = min(o, c)
+        oc_hi = max(o, c)
+        low_impossible  = l < oc_lo * (1 - NSE_CIRCUIT_BREAKER) and l > 0
+        high_impossible = h > oc_hi * (1 + NSE_CIRCUIT_BREAKER)
+        if not (low_wrong or high_wrong or crossed or low_impossible or high_impossible):
             continue
 
         # Guard (a) — spread between Open and Close inside the row.
@@ -246,19 +263,24 @@ def find_violations(node: dict) -> list[dict]:
                 continue
 
         # Both guards passed — safe to derive Low and High from min/max(O,C).
+        # Circuit-breaker violations also clamp to min/max(O,C): the true intraday
+        # extreme was within the ±11% band, but we don't know exactly where, and
+        # this floor/ceiling at least respects the trades we DO have evidence of.
         correct_low  = min(o, c)
         correct_high = max(o, c)
-        new_l = correct_low  if (low_wrong  or crossed) else l
-        new_h = correct_high if (high_wrong or crossed) else h
+        new_l = correct_low  if (low_wrong  or crossed or low_impossible)  else l
+        new_h = correct_high if (high_wrong or crossed or high_impossible) else h
         if new_l > new_h:
             new_l, new_h = correct_low, correct_high
         if new_l == l and new_h == h:
             continue
 
         reasons = []
-        if crossed:    reasons.append(f"L({l})>H({h})")
-        if low_wrong:  reasons.append(f"L({l})>min(O,C)={correct_low}")
-        if high_wrong: reasons.append(f"H({h})<max(O,C)={correct_high}")
+        if crossed:         reasons.append(f"L({l})>H({h})")
+        if low_wrong:       reasons.append(f"L({l})>min(O,C)={correct_low}")
+        if high_wrong:      reasons.append(f"H({h})<max(O,C)={correct_high}")
+        if low_impossible:  reasons.append(f"L({l}) < min(O,C)*{1-NSE_CIRCUIT_BREAKER:.2f} — outside NSE band")
+        if high_impossible: reasons.append(f"H({h}) > max(O,C)*{1+NSE_CIRCUIT_BREAKER:.2f} — outside NSE band")
 
         out.append({
             "date":   date,
