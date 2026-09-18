@@ -172,40 +172,44 @@ def apply_corrections(root_ref, corrections: list[dict], backup_path: str) -> in
         fh.flush()
     log.info("Backup of %d original rows written to %s", len(corrections), backup_path)
 
-    from pipeline.scripts.firebase_rtdb import to_short_ticker
+    from pipeline.scripts.firebase_rtdb import bulk_write_prices
 
-    # Batched multi-path updates. One call per row does not finish: a full run
-    # is ~115,000 rows and was cancelled at the 20 minute job timeout partway
-    # through. RTDB update() takes many paths at once, which turns that into a
-    # few hundred calls.
-    written = 0
-    batch: dict = {}
+    # Group by ticker so bulk_write_prices' single-ticker signature works.
+    # guard_decimal_scale=False because these are intentional overrides of
+    # the guard — the corrections file is what fixes decimal-scale errors
+    # in the first place, so re-running the guard against them would reject
+    # every fix.
+    by_ticker: dict[str, dict[str, dict]] = {}
     for c in corrections:
-        short = to_short_ticker(c["ticker"])
-        batch[f"prices/{short}/{c['date']}"] = c["after"]
-        if len(batch) >= WRITE_BATCH:
-            root_ref.update(batch)
-            written += len(batch)
-            log.info("  wrote %d/%d", written, len(corrections))
-            batch = {}
-    if batch:
-        root_ref.update(batch)
-        written += len(batch)
+        by_ticker.setdefault(c["ticker"], {})[c["date"]] = c["after"]
+
+    written = 0
+    for i, (ticker, records) in enumerate(by_ticker.items(), 1):
+        written += bulk_write_prices(
+            root_ref, ticker, records,
+            batch_size=WRITE_BATCH,
+            guard_decimal_scale=False,
+        )
+        if i % 25 == 0:
+            log.info("  wrote %d/%d rows across %d/%d tickers",
+                     written, len(corrections), i, len(by_ticker))
     return written
 
 
 def restore(root_ref, backup_path: str) -> int:
     """Put back every original row recorded in a backup file."""
-    from pipeline.scripts.firebase_rtdb import to_short_ticker
+    from pipeline.scripts.firebase_rtdb import bulk_write_prices
     data = json.loads(Path(backup_path).read_text())
-    n, batch = 0, {}
+    by_ticker: dict[str, dict[str, dict]] = {}
     for c in data["corrections"]:
-        short = to_short_ticker(c["ticker"])
-        batch[f"prices/{short}/{c['date']}"] = c["before"]
-        if len(batch) >= WRITE_BATCH:
-            root_ref.update(batch); n += len(batch); batch = {}
-    if batch:
-        root_ref.update(batch); n += len(batch)
+        by_ticker.setdefault(c["ticker"], {})[c["date"]] = c["before"]
+    n = 0
+    for ticker, records in by_ticker.items():
+        n += bulk_write_prices(
+            root_ref, ticker, records,
+            batch_size=WRITE_BATCH,
+            guard_decimal_scale=False,
+        )
     return n
 
 

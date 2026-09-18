@@ -176,50 +176,44 @@ def fix_slam_spike(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
 
 
 def push_to_rtdb(root_ref, ticker: str, df: pd.DataFrame) -> int:
-    short = ticker.split("_")[0].upper()
+    """Push a cleaned frame to RTDB via the sanctioned choke point."""
+    from pipeline.scripts.firebase_rtdb import bulk_write_prices
+
     if "Is_Stale" in df.columns:
         df = df[df["Is_Stale"] == 0]
     df = df.sort_values("Date").reset_index(drop=True)
 
-    batch: dict = {}
-    total = 0
+    records: dict[str, dict] = {}
     for i, row in df.iterrows():
         date_str = row["Date"].strftime("%Y-%m-%d")
         close = float(row["Close"]) if pd.notna(row.get("Close")) else None
-        prev_close = float(df.iloc[i - 1]["Close"]) if i > 0 and pd.notna(df.iloc[i - 1]["Close"]) else None
-        ch = round(close - prev_close, 4) if close is not None and prev_close is not None else None
-        pch = round((ch / prev_close) * 100, 4) if ch is not None and prev_close else None
-
-        def clean(v):
-            if v is None:
-                return None
-            try:
-                f = float(v)
-                return None if math.isnan(f) or math.isinf(f) else round(f, 4)
-            except (TypeError, ValueError):
-                return None
-
-        node = {
-            "o": clean(row.get("Open")),
-            "h": clean(row.get("High")),
-            "l": clean(row.get("Low")),
-            "c": clean(close),
-            "v": clean(row.get("Volume")),
-            "pc": clean(prev_close),
-            "ch": clean(ch),
-            "pch": clean(pch),
+        prev_close = (
+            float(df.iloc[i - 1]["Close"])
+            if i > 0 and pd.notna(df.iloc[i - 1]["Close"])
+            else None
+        )
+        ch = (
+            round(close - prev_close, 4)
+            if close is not None and prev_close is not None
+            else None
+        )
+        pch = (
+            round((ch / prev_close) * 100, 4)
+            if ch is not None and prev_close
+            else None
+        )
+        records[date_str] = {
+            "o": row.get("Open"),
+            "h": row.get("High"),
+            "l": row.get("Low"),
+            "c": close,
+            "v": row.get("Volume"),
+            "pc": prev_close,
+            "ch": ch,
+            "pch": pch,
             "vv": None,
         }
-        batch[f"prices/{short}/{date_str}"] = node
-        if len(batch) >= 500:
-            root_ref.update(batch)
-            total += len(batch)
-            batch = {}
-
-    if batch:
-        root_ref.update(batch)
-        total += len(batch)
-    return total
+    return bulk_write_prices(root_ref, ticker, records)
 
 
 def process_ticker(csv_path: Path, root_ref, dry_run: bool, csv_only: bool, force_push: bool = False) -> dict:

@@ -426,10 +426,17 @@ def main() -> None:
 
     if args.restore:
         from pipeline.scripts.firebase_client import get_rtdb
+        from pipeline.scripts.firebase_rtdb import bulk_write_prices
         data = json.loads(Path(args.restore).read_text())
         root = get_rtdb()
+        # Group by ticker so bulk_write_prices' single-ticker signature works.
+        # guard_decimal_scale=False because this is a rollback — the whole
+        # point is to restore rows the guard may have originally rejected.
+        by_ticker: dict[str, dict[str, dict]] = {}
         for r in data["rows"]:
-            root.update({f"prices/{r['ticker']}/{r['date']}": r["before"]})
+            by_ticker.setdefault(r["ticker"], {})[r["date"]] = r["before"]
+        for ticker, records in by_ticker.items():
+            bulk_write_prices(root, ticker, records, guard_decimal_scale=False)
         print(f"Restored {len(data['rows'])} rows")
         return
 
@@ -463,13 +470,14 @@ def main() -> None:
             {"rows": [{"ticker": t, "date": d, "before": r} for t, d, r in doomed]}, indent=1))
         log.info("Backup of %d rows written to %s", len(doomed), args.backup)
         root = get_rtdb()
-        batch = {}
+        from pipeline.scripts.firebase_rtdb import bulk_delete_prices
+        # Group by ticker so we can hand each ticker's dates to
+        # bulk_delete_prices — the single sanctioned deletion path.
+        by_ticker: dict[str, list[str]] = {}
         for t, d, _ in doomed:
-            batch[f"prices/{t}/{d}"] = None
-            if len(batch) >= 500:
-                root.update(batch); batch = {}
-        if batch:
-            root.update(batch)
+            by_ticker.setdefault(t, []).append(d)
+        for ticker, dates in by_ticker.items():
+            bulk_delete_prices(root, ticker, dates)
         print(f"\nRemoved {len(doomed)} non-trading rows. Undo with --restore {args.backup}")
         return
 
@@ -518,13 +526,15 @@ def main() -> None:
     log.info("Backup of %d rows written to %s", len(flat), args.backup)
 
     root = get_rtdb()
-    batch = {}
+    from pipeline.scripts.firebase_rtdb import bulk_write_prices
+    # Group by ticker; guard_decimal_scale=False because the whole point of
+    # this correction pass is to write values the guard would otherwise
+    # reject (the guard sees "wrong→corrected" as a mid-series jump).
+    by_ticker: dict[str, dict[str, dict]] = {}
     for t, r in flat:
-        batch[f"prices/{t}/{r['date']}"] = r["after"]
-        if len(batch) >= 500:
-            root.update(batch); batch = {}
-    if batch:
-        root.update(batch)
+        by_ticker.setdefault(t, {})[r["date"]] = r["after"]
+    for ticker, records in by_ticker.items():
+        bulk_write_prices(root, ticker, records, guard_decimal_scale=False)
     print(f"\nCorrected {len(flat)} rows. Undo with --restore {args.backup}")
 
 

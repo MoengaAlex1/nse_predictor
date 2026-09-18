@@ -458,16 +458,13 @@ def apply_nse_close(df: pd.DataFrame, date: datetime.date, confirmed_close: floa
 def push_ticker_to_rtdb(root_ref, csv_path: Path) -> int:
     """Re-push clean rows and explicitly delete stale rows from RTDB.
 
-    Sets stale-date nodes to None (Firebase deletes them) so old bad prices
-    do not linger in RTDB after being quarantined in the CSV.
-
-    Every row is checked against its previous solid close with
-    ``fix_decimal_scale.is_safe_to_write`` before write. A close that is a
-    power-of-ten off from the prior day is an OCR decimal shift, not a real
-    move — the row is skipped so it can't reintroduce the collapse-to-zero
-    shape (e.g. BRIT 2026-08-19 close=0.18 vs prior 18.30).
+    All writes funnel through :func:`firebase_rtdb.bulk_write_prices` (which
+    applies the decimal-scale guard) and all deletes through
+    :func:`firebase_rtdb.bulk_delete_prices`. This function no longer touches
+    ``root_ref.update()`` directly — the single write choke point catches any
+    row that would otherwise reintroduce an OCR decimal shift into RTDB.
     """
-    from pipeline.scripts.fix_decimal_scale import is_safe_to_write
+    from pipeline.scripts.firebase_rtdb import bulk_write_prices, bulk_delete_prices
 
     ticker = csv_path.stem.replace("_cleaned", "")
     short = ticker.split("_")[0].upper()
@@ -489,79 +486,49 @@ def push_ticker_to_rtdb(root_ref, csv_path: Path) -> int:
     # Dates that are ONLY stale (not also present as clean) must be deleted
     delete_dates = stale_dates - clean_dates
 
-    def _clean(v):
-        if v is None:
-            return None
-        try:
-            f = float(v)
-            return None if math.isnan(f) or math.isinf(f) else round(f, 4)
-        except (TypeError, ValueError):
-            return None
-
-    batch: dict = {}
-    total = 0
-    rejected = 0
-
-    # Write clean rows
+    # Build the records dict expected by bulk_write_prices: keyed by date_str,
+    # each value is the raw fields dict (o/h/l/c/v/pc/ch/pch). The helper
+    # calls _build_node internally so we don't coerce zeros ourselves.
+    records: dict[str, dict] = {}
     for i, row in clean_df.iterrows():
         date_str = row["Date"].strftime("%Y-%m-%d")
         close = float(row["Close"]) if pd.notna(row.get("Close")) else None
-        prev_close = float(clean_df.iloc[i - 1]["Close"]) if i > 0 and pd.notna(clean_df.iloc[i - 1]["Close"]) else None
-
-        # Decimal-scale guard: refuse to write a row whose close is a power-of-ten
-        # off from the prior day. The cleaner's own spike detectors should have
-        # caught this upstream — this is belt-and-suspenders for the write path.
-        if close is not None and close > 0 and prev_close is not None and prev_close > 0:
-            if not is_safe_to_write(close, prev_close):
-                log.warning(
-                    "  %s %s: REJECTED — close %.4f is a decimal-scale error vs prev %.4f",
-                    short, date_str, close, prev_close,
-                )
-                # Push a delete so any pre-existing bad value in RTDB is removed
-                batch[f"prices/{short}/{date_str}"] = None
-                rejected += 1
-                if len(batch) >= 450:
-                    root_ref.update(batch)
-                    total += len(batch)
-                    batch = {}
-                continue
-
-        ch = round(close - prev_close, 4) if close is not None and prev_close is not None else None
-        pch = round((ch / prev_close) * 100, 4) if ch is not None and prev_close else None
-        node = {
-            "o": _clean(row.get("Open")),
-            "h": _clean(row.get("High")),
-            "l": _clean(row.get("Low")),
-            "c": _clean(close),
-            "v": _clean(row.get("Volume")),
-            "pc": _clean(prev_close),
-            "ch": _clean(ch),
-            "pch": _clean(pch),
+        prev_close = (
+            float(clean_df.iloc[i - 1]["Close"])
+            if i > 0 and pd.notna(clean_df.iloc[i - 1]["Close"])
+            else None
+        )
+        ch = (
+            round(close - prev_close, 4)
+            if close is not None and prev_close is not None
+            else None
+        )
+        pch = (
+            round((ch / prev_close) * 100, 4)
+            if ch is not None and prev_close
+            else None
+        )
+        records[date_str] = {
+            "o": row.get("Open"),
+            "h": row.get("High"),
+            "l": row.get("Low"),
+            "c": close,
+            "v": row.get("Volume"),
+            "pc": prev_close,
+            "ch": ch,
+            "pch": pch,
             "vv": None,
         }
-        batch[f"prices/{short}/{date_str}"] = node
-        if len(batch) >= 450:
-            root_ref.update(batch)
-            total += len(batch)
-            batch = {}
 
-    # Delete stale-only nodes (set to None = Firebase delete)
-    for date_str in delete_dates:
-        batch[f"prices/{short}/{date_str}"] = None
-        if len(batch) >= 450:
-            root_ref.update(batch)
-            total += len(batch)
-            batch = {}
+    written = bulk_write_prices(root_ref, ticker, records, batch_size=450)
 
-    if batch:
-        root_ref.update(batch)
-        total += len(batch)
+    # Rows the cleaner never surfaced but that live in RTDB need to disappear;
+    # bulk_delete_prices sets each date node to None so Firebase removes it.
+    deleted = bulk_delete_prices(root_ref, ticker, delete_dates, batch_size=450)
+    if deleted:
+        log.info("  %s: deleted %d stale-only date(s) from RTDB", short, deleted)
 
-    if rejected:
-        log.warning("  %s: decimal-scale guard rejected %d row(s) on push",
-                    short, rejected)
-
-    return total
+    return written + deleted
 
 
 def process_ticker(

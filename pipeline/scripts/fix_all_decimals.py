@@ -166,31 +166,15 @@ def build_rtdb_records(df: pd.DataFrame) -> dict:
 
 
 def push_to_rtdb(root_ref, ticker: str, records: dict) -> int:
-    """Overwrite all price nodes for this ticker in RTDB."""
-    import math
-    short = ticker.split("_")[0].upper()
-    batch: dict = {}
-    total = 0
-    for date_str, fields in records.items():
-        node = {}
-        for k, v in fields.items():
-            if v is None:
-                node[k] = None
-            else:
-                try:
-                    f = float(v)
-                    node[k] = None if math.isnan(f) or math.isinf(f) else round(f, 4)
-                except (TypeError, ValueError):
-                    node[k] = None
-        batch[f"prices/{short}/{date_str}"] = node
-        if len(batch) >= 500:
-            root_ref.update(batch)
-            total += len(batch)
-            batch = {}
-    if batch:
-        root_ref.update(batch)
-        total += len(batch)
-    return total
+    """Overwrite all price nodes for this ticker in RTDB.
+
+    Routes through :func:`firebase_rtdb.bulk_write_prices` for the single
+    write choke point. guard_decimal_scale=False because this script's whole
+    purpose is to write CORRECTED closes that the guard's simple close-vs-
+    anchor rule would otherwise flag as mid-series jumps.
+    """
+    from pipeline.scripts.firebase_rtdb import bulk_write_prices
+    return bulk_write_prices(root_ref, ticker, records, guard_decimal_scale=False)
 
 
 def process_ticker(csv_path: Path, root_ref, dry_run: bool) -> tuple[int, int]:

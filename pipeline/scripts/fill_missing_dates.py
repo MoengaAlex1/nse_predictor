@@ -114,54 +114,48 @@ def fill_ticker(csv_path: Path, calendar: set[datetime.date], dry_run: bool) -> 
 
 
 def push_to_rtdb(root_ref, csv_path: Path) -> int:
-    """Re-push the full ticker CSV to RTDB after gap-filling."""
-    import math
-    ticker = csv_path.stem.replace("_cleaned", "")
-    short = ticker.split("_")[0].upper()
+    """Re-push the full ticker CSV to RTDB after gap-filling via the single
+    write choke point. bulk_write_prices handles the _clean/NaN coercion
+    and applies the decimal-scale guard."""
+    from pipeline.scripts.firebase_rtdb import bulk_write_prices
 
+    ticker = csv_path.stem.replace("_cleaned", "")
     df = pd.read_csv(csv_path, parse_dates=["Date"])
     if "Is_Stale" in df.columns:
         df = df[df["Is_Stale"] == 0]
     df = df.sort_values("Date").reset_index(drop=True)
 
-    batch: dict = {}
-    total = 0
+    records: dict[str, dict] = {}
     for i, row in df.iterrows():
         date_str = row["Date"].strftime("%Y-%m-%d")
         close = float(row["Close"]) if pd.notna(row.get("Close")) else None
-        prev_close = float(df.iloc[i - 1]["Close"]) if i > 0 and pd.notna(df.iloc[i - 1]["Close"]) else None
-        ch = round(close - prev_close, 4) if close is not None and prev_close is not None else None
-        pch = round((ch / prev_close) * 100, 4) if ch is not None and prev_close else None
-        node = {
-            "o": float(row["Open"]) if pd.notna(row.get("Open")) else None,
-            "h": float(row["High"]) if pd.notna(row.get("High")) else None,
-            "l": float(row["Low"]) if pd.notna(row.get("Low")) else None,
+        prev_close = (
+            float(df.iloc[i - 1]["Close"])
+            if i > 0 and pd.notna(df.iloc[i - 1]["Close"])
+            else None
+        )
+        ch = (
+            round(close - prev_close, 4)
+            if close is not None and prev_close is not None
+            else None
+        )
+        pch = (
+            round((ch / prev_close) * 100, 4)
+            if ch is not None and prev_close
+            else None
+        )
+        records[date_str] = {
+            "o": row.get("Open"),
+            "h": row.get("High"),
+            "l": row.get("Low"),
             "c": close,
-            "v": float(row["Volume"]) if pd.notna(row.get("Volume")) else None,
+            "v": row.get("Volume"),
             "pc": prev_close,
             "ch": ch,
             "pch": pch,
             "vv": None,
         }
-        clean_node = {}
-        for k, v in node.items():
-            if v is None:
-                clean_node[k] = None
-            else:
-                try:
-                    f = float(v)
-                    clean_node[k] = None if math.isnan(f) or math.isinf(f) else round(f, 4)
-                except (TypeError, ValueError):
-                    clean_node[k] = None
-        batch[f"prices/{short}/{date_str}"] = clean_node
-        if len(batch) >= 500:
-            root_ref.update(batch)
-            total += len(batch)
-            batch = {}
-    if batch:
-        root_ref.update(batch)
-        total += len(batch)
-    return total
+    return bulk_write_prices(root_ref, ticker, records)
 
 
 def main() -> None:

@@ -373,9 +373,18 @@ def main() -> None:
     root = get_rtdb()
 
     if args.restore:
+        # Restore is row-level — the whole "before" node replaces whatever is
+        # currently at prices/{ticker}/{date}. Route through bulk_write_prices
+        # so it goes through the same choke point as every other row write.
+        # guard_decimal_scale=False because we're rolling back to what was
+        # there before, not writing new data.
+        from pipeline.scripts.firebase_rtdb import bulk_write_prices
         data = json.loads(Path(args.restore).read_text())
+        by_ticker: dict[str, dict[str, dict]] = {}
         for r in data["rows"]:
-            root.update({f"prices/{r['ticker']}/{r['date']}": r["before"]})
+            by_ticker.setdefault(r["ticker"], {})[r["date"]] = r["before"]
+        for ticker, records in by_ticker.items():
+            bulk_write_prices(root, ticker, records, guard_decimal_scale=False)
         print(f"Restored {len(data['rows'])} rows from {args.restore}")
         return
 
@@ -437,6 +446,12 @@ def main() -> None:
     Path(args.backup).write_text(json.dumps(backup, indent=1))
     log.info("Backup of %d rows written to %s", len(writable), args.backup)
 
+    # Field-level patches (paths like prices/{tkr}/{date}/{field}) — this is
+    # intentional to preserve the row's other fields. bulk_write_prices is
+    # for whole-row writes; a field-level patch is a different operation,
+    # so we stay on root.update() here. The decimal-scale guard is not
+    # relevant to these fixes anyway (l/h clamps and per-field power-of-ten
+    # corrections don't touch the close-vs-anchor relationship).
     batch: dict = {}
     for t, r in writable:
         batch.update(_write_action(root, t, r))

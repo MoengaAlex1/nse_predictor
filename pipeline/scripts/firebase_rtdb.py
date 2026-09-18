@@ -132,3 +132,28 @@ def bulk_write_prices(root_ref, ticker: str, records: dict, batch_size: int = 50
     if skipped:
         log.warning("bulk_write_prices: skipped %d row(s) for %s (decimal-scale guard)", skipped, short)
     return total
+
+
+def bulk_delete_prices(root_ref, ticker: str, dates, batch_size: int = 500) -> int:
+    """Delete many date nodes for a ticker via multi-path update(None). Returns
+    the number of nodes deleted.
+
+    Firebase RTDB semantics: setting a path to None removes the node. This is
+    the only sanctioned deletion path — every cleanup script (stale-date
+    scrub, quarantine push, decimal-scale scrub) MUST go through this helper
+    so the write path stays a single choke point. Do NOT call
+    `root_ref.update({path: None})` directly from a script.
+    """
+    short = to_short_ticker(ticker)
+    batch: dict = {}
+    total = 0
+    for date_str in dates:
+        batch[f"prices/{short}/{date_str}"] = None
+        if len(batch) >= batch_size:
+            root_ref.update(batch)
+            total += len(batch)
+            batch = {}
+    if batch:
+        root_ref.update(batch)
+        total += len(batch)
+    return total
