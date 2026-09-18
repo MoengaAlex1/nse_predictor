@@ -372,10 +372,18 @@ def _clean_price_series(s: pd.Series) -> pd.Series:
 
 _load_df_cache: dict = {}
 
+# When NSE_DASH_OFFLINE=1 (local dev without Firebase creds), fall through
+# to the on-disk CSV pipeline. In prod the Dash app reads the same RTDB
+# `prices/{TICKER}` tree the React app reads — so the two can't display
+# contradictory closes / signals for the same ticker (which was the old
+# behaviour when the Dash CSV path was overridden by an archive JSON that
+# the React app never saw).
+_DASH_OFFLINE = os.environ.get("NSE_DASH_OFFLINE", "").strip() == "1"
 
-def load_df(ticker: str):
-    if ticker in _load_df_cache:
-        return _load_df_cache[ticker]
+
+def _load_df_from_csv(ticker: str):
+    """Legacy CSV-based reader. Kept behind NSE_DASH_OFFLINE=1 for local dev
+    and as a graceful fallback when RTDB is unreachable in prod."""
     code = ticker.split(".")[0].upper()
     p = DATA_CLEANED / f"{ticker.replace('.','_')}_cleaned.csv"
     if p.exists():
@@ -406,11 +414,30 @@ def load_df(ticker: str):
                                 s[corrupt_orphan] = np.nan
                                 s = s.interpolate(method="time").ffill().bfill()
                                 df[col] = s
-        _load_df_cache[ticker] = df
         return df
-    result = _load_company_archive(code)
-    _load_df_cache[ticker] = result
-    return result
+    return _load_company_archive(code)
+
+
+def load_df(ticker: str):
+    if ticker in _load_df_cache:
+        return _load_df_cache[ticker]
+
+    # Prod path: read RTDB `prices/{doc_id}` — same source the React app
+    # uses. doc_id is the short form (SCOM, EQTY) with any .NR/_NR stripped.
+    if not _DASH_OFFLINE:
+        import firebase_service
+        doc_id = ticker.split(".")[0].upper().replace("_NR", "")
+        df = firebase_service.get_history(doc_id)
+        if df is not None and not df.empty:
+            _load_df_cache[ticker] = df
+            return df
+        # RTDB miss (fresh ticker, or Firebase unreachable) — fall through to
+        # CSV so we're not left with a broken chart when the pipeline hasn't
+        # populated `prices/{ticker}` yet.
+
+    df = _load_df_from_csv(ticker)
+    _load_df_cache[ticker] = df
+    return df
 
 
 def _compute_ta_signal(df) -> dict:
@@ -445,6 +472,21 @@ def _compute_ta_signal(df) -> dict:
 
 
 def load_sig(ticker: str):
+    # Prod path: read the same Firestore doc the React app reads via
+    # firebase_service.get_signal — so the Dash "Signal" chip agrees with
+    # the SnapshotCard on /company/{ticker} in the React frontend. The
+    # local JSON is only used offline for developers running without
+    # Firebase creds; it is intentionally not consulted in prod because
+    # main.py's local training run is the only thing that writes it and
+    # it drifts as soon as the daily pipeline moves on.
+    if not _DASH_OFFLINE:
+        import firebase_service
+        doc_id = ticker.split(".")[0].upper().replace("_NR", "")
+        sig = firebase_service.get_signal(doc_id)
+        if sig:
+            sig.setdefault("signal_source", "ml")
+            return sig
+
     p = DATA_FEATURES / f"{ticker.replace('.','_')}_signal.json"
     if p.exists():
         with open(p) as f:

@@ -10,6 +10,7 @@ from datetime import datetime
 log = logging.getLogger(__name__)
 
 _db = None
+_rtdb = None
 
 
 def _get_db():
@@ -91,3 +92,67 @@ def write_admin_log(job_id: str, data: dict) -> None:
 
 def firebase_available() -> bool:
     return _get_db() is not None
+
+
+def _get_rtdb():
+    """Lazy RTDB client. Requires FIREBASE_DATABASE_URL and the same service
+    account used for Firestore. Cached across calls."""
+    global _rtdb
+    if _rtdb is not None:
+        return _rtdb
+    # _get_db initialises firebase_admin so we piggy-back on that side effect.
+    if _get_db() is None:
+        return None
+    db_url = os.environ.get("FIREBASE_DATABASE_URL", "").strip()
+    if not db_url:
+        return None
+    try:
+        from firebase_admin import db as fb_db
+        _rtdb = fb_db.reference("/", url=db_url)
+        return _rtdb
+    except Exception as e:
+        log.warning("RTDB init failed: %s", e)
+        return None
+
+
+def get_history(doc_id: str):
+    """Return a pandas DataFrame indexed by date for one ticker, sourced from
+    RTDB `prices/{doc_id}`. Returns None if RTDB isn't configured, the ticker
+    has no rows, or firebase_admin isn't importable. `doc_id` must be the
+    short form (SCOM, EQTY) — the same key `bulk_write_prices` writes under.
+
+    Columns: Open / High / Low / Close / Volume. Matches the shape the Dash
+    app's chart builders expected from the on-disk CSV path.
+    """
+    root = _get_rtdb()
+    if root is None:
+        return None
+    try:
+        node = root.child(f"prices/{doc_id}").get()
+    except Exception as e:
+        log.warning("RTDB read failed for %s: %s", doc_id, e)
+        return None
+    if not isinstance(node, dict) or not node:
+        return None
+    try:
+        import pandas as pd
+    except ImportError:
+        return None
+    rows = []
+    for date_str, row in node.items():
+        if not isinstance(row, dict):
+            continue
+        rows.append({
+            "Date":   date_str,
+            "Open":   row.get("o"),
+            "High":   row.get("h"),
+            "Low":    row.get("l"),
+            "Close":  row.get("c"),
+            "Volume": row.get("v"),
+        })
+    if not rows:
+        return None
+    df = pd.DataFrame(rows)
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df = df.dropna(subset=["Date"]).set_index("Date").sort_index()
+    return df
