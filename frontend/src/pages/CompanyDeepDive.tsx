@@ -831,11 +831,37 @@ const SIGNAL_STYLES = {
   SELL: { border: "border-red-800",     bg: "bg-red-950/40",     text: "text-red-400",     glow: "#ef4444" },
 };
 
-const SnapshotCard: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => {
+const SnapshotCard: FC<{
+  snapshot: SnapshotDoc;
+  /** Live-resolved current price from the parent's resolveDisplayPrice call.
+   *  Used to recompute predicted_change_pct against the price the user is
+   *  currently seeing on the header/banner, so "target vs current" numbers
+   *  can't drift from the displayed price between inference and page load. */
+  livePrice: number | null;
+}> = ({ snapshot, livePrice }) => {
   const sig = snapshot.risk_adjusted_signal;
   const style = SIGNAL_STYLES[sig];
   const conf = snapshot.confidence_score ?? 0;
   const confColor = conf >= 70 ? "bg-emerald-500" : conf >= 45 ? "bg-amber-500" : "bg-red-500";
+
+  // Snapshot baseline vs. live-resolved price. The pipeline writes
+  // snapshot.current_price_KES + snapshot.predicted_change_pct at 21:00 UTC
+  // (run_inference), but intraday pushes overwrite current_price several
+  // times before the next inference run — so the % on this card can be
+  // stale relative to what the header shows. We recompute predicted_change_pct
+  // against livePrice when it's meaningfully different from the baseline,
+  // and surface a small "signal computed at X vs KES Y" chip when the
+  // drift is >1% so users can see WHY the target moved.
+  const snapshotBaseline = snapshot.current_price_KES;
+  const displayedChangePct =
+    livePrice != null && snapshotBaseline > 0
+      ? ((snapshot.predicted_price_KES - livePrice) / livePrice) * 100
+      : snapshot.predicted_change_pct;
+  const baselineDrift =
+    livePrice != null && snapshotBaseline > 0
+      ? Math.abs(livePrice - snapshotBaseline) / snapshotBaseline
+      : 0;
+  const showDriftNote = baselineDrift > 0.01;
 
   return (
     <div className={`overflow-hidden rounded-xl border ${style.border} ${style.bg}`}>
@@ -859,10 +885,16 @@ const SnapshotCard: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => {
           <p className="mt-1 font-mono text-2xl font-bold text-ink">
             KES {snapshot.predicted_price_KES.toFixed(2)}
           </p>
-          <p className={`font-mono text-lg font-bold ${snapshot.predicted_change_pct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-            {snapshot.predicted_change_pct >= 0 ? "+" : ""}
-            {snapshot.predicted_change_pct.toFixed(2)}%
+          <p className={`font-mono text-lg font-bold ${displayedChangePct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+            {displayedChangePct >= 0 ? "+" : ""}
+            {displayedChangePct.toFixed(2)}%
           </p>
+          {showDriftNote && (
+            <p className="mt-1 text-[10px] text-hint">
+              Signal computed {fmtDate(snapshot.run_date)} against KES{" "}
+              {snapshotBaseline.toFixed(2)}
+            </p>
+          )}
         </div>
       </div>
 
@@ -1065,7 +1097,10 @@ const GatedContent: FC<{
   snapLoading: boolean;
   technicals: TechnicalsDoc | null | undefined;
   techLoading: boolean;
-}> = ({ snapshot, snapLoading, techLoading, technicals }) => {
+  /** Live-resolved price threaded through to SnapshotCard so predicted_change_pct
+   *  is computed against the same number the header shows. */
+  livePrice: number | null;
+}> = ({ snapshot, snapLoading, techLoading, technicals, livePrice }) => {
   if (snapLoading || techLoading) {
     return (
       <div className="flex justify-center py-10">
@@ -1077,7 +1112,7 @@ const GatedContent: FC<{
   return (
     <div className="space-y-5">
       {snapshot ? (
-        <SnapshotCard snapshot={snapshot} />
+        <SnapshotCard snapshot={snapshot} livePrice={livePrice} />
       ) : (
         <Card className="border-rim bg-surface/50">
           <p className="text-sm text-sub">No prediction data yet. Pipeline runs daily at 18:00 EAT.</p>
@@ -1458,6 +1493,7 @@ export const CompanyDeepDive: FC = () => {
               snapLoading={snapLoading}
               technicals={technicals}
               techLoading={techLoading}
+              livePrice={display.price}
             />
           </div>
 
