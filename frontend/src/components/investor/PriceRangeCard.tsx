@@ -1,5 +1,6 @@
 import type { FC } from "react";
 import { RangeSlider } from "./RangeSlider";
+import { resolveDisplayPrice } from "../../lib/format";
 import type { CompanyDoc } from "../../types";
 import type { RtdbPricePoint } from "../../hooks/useHistoricalPrices";
 
@@ -7,6 +8,10 @@ interface Props {
   company: CompanyDoc;
   /** Latest RTDB point for today's session — l/h/c/o feed the Day Range. */
   latest?: RtdbPricePoint | null;
+  /** Optional pre-resolved display price from the parent's resolveDisplayPrice.
+   *  Pass it when the parent already computed the resolver output so we don't
+   *  re-run it; if omitted we resolve internally from (company, latest). */
+  displayPrice?: number | null;
 }
 
 /**
@@ -15,26 +20,12 @@ interface Props {
  * with the same close plotted on it. Modelled directly on MSN Money's
  * "Day Range" and "52 Week Range" sliders.
  *
- * The card is deliberately independent of QuoteSummaryPanel: that panel
- * returns null when company.current_price is null (Firestore doesn't always
- * have a live price), which would also hide its embedded 52W slider. Here
- * we fall back through several price sources — the RTDB close, the last
- * price_history entry, then last_known_price — so the sliders keep working
- * whenever ANY price signal is available.
+ * The price plotted on both sliders comes from the shared `resolveDisplayPrice`
+ * helper so it can never disagree with the header, banner, or quote panel.
  */
-export const PriceRangeCard: FC<Props> = ({ company, latest }) => {
-  // Fall through the possible sources of "what price is the dot at?" in
-  // priority order. RTDB is the most recent tier, price_history is the
-  // canonical EOD close, last_known_price is the seed_last_vwap fallback.
-  const historyLast = company.price_history?.length
-    ? company.price_history[company.price_history.length - 1].price
-    : null;
+export const PriceRangeCard: FC<Props> = ({ company, latest, displayPrice }) => {
   const currentPrice: number | null =
-    company.current_price ??
-    latest?.c ??
-    historyLast ??
-    company.last_known_price ??
-    null;
+    displayPrice ?? resolveDisplayPrice(company, latest ?? null).price;
 
   // ── Day Range (from RTDB's latest bar) ────────────────────────────────
   const dayLow  = latest?.l  ?? null;

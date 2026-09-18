@@ -11,7 +11,8 @@ import { TechnicalChart } from "../components/charts/TechnicalChart";
 import { PredictionChart } from "../components/charts/PredictionChart";
 import { PriceExplainer } from "../components/company/PriceExplainer";
 import { useCompany, useLatestSnapshot, useLatestTechnicals, useCorporateEvents, useFinancials, useMacro, useIntradayDay, useFundamentals, useNews } from "../hooks/useCompany";
-import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
+import { usePrices } from "../hooks/usePrices";
+import { resolveDisplayPrice } from "../lib/format";
 import type { PricePoint, IntradayPoint, SnapshotDoc, TechnicalsDoc, CompanyDoc, CorporateEvent, FinancialsDoc, NSEAnnouncement } from "../types";
 import { CompanyProfileCard } from "../components/investor/CompanyProfileCard";
 import { QuoteSummaryPanel } from "../components/investor/QuoteSummaryPanel";
@@ -53,17 +54,6 @@ const PRESETS: { label: RangeKey; days: number | null }[] = [
   { label: "ALL",    days: null },
   { label: "Custom", days: null },
 ];
-
-function cleanPriceHistory(points: PricePoint[]): PricePoint[] {
-  if (points.length < 5) return points;
-  const sorted = points.map((p) => p.price).slice().sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)];
-  if (!median || median <= 0) return points;
-  return points.filter((p) => {
-    const ratio = p.price / median;
-    return ratio >= 0.1 && ratio <= 8.0;
-  });
-}
 
 function filterByRange(data: PricePoint[], range: RangeKey, from: string, to: string): PricePoint[] {
   if (!data.length) return data;
@@ -608,21 +598,24 @@ const ChartSection: FC<{
   setTo: (s: string) => void;
   visible: PricePoint[];
   rtdbData: import("../hooks/useHistoricalPrices").RtdbPricePoint[];
+  fullHistory: PricePoint[];
   announcements: NSEAnnouncement[];
   intradayDate?: string;
   intradayDay: string;
   setIntradayDay: (d: string) => void;
   todayEAT: string;
-}> = ({ company, technicals, range, setRange, from, setFrom, to, setTo, visible, rtdbData, announcements, intradayDay, setIntradayDay, todayEAT }) => {
+}> = ({ company, technicals, range, setRange, from, setFrom, to, setTo, visible, rtdbData, fullHistory, announcements, intradayDay, setIntradayDay, todayEAT }) => {
   const [showFib, setShowFib]    = useState(true);
   const [showSMAs, setShowSMAs]  = useState(true);
   const [showEvents, setShowEvents] = useState(true);
   const [chartView, setChartView] = useState<"area" | "line" | "candles" | "ohlc">("area");
 
   const isIntraday = range === "1D";
-  const history = cleanPriceHistory(company.price_history ?? []);
-  const dataMin = history[0]?.date ?? "";
-  const dataMax = history[history.length - 1]?.date ?? "";
+  // Bounds for the Custom-mode date picker come from the same guarded RTDB
+  // history the chart itself renders — no separate `cleanPriceHistory` pass
+  // that could disagree with the chart's contents.
+  const dataMin = fullHistory[0]?.date ?? "";
+  const dataMax = fullHistory[fullHistory.length - 1]?.date ?? "";
 
   return (
     <div className="space-y-4">
@@ -1198,50 +1191,20 @@ export const CompanyDeepDive: FC = () => {
     range === "1D" && intradayDay !== todayEAT,
   );
 
-  // ── RTDB historical prices ────────────────────────────────────────────────────
-  // Date range covers all available history
-  const chartEnd   = new Date().toISOString().slice(0, 10);
+  // ── RTDB historical prices — single-channel via usePrices ───────────────
+  // Date range covers all available history. usePrices applies the OCR
+  // decimal-scale guard so every downstream consumer (chart, banner,
+  // header, OHLCV panel, news overlay) sees the same series — no more
+  // per-view inconsistencies where the chart dropped a point but the
+  // sidebar showed it.
+  const chartEnd = new Date().toISOString().slice(0, 10);
   const chartStart = "2008-01-01";
   const cleanTicker = ticker.replace(/\.(NR|KE)$/, "").replace(/_NR$/, "");
-  const { data: rtdbPrices = [] } = useHistoricalPrices(
+  const { rows: rtdbPrices, points: rtdbHistory, latest: rtdbLatest } = usePrices(
     cleanTicker,
     chartStart,
     chartEnd,
   );
-
-  // Map RTDB data to PricePoint format (c = close price). Drop c<=0
-  // rows too — legacy RTDB fills render as vertical spikes to the axis.
-  //
-  // Additional safety net for OCR decimal-shift errors that slipped past the
-  // backend guard (BRIT 2026-08-19 was pushed as c=0.18 vs a prior close of
-  // 18.30, and the chart cratered to the axis). Anything that is ≥50% off
-  // BOTH its stored pc AND the previous rendered close is a decimal shift,
-  // not a real move — the NSE band is ±10% and even circuit-breaker halts
-  // never approach 50%. Drop the point so the chart holds its shape.
-  const rtdbHistory: PricePoint[] = (() => {
-    const sorted = [...rtdbPrices].sort((a, b) => a.date.localeCompare(b.date));
-    const out: PricePoint[] = [];
-    let lastGood: number | null = null;
-    for (const p of sorted) {
-      const c = p.c as number | null | undefined;
-      if (c === null || c === undefined || c <= 0) continue;
-      const pc = p.pc as number | null | undefined;
-      const anchor = typeof pc === "number" && pc > 0 ? pc : lastGood;
-      if (anchor !== null && anchor > 0) {
-        const ratio = c / anchor;
-        if (ratio < 0.5 || ratio > 2.0) {
-          // eslint-disable-next-line no-console
-          console.warn(
-            `[chart-guard] Dropping ${cleanTicker} ${p.date}: close=${c} vs anchor=${anchor} — decimal-scale error, ignored`,
-          );
-          continue;
-        }
-      }
-      out.push({ date: p.date, price: c });
-      lastGood = c;
-    }
-    return out;
-  })();
 
   // RTDB data filtered to the currently selected date range (for TechnicalChart)
   const rtdbVisible = useMemo(() => {
@@ -1255,17 +1218,17 @@ export const CompanyDeepDive: FC = () => {
   // Fires once per ticker load so the user's manual range selection is not overridden.
   const autoRangedRef = useRef(false);
   useEffect(() => {
-    if (autoRangedRef.current || !company?.price_history?.length) return;
+    if (autoRangedRef.current || rtdbHistory.length === 0) return;
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 90);
     const cutoffStr = cutoff.toISOString().slice(0, 10);
-    const in3M = cleanPriceHistory(company.price_history).filter((p) => p.date >= cutoffStr);
+    const in3M = rtdbHistory.filter((p) => p.date >= cutoffStr);
     if (in3M.length < 20) {
       setRange("ALL");
     }
     autoRangedRef.current = true;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company?.price_history]);
+  }, [rtdbHistory.length]);
 
   if (isLoading) {
     return (
@@ -1290,10 +1253,16 @@ export const CompanyDeepDive: FC = () => {
     );
   }
 
-  const change  = company.change_pct_today;
-  // Use RTDB data when available, fall back to Firestore price_history
-  const chartData = rtdbHistory.length > 0 ? rtdbHistory : cleanPriceHistory(company.price_history ?? []);
-  const history   = chartData;
+  // Every price, prev-close, and change value on this page flows through
+  // the same resolver so header / banner / sidebar / OHLCV panel agree.
+  // Falls through RTDB latest → Firestore current_price → last_known_price
+  // for the price itself; computes change from RTDB pc when present.
+  const display = resolveDisplayPrice(company, rtdbLatest);
+  const change  = display.changePct;
+  // RTDB is the single source; the Firestore price_history fallback is gone
+  // because it applied a different (median-based) filter than usePrices, so
+  // it would have re-introduced the cross-view inconsistency we just fixed.
+  const history = rtdbHistory;
 
   const intradaySource: IntradayPoint[] | undefined =
     range === "1D"
@@ -1322,28 +1291,17 @@ export const CompanyDeepDive: FC = () => {
     range === "ALL"    ? "All Time"     :
     "Custom Period";
 
-  // Freshest available price + change data for the alert banner. RTDB's
-  // latest bar carries the pc/pch pair that the CompanyDoc header often
-  // doesn't have populated for the current session, so we prefer RTDB when
-  // it exists and fall through to the doc-level fields otherwise. Same
-  // fallback ordering as PriceRangeCard.
-  const rtdbLatest = rtdbPrices.length > 0
-    ? rtdbPrices[rtdbPrices.length - 1]
-    : null;
-  const bannerCurrent = company.current_price ?? rtdbLatest?.c    ?? null;
-  const bannerPrev    =                          rtdbLatest?.pc   ?? null;
-  const bannerChange  = company.change_pct_today  ?? rtdbLatest?.pch  ?? null;
-  const bannerDate    = rtdbLatest?.date ?? company.price_date ?? null;
-
   return (
     <>
       <div className="space-y-4">
-        {/* ── Price-move alert banner — MSN-style, first thing on the page ─ */}
+        {/* ── Price-move alert banner — MSN-style, first thing on the page ─
+            All values come from the single `display` resolver so this banner
+            can never disagree with the header, chart, or OHLCV panel. */}
         <PriceMoveBanner
-          currentPrice={bannerCurrent}
-          previousClose={bannerPrev}
-          changePct={bannerChange}
-          priceDate={bannerDate}
+          currentPrice={display.price}
+          previousClose={display.previousClose}
+          changePct={display.changePct}
+          priceDate={display.asOf}
         />
 
         {/* ── Trading terminal header ────────────────────────────────────── */}
@@ -1372,9 +1330,9 @@ export const CompanyDeepDive: FC = () => {
                   </span>
                   <span className="text-xs text-muted">{company.sector}</span>
                 </div>
-                {company.price_date && (
+                {display.asOf && (
                   <p className="mt-1.5 text-[10px] text-hint">
-                    Price as of <span className="font-semibold text-muted">{fmtLabel(company.price_date)}</span>
+                    Price as of <span className="font-semibold text-muted">{fmtLabel(display.asOf)}</span>
                   </p>
                 )}
               </div>
@@ -1382,10 +1340,10 @@ export const CompanyDeepDive: FC = () => {
 
             <div className="flex items-start gap-5">
               <div className="text-right">
-                {company.current_price !== null ? (
+                {display.price !== null ? (
                   <>
                     <p className="font-mono text-4xl font-black tracking-tight text-ink">
-                      KES {company.current_price.toFixed(2)}
+                      KES {display.price.toFixed(2)}
                     </p>
                     {change !== null && (
                       <div
@@ -1396,12 +1354,12 @@ export const CompanyDeepDive: FC = () => {
                         }`}
                       >
                         {change >= 0 ? "▲" : "▼"}{" "}
-                        {change >= 0 ? "+" : ""}{change.toFixed(2)}% on {company.price_date ? fmtDay(company.price_date) : "prev close"}
+                        {change >= 0 ? "+" : ""}{change.toFixed(2)}% on {display.asOf ? fmtDay(display.asOf) : "prev close"}
                       </div>
                     )}
-                    {company.price_date && (
+                    {display.asOf && (
                       <p className="mt-1 text-right text-[10px] text-hint">
-                        Closing price · {fmtLabel(company.price_date)}
+                        Closing price · {fmtLabel(display.asOf)}
                       </p>
                     )}
                   </>
@@ -1448,6 +1406,7 @@ export const CompanyDeepDive: FC = () => {
                 setTo={setTo}
                 visible={visible}
                 rtdbData={rtdbVisible}
+                fullHistory={history}
                 announcements={financials?.announcements ?? []}
                 intradayDate={company.intraday_date}
                 intradayDay={intradayDay}
@@ -1479,7 +1438,7 @@ export const CompanyDeepDive: FC = () => {
             <RadarScoreCard
               company={company}
               financials={financials}
-              currentPrice={bannerCurrent}
+              currentPrice={display.price}
             />
 
             {/* Valuation, financials, filings, news, AI signal */}
@@ -1517,25 +1476,29 @@ export const CompanyDeepDive: FC = () => {
                 data. */}
             <PriceRangeCard
               company={company}
-              latest={rtdbPrices.length > 0 ? rtdbPrices[rtdbPrices.length - 1] : null}
+              latest={rtdbLatest}
+              displayPrice={display.price}
             />
 
-            {/* Quote snapshot — mkt cap, P/E, P/B, EPS, dividend, etc. */}
+            {/* Quote snapshot — mkt cap, P/E, P/B, EPS, dividend, etc.
+                Receives the resolved price so it renders even when Firestore
+                current_price is null but RTDB has a bar. */}
             <QuoteSummaryPanel
               company={company}
               technicals={technicals}
               financials={financials ?? null}
               snapshot={snapshot ?? null}
+              displayPrice={display.price}
             />
 
             {/* Today's OHLCV from RTDB (only when we have live intraday). The
                 `compact` variant renders as a vertical label→value list so the
                 columns don't get crushed inside the 360px sidebar the way the
                 8-column grid did. */}
-            {rtdbPrices.length > 0 && (
+            {rtdbLatest && (
               <MarketQuotePanel
-                latest={rtdbPrices[rtdbPrices.length - 1]}
-                currentPrice={company.current_price}
+                latest={rtdbLatest}
+                currentPrice={display.price}
                 compact
               />
             )}
@@ -1544,7 +1507,7 @@ export const CompanyDeepDive: FC = () => {
             <StatsStrip
               data={visible.length > 0 ? visible : history}
               range={range}
-              currentPrice={company.current_price}
+              currentPrice={display.price}
               technicals={technicals}
             />
 
@@ -1552,7 +1515,7 @@ export const CompanyDeepDive: FC = () => {
             <AIInsightsPanel
               technicals={technicals}
               snapshot={snapshot}
-              currentPrice={company.current_price}
+              currentPrice={display.price}
             />
 
             {/*
@@ -1565,12 +1528,12 @@ export const CompanyDeepDive: FC = () => {
               <AnalystGaugeCard snapshot={snapshot} />
               <ModelTargetCard
                 snapshot={snapshot}
-                currentPrice={company.current_price}
+                currentPrice={display.price}
               />
               <EarningsForecastCard fundamentals={fundamentals} />
               <FinancialsValuationCard
                 financials={financials}
-                currentPrice={company.current_price}
+                currentPrice={display.price}
               />
             </div>
           </aside>

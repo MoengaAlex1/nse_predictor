@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useRecentTickers } from "../hooks/useRecentTickers";
 import { useCompany, useLatestTechnicals, useLatestSnapshot, useFundamentals, useFinancials as useFinancialsDoc } from "../hooks/useCompany";
-import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
+import { usePrices } from "../hooks/usePrices";
+import { resolveDisplayPrice } from "../lib/format";
 import { PriceHeader } from "../components/investor/PriceHeader";
 import { PriceAreaChart } from "../components/investor/PriceAreaChart";
 import { QuickCompareRow } from "../components/investor/QuickCompareRow";
@@ -38,7 +39,6 @@ import {
   todayIso,
   type TimeframeKey,
 } from "../lib/timeframe";
-import type { PricePoint } from "../types";
 
 export const InvestorDashboard = () => {
   const { ticker: rawTicker = "" } = useParams<{ ticker: string }>();
@@ -62,33 +62,21 @@ export const InvestorDashboard = () => {
   const { data: snapshot } = useLatestSnapshot(cleaned);
   const { data: fundamentals } = useFundamentals(cleaned);
   const { data: financials } = useFinancialsDoc(cleaned);
-  const { data: rtdbPrices = [] } = useHistoricalPrices(cleaned, FETCH_START, todayIso());
-
-  const history: PricePoint[] = useMemo(
-    () =>
-      rtdbPrices
-        // `p.c > 0` is deliberate: RTDB has legacy rows with c=0 from
-        // pre-cleaner fills. Rendering them would draw vertical spikes
-        // down to the x-axis (as seen on SMER, KQ, etc.) even though the
-        // stock never actually traded at zero. Null-only filter isn't
-        // enough — Firebase RTDB coerces None -> null on read but 0 is
-        // preserved as-is.
-        .filter((p) => p.c != null && (p.c as number) > 0)
-        .map((p) => ({ date: p.date, price: p.c as number })),
-    [rtdbPrices],
-  );
+  // Single-channel: usePrices applies the OCR decimal-scale guard and
+  // returns guarded rows + chart points + a guarded `latest` bar. The
+  // display resolver then turns (company, latest) into one canonical
+  // price/change pair every downstream tile reads from.
+  const { points: history, latest: latestRow } = usePrices(cleaned, FETCH_START, todayIso());
 
   const visible = useMemo(() => filterByTimeframe(history, timeframe), [history, timeframe]);
 
-  const latestRow = rtdbPrices.length > 0 ? rtdbPrices[rtdbPrices.length - 1] : null;
-  const previousClose = latestRow?.pc ?? null;
+  const display = resolveDisplayPrice(company, latestRow);
+  const previousClose = display.previousClose;
   const dayLow = latestRow?.l ?? null;
   const dayHigh = latestRow?.h ?? null;
-
-  const currentPrice = company?.current_price ?? latestRow?.c ?? null;
-  const changePct = company?.change_pct_today ?? latestRow?.pch ?? null;
-  const changeAbs =
-    currentPrice != null && previousClose != null ? currentPrice - previousClose : null;
+  const currentPrice = display.price;
+  const changePct = display.changePct;
+  const changeAbs = display.changeAbs;
 
   return (
     <div className="mx-auto max-w-[1600px] px-3 py-4 sm:px-6 lg:px-8">
@@ -106,7 +94,7 @@ export const InvestorDashboard = () => {
             currentPrice={currentPrice}
             changeAbs={changeAbs}
             changePct={changePct}
-            priceAsOf={company?.price_date ?? latestRow?.date ?? null}
+            priceAsOf={display.asOf}
           />
 
           <div className="overflow-hidden rounded-xl border border-rim bg-surface">

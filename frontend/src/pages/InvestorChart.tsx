@@ -3,7 +3,7 @@ import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useRecentTickers } from "../hooks/useRecentTickers";
 import { useCompany, useLatestTechnicals, useFinancials as useFinancialsDoc } from "../hooks/useCompany";
 import { useCompanies } from "../hooks/useCompanies";
-import { useHistoricalPrices } from "../hooks/useHistoricalPrices";
+import { usePrices } from "../hooks/usePrices";
 import { useCompareSeries } from "../hooks/useCompareSeries";
 import { useWatchlist } from "../hooks/useWatchlist";
 import { usePeers } from "../hooks/usePeers";
@@ -28,6 +28,7 @@ import {
   arrow,
   trendClass,
   EM_DASH,
+  resolveDisplayPrice,
 } from "../lib/format";
 import type { RtdbPricePoint } from "../hooks/useHistoricalPrices";
 
@@ -122,7 +123,10 @@ export const InvestorChart = () => {
   const { data: technicals } = useLatestTechnicals(cleaned);
   const { data: financials } = useFinancialsDoc(cleaned);
   const { data: allCompanies = [] } = useCompanies();
-  const { data: rtdbPrimary = [] } = useHistoricalPrices(cleaned, FETCH_START, todayIso());
+  // Single-channel: usePrices applies the OCR decimal-scale guard once so
+  // the header, chart, and any downstream compare-mode aggregation see the
+  // same series — no more chart-vs-header divergence.
+  const { rows: rtdbPrimary, latest: latestRow } = usePrices(cleaned, FETCH_START, todayIso());
   const compareResults = useCompareSeries(compareTickers, FETCH_START, todayIso());
   const peers = usePeers(ticker, company?.sector ?? null, 6);
 
@@ -131,12 +135,10 @@ export const InvestorChart = () => {
     [rtdbPrimary, timeframe],
   );
 
-  const latestRow = rtdbPrimary.length > 0 ? rtdbPrimary[rtdbPrimary.length - 1] : null;
-  const previousClose = latestRow?.pc ?? null;
-  const currentPrice = company?.current_price ?? latestRow?.c ?? null;
-  const changePct = company?.change_pct_today ?? latestRow?.pch ?? null;
-  const changeAbs =
-    currentPrice != null && previousClose != null ? currentPrice - previousClose : null;
+  const display = resolveDisplayPrice(company, latestRow);
+  const currentPrice = display.price;
+  const changePct = display.changePct;
+  const changeAbs = display.changeAbs;
   const up = changePct != null && changePct >= 0;
   const trendColor = trendClass(changePct);
 
@@ -314,9 +316,9 @@ export const InvestorChart = () => {
                   <span className="ml-1 text-[10px] uppercase tracking-wider text-hint">
                     24H change
                   </span>
-                  {(company?.price_date ?? latestRow?.date) && (
+                  {display.asOf && (
                     <span className="text-[10px] text-hint">
-                      · {company?.price_date ?? latestRow?.date}
+                      · {display.asOf}
                     </span>
                   )}
                 </>

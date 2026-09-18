@@ -47,9 +47,16 @@ const MetricRow: FC<{ label: string; value: string; accent?: string }> = ({ labe
 export const MarketQuotePanel: FC<Props> = ({ latest, currentPrice, compact = false }) => {
   if (!latest) return null;
 
-  const close = latest.c ?? currentPrice ?? null;
-  const chg = latest.ch ?? (close != null && latest.pc != null ? close - latest.pc : null);
-  const chgPct = latest.pch ?? (chg != null && latest.pc && latest.pc > 0 ? (chg / latest.pc) * 100 : null);
+  // Prefer the parent-resolved `currentPrice` (from resolveDisplayPrice) so
+  // the OHLCV row matches the header's Close. Fall back to `latest.c` when
+  // no parent value was supplied. Change fields are recomputed from the
+  // resolved close vs. RTDB pc — same formula the resolver uses — so header
+  // change % and this panel's change % can never disagree.
+  const close = currentPrice ?? latest.c ?? null;
+  const chg = close != null && latest.pc != null ? close - latest.pc : (latest.ch ?? null);
+  const chgPct = close != null && latest.pc && latest.pc > 0
+    ? (chg! / latest.pc) * 100
+    : (latest.pch ?? null);
   const isUp = (chgPct ?? chg ?? 0) >= 0;
   const changeColor = isUp ? "text-emerald-500" : "text-red-500";
 

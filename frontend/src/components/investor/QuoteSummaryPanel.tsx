@@ -27,6 +27,11 @@ interface Props {
   technicals: TechnicalsDoc | null | undefined;
   financials: FinancialsDoc | null | undefined;
   snapshot: SnapshotDoc | null | undefined;
+  /** Resolved display price from the parent (usually resolveDisplayPrice(...).price).
+   *  If omitted we fall back to company.current_price so the panel still works
+   *  from a bare CompanyDoc, but callers should pass the resolved value so
+   *  this panel matches the rest of the page. */
+  displayPrice?: number | null;
 }
 
 const MetricChip: FC<{ label: string; value: string; accent?: string }> = ({
@@ -40,10 +45,10 @@ const MetricChip: FC<{ label: string; value: string; accent?: string }> = ({
   </div>
 );
 
-export const QuoteSummaryPanel: FC<Props> = ({ company, technicals, financials, snapshot }) => {
-  if (company.current_price === null) return null;
+export const QuoteSummaryPanel: FC<Props> = ({ company, technicals, financials, snapshot, displayPrice }) => {
+  const price = displayPrice ?? company.current_price;
+  if (price == null) return null;
 
-  const price = company.current_price;
   const profile = getCompanyProfile(company.ticker);
 
   // 52W high/low from last 365 days of price_history

@@ -3,6 +3,9 @@
 // align (via tabular-nums), decimal counts match, and empty states share
 // a consistent em-dash placeholder.
 
+import type { CompanyDoc } from "../types";
+import type { RtdbPricePoint } from "../hooks/useHistoricalPrices";
+
 const emDash = "—";
 
 const kesNf = new Intl.NumberFormat("en-KE", {
@@ -72,3 +75,82 @@ export const trendClass = (v: number | null | undefined, mutedWhenNull = "text-h
 };
 
 export const EM_DASH = emDash;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// resolveDisplayPrice — single canonical resolver for "what price should I
+// show for this ticker right now?" and its companion change fields. Every
+// header, banner, sidebar tile, and OHLCV panel should call this so a
+// single company never shows two different prices on the same page.
+//
+// Preference order (freshest source wins):
+//   1. RTDB `latest.c`         — updated by scrape_nse_pdf + nse_price_cleaner
+//   2. Firestore `current_price` — updated by push_intraday_prices + inference
+//   3. Firestore `last_known_price` — seed_last_vwap Excel fallback
+//
+// changePct/changeAbs preference:
+//   1. Compute from `(latest.c - latest.pc) / latest.pc` when both are present.
+//   2. Fall back to `latest.pch`.
+//   3. Fall back to Firestore `change_pct_today`.
+//
+// The resolver is a pure function — call it as many times as you like per
+// render. It's placed here (not in a hook) so parent components can pass
+// the resolved shape down to children without wrapping in another hook.
+// ─────────────────────────────────────────────────────────────────────────────
+export type DisplayPriceSource = "rtdb" | "firestore" | "last_known" | "none";
+
+export interface DisplayPrice {
+  price: number | null;
+  previousClose: number | null;
+  changePct: number | null;
+  changeAbs: number | null;
+  asOf: string | null;
+  source: DisplayPriceSource;
+  /** RTDB latest bar, if any — passthrough so downstream panels that need
+   *  o/h/l/v alongside can read them without a second lookup. */
+  latestBar: RtdbPricePoint | null;
+}
+
+export function resolveDisplayPrice(
+  company: CompanyDoc | null | undefined,
+  latest: RtdbPricePoint | null | undefined,
+): DisplayPrice {
+  const rtdbClose = latest?.c ?? null;
+  const rtdbPrev = latest?.pc ?? null;
+
+  let price: number | null = null;
+  let source: DisplayPriceSource = "none";
+  if (typeof rtdbClose === "number" && rtdbClose > 0) {
+    price = rtdbClose;
+    source = "rtdb";
+  } else if (company?.current_price != null) {
+    price = company.current_price;
+    source = "firestore";
+  } else if (company?.last_known_price != null) {
+    price = company.last_known_price;
+    source = "last_known";
+  }
+
+  let changeAbs: number | null = null;
+  let changePct: number | null = null;
+  if (price != null && typeof rtdbPrev === "number" && rtdbPrev > 0) {
+    changeAbs = price - rtdbPrev;
+    changePct = (changeAbs / rtdbPrev) * 100;
+  } else if (latest?.pch != null) {
+    changePct = latest.pch;
+    changeAbs = latest.ch ?? null;
+  } else if (company?.change_pct_today != null) {
+    changePct = company.change_pct_today;
+  }
+
+  const asOf = latest?.date ?? company?.price_date ?? null;
+
+  return {
+    price,
+    previousClose: rtdbPrev,
+    changePct,
+    changeAbs,
+    asOf,
+    source,
+    latestBar: latest ?? null,
+  };
+}
