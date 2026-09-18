@@ -134,6 +134,56 @@ def audit_decimal_shifts(prices: dict) -> dict[str, list[tuple[str, float, float
     return hits
 
 
+def audit_stagnation(prices: dict, min_run: int = FILL_RUN_LEN
+                     ) -> dict[str, list[tuple[str, str, int]]]:
+    """Return {ticker: [(start_date, end_date, run_length)]} for consecutive
+    trading days where (o, h, l, c) is IDENTICAL to the previous row's
+    tuple for `min_run` or more days.
+
+    This is the KPC 2026-09-03..09-17 pattern — 15 consecutive days of
+    exactly 9.0/9.02/9.0/9.0 with real varying volume. Perfectly identical
+    OHLC to 4 decimal places across 5+ trading days is either an extremely
+    thin market or (more commonly) a stuck scraper pulling a template row.
+    Either way it deserves a human eyeball.
+    """
+    hits: dict[str, list[tuple[str, str, int]]] = defaultdict(list)
+    for ticker, rows in prices.items():
+        if not isinstance(rows, dict):
+            continue
+        dates = sorted(rows.keys())
+        prev_tuple: tuple | None = None
+        run_start: str | None = None
+        run_len = 0
+        for d in dates:
+            node = rows.get(d) or {}
+            if not isinstance(node, dict):
+                prev_tuple = None
+                if run_len >= min_run and run_start is not None:
+                    hits[ticker].append((run_start, prev_d, run_len))
+                run_len = 0
+                continue
+            tup = tuple(node.get(k) for k in ("o", "h", "l", "c"))
+            if any(v is None for v in tup):
+                if run_len >= min_run and run_start is not None:
+                    hits[ticker].append((run_start, prev_d, run_len))
+                prev_tuple = None
+                run_len = 0
+                continue
+            if tup == prev_tuple:
+                run_len += 1
+            else:
+                if run_len >= min_run and run_start is not None:
+                    hits[ticker].append((run_start, prev_d, run_len))
+                run_start = d
+                run_len = 1
+            prev_tuple = tup
+            prev_d = d
+        # Handle a run that extends to the last date.
+        if run_len >= min_run and run_start is not None:
+            hits[ticker].append((run_start, prev_d, run_len))
+    return hits
+
+
 def audit_circuit(prices: dict) -> dict[str, list[tuple[str, float, float]]]:
     """{ticker: [(date, close, prev_close)]} where |Δ%| > CIRCUIT_PCT."""
     hits: dict[str, list[tuple[str, float, float]]] = defaultdict(list)
@@ -231,6 +281,31 @@ def main() -> None:
             for d, c, pc in rows[:3]:
                 pct = (c - pc) / pc * 100
                 log.info("     %s  close=%.4f  prev=%.4f  Δ=%+.1f%%", d, c, pc, pct)
+
+    # ── Section 4: Value stagnation (identical OHLC runs) ────────
+    # Flag KPC-style "9.0/9.02/9.0/9.0 every day for 15 days" patterns
+    # where the OHLC tuple hasn't varied across N consecutive dates.
+    stag = audit_stagnation(prices)
+    total_stag_runs = sum(len(v) for v in stag.values())
+    log.info("")
+    log.info("=" * 60)
+    log.info("Section 4 — Value-stagnation runs (≥%d identical OHLC days)", FILL_RUN_LEN)
+    log.info("=" * 60)
+    log.info("Tickers flagged:  %d", len(stag))
+    log.info("Total runs:       %d", total_stag_runs)
+    if stag:
+        top_stag = sorted(stag.items(), key=lambda kv: -max(r[2] for r in kv[1]))[: args.top]
+        for t, runs in top_stag:
+            log.info("  %-8s  %d run(s):", t, len(runs))
+            for start, end, n in sorted(runs, key=lambda r: -r[2])[:3]:
+                node = prices[t].get(end, {})
+                if isinstance(node, dict):
+                    o = node.get("o"); h = node.get("h")
+                    l = node.get("l"); c = node.get("c")
+                    log.info("     %s → %s  (%d days)  OHLC=%s/%s/%s/%s",
+                             start, end, n, o, h, l, c)
+                else:
+                    log.info("     %s → %s  (%d days)", start, end, n)
 
     # ── Purge if requested ─────────────────────────────────────────
     if args.purge_zeros:
