@@ -10,7 +10,7 @@ import { TradingChart } from "../components/charts/TradingChart";
 import { TechnicalChart } from "../components/charts/TechnicalChart";
 import { PredictionChart } from "../components/charts/PredictionChart";
 import { PriceExplainer } from "../components/company/PriceExplainer";
-import { useCompany, useLatestSnapshot, useLatestTechnicals, useCorporateEvents, useFinancials, useMacro, useIntradayDay, useFundamentals, useNews } from "../hooks/useCompany";
+import { useCompany, useLatestSnapshot, useRecentSnapshots, useLatestTechnicals, useCorporateEvents, useFinancials, useMacro, useIntradayDay, useFundamentals, useNews } from "../hooks/useCompany";
 import { usePrices } from "../hooks/usePrices";
 import { resolveDisplayPrice } from "../lib/format";
 import type { PricePoint, IntradayPoint, SnapshotDoc, TechnicalsDoc, CompanyDoc, CorporateEvent, FinancialsDoc, NSEAnnouncement } from "../types";
@@ -26,6 +26,8 @@ import { FinancialsValuationCard } from "../components/investor/FinancialsValuat
 import { PriceRangeCard } from "../components/investor/PriceRangeCard";
 import { PriceMoveBanner } from "../components/investor/PriceMoveBanner";
 import { RadarScoreCard } from "../components/investor/RadarScoreCard";
+import { ModelAccuracyCard } from "../components/investor/ModelAccuracyCard";
+import { SignalBacktestChart } from "../components/investor/SignalBacktestChart";
 import { FinancialsPanel } from "../components/FinancialsPanel";
 import { FinancialNarrativeCard } from "../components/FinancialNarrativeCard";
 import { DeepAnalysisPanel } from "../components/DeepAnalysisPanel";
@@ -1047,6 +1049,29 @@ const TechnicalsCard: FC<{ technicals: TechnicalsDoc }> = ({ technicals }) => {
         )}
         {technicals.bb_upper !== null && <MetricChip label="BB Upper" value={`KES ${fmt(technicals.bb_upper)}`} />}
         {technicals.bb_lower !== null && <MetricChip label="BB Lower" value={`KES ${fmt(technicals.bb_lower)}`} />}
+        {/* Expanded indicators (pipeline 2026-09-19). Each chip renders only
+            when the field is populated so older Firestore docs keep working. */}
+        {technicals.atr_14 != null && (
+          <MetricChip label="ATR 14" value={`KES ${fmt(technicals.atr_14)}`} />
+        )}
+        {technicals.adx_14 != null && (
+          <MetricChip label="ADX 14" value={fmt(technicals.adx_14)}
+            accent={technicals.adx_14 >= 25 ? "text-emerald-500" : technicals.adx_14 < 20 ? "text-hint" : undefined} />
+        )}
+        {technicals.stoch_k != null && (
+          <MetricChip label="Stoch %K" value={fmt(technicals.stoch_k)}
+            accent={technicals.stoch_k > 80 ? "text-red-500" : technicals.stoch_k < 20 ? "text-emerald-500" : undefined} />
+        )}
+        {technicals.stoch_d != null && (
+          <MetricChip label="Stoch %D" value={fmt(technicals.stoch_d)} />
+        )}
+        {technicals.vwap_14 != null && (
+          <MetricChip label="VWAP 14" value={`KES ${fmt(technicals.vwap_14)}`} />
+        )}
+        {technicals.cci_20 != null && (
+          <MetricChip label="CCI 20" value={fmt(technicals.cci_20)}
+            accent={technicals.cci_20 > 100 ? "text-red-500" : technicals.cci_20 < -100 ? "text-emerald-500" : undefined} />
+        )}
       </div>
 
       {maRows.length > 0 && (
@@ -1201,6 +1226,7 @@ export const CompanyDeepDive: FC = () => {
   const { ticker = "" } = useParams<{ ticker: string }>();
   const { data: company, isLoading, isError } = useCompany(ticker);
   const { data: snapshot, isLoading: snapLoading } = useLatestSnapshot(ticker);
+  const { data: recentSnapshots } = useRecentSnapshots(ticker, 60);
   const { data: technicals, isLoading: techLoading } = useLatestTechnicals(ticker);
   const { data: events = [] } = useCorporateEvents(ticker);
   const { data: financials } = useFinancials(ticker);
@@ -1495,6 +1521,17 @@ export const CompanyDeepDive: FC = () => {
               techLoading={techLoading}
               livePrice={display.price}
             />
+
+            {/* Rolling accuracy of the model's past calls on this ticker.
+                Renders next to the signal card so a user weighing today's
+                BUY/SELL/HOLD can see how the model has done on this specific
+                security historically — trust calibration in one glance. */}
+            <ModelAccuracyCard snapshots={recentSnapshots} history={history} />
+
+            {/* Signal backtest — same data as the accuracy card but visual:
+                each past call as a dot on the price line, so users can see
+                whether the model bought near dips or tops. */}
+            <SignalBacktestChart snapshots={recentSnapshots} history={history} />
           </div>
 
           {/* ── Sidebar (right) ─────────────────────────────────────────

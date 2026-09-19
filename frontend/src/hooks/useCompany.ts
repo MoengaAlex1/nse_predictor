@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchCompany, fetchLatestSnapshot, fetchLatestTechnicals, fetchCorporateEvents, fetchFinancials, fetchMacro, fetchIntradayDay, fetchFundamentals, fetchNews } from "../lib/firestore";
+import { fetchCompany, fetchLatestSnapshot, fetchRecentSnapshots, fetchLatestTechnicals, fetchCorporateEvents, fetchFinancials, fetchMacro, fetchIntradayDay, fetchFundamentals, fetchNews } from "../lib/firestore";
 import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, CorporateEvent, FinancialsDoc, MacroDoc, IntradayPoint, FundamentalsDoc, NewsItem } from "../types";
 
 export function useCompany(safeTicker: string) {
@@ -15,6 +15,18 @@ export function useLatestSnapshot(safeTicker: string, enabled = true) {
     queryKey: ["snapshot", safeTicker],
     queryFn: () => fetchLatestSnapshot(safeTicker),
     enabled: !!safeTicker && enabled,
+  });
+}
+
+/** Last N snapshots for a ticker (newest first). Powers the rolling-accuracy
+ *  panel on CompanyDeepDive. Cached longer than the live snapshot because
+ *  historical calls don't change once written. */
+export function useRecentSnapshots(safeTicker: string, n: number = 60) {
+  return useQuery<SnapshotDoc[]>({
+    queryKey: ["snapshots", safeTicker, n],
+    queryFn: () => fetchRecentSnapshots(safeTicker, n),
+    enabled: !!safeTicker,
+    staleTime: 30 * 60 * 1000,
   });
 }
 

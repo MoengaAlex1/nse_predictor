@@ -340,10 +340,24 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         current_price = float(cleaned_df["Close"].iloc[-1])
         var_pct       = var_res["historical_var_pct"]
         technicals = build_technicals_result(cleaned_df, TODAY)
+
+        # Recent announcements enrich the signal_reasons list — fetched
+        # best-effort, missing/failed fetch just yields an empty list.
+        recent_announcements: list[dict] = []
+        try:
+            fin_doc = db.collection("financials").document(company["short"]).get()
+            if fin_doc.exists:
+                data = fin_doc.to_dict() or {}
+                recent_announcements = data.get("announcements") or []
+        except Exception as _e:
+            log.warning("%s: financials fetch for signal context failed: %s",
+                        company["short"], _e)
+
         signal_result = generate_signal(
             current_price, predicted_next, var_pct,
             lstm_next=lstm_next, xgb_next=xgb_next, arima_next=arima_next,
             technicals=technicals,
+            announcements=recent_announcements,
         )
 
         # ── 8. Build Firestore payloads ───────────────────────────────────────

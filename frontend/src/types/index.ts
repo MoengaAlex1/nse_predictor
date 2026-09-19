@@ -100,6 +100,15 @@ export interface TechnicalsDoc {
   sma_200: number | null;
   ema_12: number | null;
   ema_26: number | null;
+  // Expanded indicator set (pipeline commit 2026-09-19). Nullable because
+  // older Firestore docs written before that pipeline run don't carry them.
+  atr_14?: number | null;
+  adx_14?: number | null;
+  stoch_k?: number | null;
+  stoch_d?: number | null;
+  vwap_14?: number | null;
+  cci_20?: number | null;
+  obv?: number | null;
   volume: number;
   avg_volume_30d: number;
   daily_return: number | null;

@@ -159,6 +159,23 @@ export async function fetchLatestSnapshot(safeTicker: string): Promise<SnapshotD
   return { run_date: d.id, ...(d.data() as Omit<SnapshotDoc, "run_date">) };
 }
 
+/** Fetch the last N snapshots for a ticker, newest first. Powers the
+ *  rolling-accuracy panel — each snapshot carries the model's prediction
+ *  for `next_trading_day`, which the frontend compares against the
+ *  actual RTDB close on that day. */
+export async function fetchRecentSnapshots(
+  safeTicker: string,
+  n: number = 60,
+): Promise<SnapshotDoc[]> {
+  const ref = collection(db, "companies", safeTicker, "snapshots");
+  const q = query(ref, orderBy("run_date", "desc"), limit(n));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({
+    run_date: d.id,
+    ...(d.data() as Omit<SnapshotDoc, "run_date">),
+  }));
+}
+
 export async function fetchLatestTechnicals(safeTicker: string): Promise<TechnicalsDoc | null> {
   const ref = collection(db, "companies", safeTicker, "technicals");
   // date is embedded by build_technicals_result — see pipeline/src/analysis/technicals.py.

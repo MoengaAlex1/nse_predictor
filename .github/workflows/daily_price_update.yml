@@ -31,14 +31,39 @@ jobs:
       - name: Install dependencies
         run: pip install -r pipeline/requirements.txt
 
+      # Persist trained models across runs via GitHub Actions cache instead
+      # of Firebase Storage (billing on the underlying GCP project is
+      # closed and we're staying zero-cost). The cache path is where
+      # run_inference.py drops artifacts (see MODELS_TMP in that script).
+      # Cache key is date-bucketed weekly so models get refreshed once a
+      # week even without an explicit retrain workflow.
+      - name: Restore model cache
+        id: model-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/nse_models
+          key: nse-models-v1-${{ github.run_id }}
+          restore-keys: |
+            nse-models-v1-
+
       - name: Run daily inference & push to Firestore
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL: ${{ secrets.FIREBASE_RTDB_URL }}
           FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
           TARGET_TICKERS: ${{ github.event.inputs.tickers }}
         run: |
           cd $GITHUB_WORKSPACE
           python pipeline/scripts/run_inference.py
+
+      # Save the updated models back to cache so the next run starts warm.
+      # Skip on failure so a broken run doesn't overwrite good artifacts.
+      - name: Save model cache
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/nse_models
+          key: nse-models-v1-${{ github.run_id }}
 
       - name: Notify on failure
         if: failure()

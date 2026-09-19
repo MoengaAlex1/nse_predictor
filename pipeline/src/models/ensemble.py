@@ -28,6 +28,7 @@ def generate_signal(
     xgb_next: float | None = None,
     arima_next: float | None = None,
     technicals: dict | None = None,
+    announcements: list[dict] | None = None,
 ) -> dict:
     from config import NSE_DAILY_BAND_PCT
 
@@ -197,6 +198,82 @@ def generate_signal(
             reasons.append(
                 f"Price is near the upper Bollinger Band (KES {bb_upper:.2f}) "
                 f"— historically a mean-reversion sell zone"
+            )
+
+    # ── Expanded indicator evidence (2026-09-19) ───────────────────────────
+    # Only include lines that actually MATCH the direction we're signalling
+    # so the reasons list stays focused on supporting evidence rather than
+    # dumping every field.
+    adx     = t.get("adx_14")
+    stoch_k = t.get("stoch_k")
+    vwap    = t.get("vwap_14")
+    cci     = t.get("cci_20")
+
+    if adx is not None:
+        if adx >= 25 and signal != "HOLD":
+            reasons.append(
+                f"ADX at {adx:.0f} indicates a strong trend — the {signal} signal "
+                f"is unfolding in a trending market (>25 threshold)"
+            )
+        elif adx < 20 and signal == "HOLD":
+            reasons.append(
+                f"ADX at {adx:.0f} confirms a ranging (non-trending) market — "
+                f"consistent with the HOLD signal; wait for a breakout"
+            )
+
+    if stoch_k is not None:
+        if signal == "BUY" and stoch_k < 20:
+            reasons.append(
+                f"Stochastic %K at {stoch_k:.0f} is oversold (<20) — reinforces buy timing"
+            )
+        elif signal == "SELL" and stoch_k > 80:
+            reasons.append(
+                f"Stochastic %K at {stoch_k:.0f} is overbought (>80) — reinforces sell timing"
+            )
+
+    if vwap is not None and vwap > 0:
+        vwap_delta = (current_price - vwap) / vwap * 100
+        if signal == "BUY" and vwap_delta < -1:
+            reasons.append(
+                f"Price (KES {current_price:.2f}) is {abs(vwap_delta):.1f}% below "
+                f"14-day VWAP (KES {vwap:.2f}) — trading at a volume-weighted discount"
+            )
+        elif signal == "SELL" and vwap_delta > 1:
+            reasons.append(
+                f"Price (KES {current_price:.2f}) is {vwap_delta:.1f}% above "
+                f"14-day VWAP (KES {vwap:.2f}) — trading at a volume-weighted premium"
+            )
+
+    if cci is not None:
+        if signal == "BUY" and cci < -100:
+            reasons.append(
+                f"CCI at {cci:.0f} is oversold (<-100) — mean-reversion setup supports the BUY"
+            )
+        elif signal == "SELL" and cci > 100:
+            reasons.append(
+                f"CCI at {cci:.0f} is overbought (>+100) — mean-reversion setup supports the SELL"
+            )
+
+    # ── Announcement / filings context ──────────────────────────────────────
+    # Count filings in the last 30 days by kind; surface any concentration
+    # that could plausibly influence the near-term price. This is descriptive
+    # only — we don't try to score sentiment.
+    if announcements:
+        from datetime import date as _date, timedelta as _td
+        cutoff = (_date.today() - _td(days=30)).isoformat()
+        recent = [a for a in announcements
+                  if isinstance(a, dict) and str(a.get("date", "")) >= cutoff]
+        by_kind: dict[str, int] = {}
+        for a in recent:
+            k = str(a.get("type") or a.get("category") or "other").lower()
+            by_kind[k] = by_kind.get(k, 0) + 1
+        top = [(k, n) for k, n in by_kind.items() if n >= 2]
+        if len(recent) >= 3:
+            summary = ", ".join(f"{n} {k}" for k, n in sorted(top, key=lambda kv: -kv[1])[:3])
+            reasons.append(
+                f"{len(recent)} filings in the last 30 days"
+                + (f" ({summary})" if summary else "")
+                + " — elevated corporate-action context; check the Filings tab"
             )
 
     if risk_signal == "HOLD" and signal != "HOLD":
