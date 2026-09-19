@@ -15,7 +15,26 @@ except ImportError:
     log.warning("'ta' library not installed. Run: pip install ta")
 
 
-def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
+def build_feature_matrix(
+    df: pd.DataFrame,
+    intraday_features_today: dict | None = None,
+) -> pd.DataFrame:
+    """Compute the feature matrix used by every model (LSTM/XGB/ARIMA).
+
+    Parameters
+    ----------
+    df:
+        Daily OHLCV frame indexed by date. Same as before.
+    intraday_features_today:
+        Optional dict of intraday-derived features for the LATEST row
+        (see src.features.intraday_engineer.compute_intraday_features).
+        When supplied, its keys become columns and the value is stamped
+        on the last row only; historical rows get the NEUTRAL_INTRADAY
+        placeholder so RFE and the pct_change chain stay happy. When
+        None (weekends / fresh tickers / off-hours), the intraday
+        columns are still added but every row gets the neutral value —
+        keeping the column shape stable across every training call.
+    """
     df = df.copy()
     close = df["Close"]
     high  = df["High"]
@@ -79,6 +98,21 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
 
     # NSE 10% daily band proximity flag
     df["near_band_limit"] = (df["daily_return"].abs() >= 0.08).astype(int)
+
+    # ── Intraday overlay columns ────────────────────────────────────────────
+    # We ALWAYS add these columns (even when today has no intraday data),
+    # because the feature-column list is persisted per-ticker at train time
+    # and must match at inference time. Historical rows get neutral
+    # placeholders (see intraday_engineer.NEUTRAL_INTRADAY); the LATEST row
+    # gets today's actual values when provided.
+    from src.features.intraday_engineer import NEUTRAL_INTRADAY
+    for k, neutral in NEUTRAL_INTRADAY.items():
+        df[k] = neutral
+    if intraday_features_today and len(df) > 0:
+        last_idx = df.index[-1]
+        for k, neutral in NEUTRAL_INTRADAY.items():
+            v = intraday_features_today.get(k)
+            df.at[last_idx, k] = float(v) if v is not None else neutral
 
     # Replace any inf/-inf produced by division-by-zero (e.g. OC_ratio when Open=0)
     df = df.replace([np.inf, -np.inf], np.nan)

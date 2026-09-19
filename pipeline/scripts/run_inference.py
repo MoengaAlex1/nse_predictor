@@ -242,7 +242,30 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         ma_df      = compute_moving_averages(ret_df)
         var_res    = value_at_risk(cleaned_df, investment=DEFAULT_INVESTMENT,
                                    confidence=DEFAULT_CONFIDENCE)
-        feature_df = build_feature_matrix(ma_df)
+
+        # Intraday features are optional and fetched best-effort — they
+        # ONLY populate the latest row of feature_df; historical rows get
+        # neutral placeholders (see build_feature_matrix docstring).
+        intraday_features_for_matrix: dict | None = None
+        try:
+            _cdoc = db.collection("companies").document(company["short"]).get()
+            if _cdoc.exists:
+                _cdata = _cdoc.to_dict() or {}
+                if _cdata.get("intraday_date") == TODAY:
+                    from src.features.intraday_engineer import compute_intraday_features
+                    _pc = None
+                    try:
+                        _pc = float(cleaned_df["Close"].iloc[-2])
+                    except Exception:
+                        _pc = None
+                    intraday_features_for_matrix = compute_intraday_features(
+                        _cdata.get("intraday_today") or [],
+                        prev_close=_pc,
+                    )
+        except Exception as _e:
+            log.warning("%s: intraday fetch for feature matrix failed: %s", ticker, _e)
+
+        feature_df = build_feature_matrix(ma_df, intraday_features_today=intraday_features_for_matrix)
 
         # Use placeholder feature_cols; _load_or_train_models will override from saved JSON
         placeholder_cols = select_top_features(feature_df) if not _models_cached(safe) else []
@@ -256,7 +279,7 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         missing = [c for c in feature_cols if c not in feature_df.columns]
         if missing:
             log.warning("%s: %d feature cols missing from current data, rebuilding features", ticker, len(missing))
-            feature_df = build_feature_matrix(ma_df)
+            feature_df = build_feature_matrix(ma_df, intraday_features_today=intraday_features_for_matrix)
 
         # ── 3. Next-day predictions from each model ───────────────────────────
         # LSTM: true forward prediction on most recent SEQUENCE_LENGTH rows
@@ -341,8 +364,12 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         var_pct       = var_res["historical_var_pct"]
         technicals = build_technicals_result(cleaned_df, TODAY)
 
-        # Recent announcements enrich the signal_reasons list — fetched
-        # best-effort, missing/failed fetch just yields an empty list.
+        # Reuse the intraday features already fetched for the feature
+        # matrix (step 1) instead of a second Firestore round-trip. See
+        # the top-of-function block that populates intraday_features_for_matrix.
+        intraday_features = intraday_features_for_matrix
+
+        # Recent announcements enrich the signal_reasons list — best-effort.
         recent_announcements: list[dict] = []
         try:
             fin_doc = db.collection("financials").document(company["short"]).get()
@@ -358,6 +385,7 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
             lstm_next=lstm_next, xgb_next=xgb_next, arima_next=arima_next,
             technicals=technicals,
             announcements=recent_announcements,
+            intraday_features=intraday_features,
         )
 
         # ── 8. Build Firestore payloads ───────────────────────────────────────
@@ -376,6 +404,10 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
             "lstm_next":         round(lstm_next, 4),
             "xgb_next":          round(xgb_next, 4),
             "arima_next":        round(arima_next, 4),
+            # Persist the intraday overlay used to score this signal so the
+            # frontend can display it alongside the SnapshotCard rationale
+            # without re-fetching / re-computing.
+            "intraday_features": intraday_features,
         }
 
         # Canonical change_pct_today formula — shared with push_intraday_prices

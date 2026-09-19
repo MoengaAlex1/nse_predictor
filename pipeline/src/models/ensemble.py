@@ -29,6 +29,7 @@ def generate_signal(
     arima_next: float | None = None,
     technicals: dict | None = None,
     announcements: list[dict] | None = None,
+    intraday_features: dict | None = None,
 ) -> dict:
     from config import NSE_DAILY_BAND_PCT
 
@@ -253,6 +254,66 @@ def generate_signal(
             reasons.append(
                 f"CCI at {cci:.0f} is overbought (>+100) — mean-reversion setup supports the SELL"
             )
+
+    # ── Intraday alignment ─────────────────────────────────────────────────
+    # Intraday features are today-only (see push_intraday_prices.py). When
+    # they exist and point the same direction as the daily model, that's
+    # meaningful corroboration; when they contradict, we call it out so
+    # users know the daily signal might reverse before EOD.
+    if intraday_features:
+        drift = intraday_features.get("intra_opening_drift_pct")
+        last_hour = intraday_features.get("intra_last_hour_momentum_pct")
+        bias = intraday_features.get("intra_direction_bias")
+        vs_prev = intraday_features.get("intra_vs_prev_close_pct")
+        n_snaps = intraday_features.get("intra_snapshots") or 0
+
+        if n_snaps >= 3:
+            # Direction consistency: does the intraday tape confirm the
+            # signal or push against it?
+            def _same_dir(v):
+                if v is None: return None
+                if signal == "BUY"  and v > 0.1: return True
+                if signal == "SELL" and v < -0.1: return True
+                if signal in ("BUY", "SELL") and abs(v) <= 0.1: return None
+                if signal == "BUY"  and v < -0.1: return False
+                if signal == "SELL" and v > 0.1: return False
+                return None
+
+            confirm_bits: list[str] = []
+            contradict_bits: list[str] = []
+            for label, v in [("opening drift", drift), ("last-hour move", last_hour)]:
+                s = _same_dir(v)
+                if s is True and v is not None:
+                    confirm_bits.append(f"{label} {v:+.2f}%")
+                elif s is False and v is not None:
+                    contradict_bits.append(f"{label} {v:+.2f}%")
+
+            if confirm_bits:
+                reasons.append(
+                    f"Intraday tape confirms {signal}: "
+                    + "; ".join(confirm_bits)
+                    + f" (over {int(n_snaps)} snapshots today)"
+                )
+            elif contradict_bits and signal != "HOLD":
+                reasons.append(
+                    f"⚠ Intraday tape is pushing against the {signal}: "
+                    + "; ".join(contradict_bits)
+                    + " — the signal may reverse before close; consider waiting"
+                )
+
+            if bias is not None and abs(bias) >= 0.4:
+                bias_word = "buyers" if bias > 0 else "sellers"
+                reasons.append(
+                    f"Direction bias {bias:+.2f} — {bias_word} control "
+                    f"the intraday tape ({int(n_snaps)} snapshots)"
+                )
+
+            if vs_prev is not None and abs(vs_prev) >= 3.0 and signal == "HOLD":
+                reasons.append(
+                    f"Live price is {vs_prev:+.2f}% vs previous close but "
+                    f"the daily models still call HOLD — likely mean-reversion "
+                    f"before EOD"
+                )
 
     # ── Announcement / filings context ──────────────────────────────────────
     # Count filings in the last 30 days by kind; surface any concentration
