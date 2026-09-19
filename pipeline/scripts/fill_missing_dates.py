@@ -114,21 +114,41 @@ def fill_ticker(csv_path: Path, calendar: set[datetime.date], dry_run: bool) -> 
 
 
 def push_to_rtdb(root_ref, csv_path: Path) -> int:
-    """Re-push the full ticker CSV to RTDB after gap-filling via the single
-    write choke point. bulk_write_prices handles the _clean/NaN coercion
-    and applies the decimal-scale guard."""
+    """Re-push the full ticker CSV to RTDB via the single write choke point.
+
+    Unlike the pre-2026-09-19 version, stale rows are NOT dropped — they're
+    pushed with an explicit `filled: true` flag so the frontend can render
+    'every trading day has a value' while still visually marking the
+    synthetic rows so users know they weren't real trades.
+
+    A row is treated as a forward-fill when either:
+      * `Is_Stale == 1` in the CSV — the cleaner tagged it as no-real-trade
+        (either the scraper produced 0-volume/duplicate values, or
+        fill_missing_dates itself added it and the cleaner re-flagged it), or
+      * volume == 0 AND open == close == high == low — the classic
+        forward-fill shape regardless of the stale flag.
+    """
     from pipeline.scripts.firebase_rtdb import bulk_write_prices
 
     ticker = csv_path.stem.replace("_cleaned", "")
     df = pd.read_csv(csv_path, parse_dates=["Date"])
+    # No longer filtering `Is_Stale == 1` — those rows carry the forward-fill
+    # info we want to preserve. Dedup instead: prefer the real-volume row
+    # (`Is_Stale=0`) when the same date has both.
     if "Is_Stale" in df.columns:
-        df = df[df["Is_Stale"] == 0]
+        df["_stale_sort"] = df["Is_Stale"].fillna(0).astype(int)
+        df = df.sort_values(["Date", "_stale_sort"], ascending=[True, True])
+        df = df.drop_duplicates(subset=["Date"], keep="first").drop(columns=["_stale_sort"])
     df = df.sort_values("Date").reset_index(drop=True)
 
     records: dict[str, dict] = {}
     for i, row in df.iterrows():
         date_str = row["Date"].strftime("%Y-%m-%d")
         close = float(row["Close"]) if pd.notna(row.get("Close")) else None
+        open_ = float(row["Open"]) if pd.notna(row.get("Open")) else None
+        high  = float(row["High"]) if pd.notna(row.get("High")) else None
+        low   = float(row["Low"])  if pd.notna(row.get("Low"))  else None
+        vol   = float(row["Volume"]) if pd.notna(row.get("Volume")) else None
         prev_close = (
             float(df.iloc[i - 1]["Close"])
             if i > 0 and pd.notna(df.iloc[i - 1]["Close"])
@@ -144,16 +164,17 @@ def push_to_rtdb(root_ref, csv_path: Path) -> int:
             if ch is not None and prev_close
             else None
         )
+        is_stale = bool(row.get("Is_Stale")) if "Is_Stale" in row else False
+        is_flat = (
+            vol == 0 and close is not None and open_ is not None
+            and high is not None and low is not None
+            and close == open_ == high == low
+        )
+        filled = is_stale or is_flat
         records[date_str] = {
-            "o": row.get("Open"),
-            "h": row.get("High"),
-            "l": row.get("Low"),
-            "c": close,
-            "v": row.get("Volume"),
-            "pc": prev_close,
-            "ch": ch,
-            "pch": pch,
-            "vv": None,
+            "o": open_, "h": high, "l": low, "c": close, "v": vol,
+            "pc": prev_close, "ch": ch, "pch": pch, "vv": None,
+            "filled": filled,
         }
     return bulk_write_prices(root_ref, ticker, records)
 

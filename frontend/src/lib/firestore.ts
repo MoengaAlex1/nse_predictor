@@ -24,6 +24,10 @@ interface PricesLatestNode {
   pch: number | null;
   ch: number | null;
   v: number | null;
+  /** True when the row is a forward-fill from fill_missing_dates.py, not a
+   *  real trading day. UI should render the ticker's tile with a "carried
+   *  forward" indicator so users know the value isn't a fresh close. */
+  filled?: boolean;
 }
 
 /**
@@ -96,6 +100,7 @@ export async function fetchAllCompanies(): Promise<CompanyDoc[]> {
       change_pct_today: latest.pch ?? base.change_pct_today,
       price_date: latest.date,
       volume_today: latest.v ?? null,
+      price_is_filled: latest.filled === true,
     };
   });
 }

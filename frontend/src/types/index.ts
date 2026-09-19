@@ -55,6 +55,12 @@ export interface CompanyDoc {
   // (common on ETFs and thinly-traded small caps). Null means the mirror
   // didn't carry a volume field — treat as unknown, not zero.
   volume_today?: number | null;
+
+  // True when `current_price` came from a forward-filled RTDB row
+  // (fill_missing_dates.py wrote it to satisfy the every-trading-day
+  // completeness rule). Tiles/charts should render a "carried forward"
+  // indicator so users don't mistake a synthetic value for a fresh close.
+  price_is_filled?: boolean;
 }
 
 export interface SnapshotDoc {

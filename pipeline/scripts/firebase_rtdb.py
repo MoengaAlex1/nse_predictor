@@ -62,6 +62,10 @@ def _build_node(fields: dict) -> dict:
     zero we've traced back was either a fill-forward bug or a missing scrape,
     never an actual trade. Non-price fields keep their zeros (v=0 means "no
     trades today", ch=0 means "flat close" — both are valid data points).
+
+    When the caller supplies `filled=True`, the flag is passed through to the
+    RTDB node so consumers (chart, mirror, technicals) can distinguish
+    synthetic forward-fill rows from real 0-volume trading days.
     """
     out: dict = {}
     for k in _FIELDS:
@@ -76,6 +80,12 @@ def _build_node(fields: dict) -> dict:
             )
             val = None
         out[k] = val
+    # Optional 'filled' flag — True when the row was inserted by
+    # fill_missing_dates.py to satisfy the every-trading-day completeness
+    # rule. Never persist False; omitting the key keeps real trading rows
+    # small and lets consumers treat 'filled === true' as the only truthy case.
+    if fields.get("filled") is True:
+        out["filled"] = True
     return out
 
 

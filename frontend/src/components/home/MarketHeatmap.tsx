@@ -97,7 +97,13 @@ function tileCaption(c: {
   change_pct_today: number | null | undefined;
   volume_today?: number | null;
   price_date: string | null | undefined;
-}): { text: string; tone: "muted" | "warn" | "stale" } {
+  price_is_filled?: boolean;
+}): { text: string; tone: "muted" | "warn" | "stale" | "filled" } {
+  // Forward-fill wins over every other caption: the value is by definition
+  // not a real trade, so users should see that even if it's from "today".
+  if (c.price_is_filled) {
+    return { text: "Carried forward", tone: "filled" };
+  }
   const age = ageInDays(c.price_date);
   if (age > 5) {
     // Data older than a trading week — surface the age instead of volume.
@@ -198,6 +204,7 @@ export const MarketHeatmap: FC<Props> = ({ market, companies }) => {
           const caption = tileCaption(c);
           const captionClass =
             caption.tone === "stale" ? "text-amber-400"
+            : caption.tone === "filled" ? "text-sky-400 italic"
             : caption.tone === "warn" ? "text-hint italic"
             : "text-sub";
           const tooltipParts = [
