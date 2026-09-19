@@ -90,6 +90,22 @@ export interface SnapshotDoc {
   confidence_score?: number;
   model_agreement?: number;
   model_breakdown?: Record<string, { price: number; signal: string; pct: number }>;
+
+  // Persisted intraday overlay features that scored this signal. Written
+  // by run_inference.py from src/features/intraday_engineer.py. Every
+  // field is nullable — when the intraday tape had fewer than 2
+  // snapshots (weekends, fresh listings), the whole object is null too.
+  // See intraday_engineer.NEUTRAL_INTRADAY for field semantics.
+  intraday_features?: {
+    intra_snapshots: number | null;
+    intra_opening_drift_pct: number | null;
+    intra_vs_prev_close_pct: number | null;
+    intra_range_pct: number | null;
+    intra_position_in_range: number | null;
+    intra_last_hour_momentum_pct: number | null;
+    intra_last_30m_momentum_pct: number | null;
+    intra_direction_bias: number | null;
+  } | null;
 }
 
 export interface TechnicalsDoc {
