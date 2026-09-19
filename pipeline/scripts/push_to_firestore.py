@@ -78,10 +78,32 @@ def write_market_overview(db, date_str: str, data: dict) -> None:
        .set(data))
 
 
-def upload_model_to_storage(local_path: str, storage_path: str) -> None:
-    bucket = fb_storage.bucket()
-    blob = bucket.blob(storage_path)
-    blob.upload_from_filename(local_path)
+def upload_model_to_storage(local_path: str, storage_path: str) -> bool:
+    """Push a file to Firebase Storage. Returns True on success, False when
+    Storage is unreachable (403 billing-disabled, network flake). Callers
+    should treat False as 'the upload didn't happen but pipeline can
+    continue' — the same defensive posture download_model_from_storage
+    takes. Without this, one 403 on a 60-ticker loop kills the whole run.
+    """
+    from google.api_core import exceptions as gexc
+    try:
+        bucket = fb_storage.bucket()
+        blob = bucket.blob(storage_path)
+        blob.upload_from_filename(local_path)
+        return True
+    except gexc.Forbidden as e:
+        import logging
+        logging.getLogger(__name__).error(
+            "Storage 403 on upload of %s — skipping upload. Reason: %s",
+            storage_path, e,
+        )
+        return False
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(
+            "Storage upload of %s failed (unexpected): %s", storage_path, e,
+        )
+        return False
 
 
 def download_model_from_storage(storage_path: str, local_path: str) -> bool:
