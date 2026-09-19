@@ -35,16 +35,19 @@ jobs:
       # of Firebase Storage (billing on the underlying GCP project is
       # closed and we're staying zero-cost). The cache path is where
       # run_inference.py drops artifacts (see MODELS_TMP in that script).
-      # Cache key is date-bucketed weekly so models get refreshed once a
-      # week even without an explicit retrain workflow.
+      #
+      # Key version bumped 2026-09-19 from v1 → v2 to force a fresh retrain
+      # so the models learn the new intra_* feature columns added in
+      # commit 28f1eb3. Bump again whenever build_feature_matrix's shape
+      # changes — otherwise old models get restored and ignore new features.
       - name: Restore model cache
         id: model-cache
         uses: actions/cache@v4
         with:
           path: /tmp/nse_models
-          key: nse-models-v1-${{ github.run_id }}
+          key: nse-models-v2-${{ github.run_id }}
           restore-keys: |
-            nse-models-v1-
+            nse-models-v2-
 
       - name: Run daily inference & push to Firestore
         env:
@@ -63,7 +66,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: /tmp/nse_models
-          key: nse-models-v1-${{ github.run_id }}
+          key: nse-models-v2-${{ github.run_id }}
 
       - name: Notify on failure
         if: failure()
