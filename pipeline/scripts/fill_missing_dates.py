@@ -184,6 +184,16 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--ticker", help="Process single ticker only")
     parser.add_argument("--csv-only", action="store_true", help="Fill CSVs but skip RTDB push")
+    parser.add_argument(
+        "--force-push",
+        action="store_true",
+        help=(
+            "Push every ticker's full CSV to RTDB even when no new rows "
+            "were added this run. Use after upgrading the push_to_rtdb "
+            "shape (e.g. adding the filled flag) so existing forward-fill "
+            "rows in the CSVs get replayed into RTDB with the new fields."
+        ),
+    )
     args = parser.parse_args()
 
     csv_files = sorted(DATA_CLEANED.glob("*_cleaned.csv"))
@@ -211,12 +221,20 @@ def main() -> None:
     for csv_path in csv_files:
         try:
             added = fill_ticker(csv_path, calendar, args.dry_run)
+            should_push = (
+                (not args.dry_run and root_ref is not None)
+                and (added > 0 or args.force_push)
+            )
             if added > 0:
                 total_added += added
                 tickers_fixed.append(csv_path.stem.replace("_cleaned", ""))
-                if not args.dry_run and root_ref is not None:
-                    written = push_to_rtdb(root_ref, csv_path)
-                    log.info("  %s: pushed %d RTDB nodes", csv_path.stem.replace("_cleaned", ""), written)
+            if should_push:
+                written = push_to_rtdb(root_ref, csv_path)
+                log.info(
+                    "  %s: pushed %d RTDB nodes%s",
+                    csv_path.stem.replace("_cleaned", ""), written,
+                    " (force-push)" if args.force_push and added == 0 else "",
+                )
         except Exception as exc:
             log.error("  %s: FAILED — %s", csv_path.stem, exc, exc_info=True)
 
