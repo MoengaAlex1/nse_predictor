@@ -1,8 +1,11 @@
-name: NSE Intraday Price Capture (every 30 min)
+name: NSE Intraday Price Capture (every 15 min)
 
-# Runs every 30 min through every NSE trading day (Mon–Fri, EAT = UTC+3):
-#   09:00 → 15:30 EAT  (06:00 → 12:30 UTC)  = 14 runs / day
-# NSE opens 09:00, closes 15:00; the 15:30 run captures the final settle.
+# Runs every 15 min through every NSE trading day (Mon–Fri, EAT = UTC+3):
+#   09:00 → 15:45 EAT  (06:00 → 12:45 UTC)  = 28 runs / day
+# NSE opens 09:00, closes 15:00; the last few runs capture the final settle.
+# Bumped 2026-09-19 from every 30 min → 15 min so the intraday_today series
+# is dense enough to feed model features (opening drift, VWAP intraday,
+# momentum bursts) instead of only offering EOD-adjacent snapshots.
 #
 # Each run:
 #   Step 1 – scrape_nse_prices.py     → fetch latest prices, refresh Storage CSVs
@@ -24,8 +27,8 @@ name: NSE Intraday Price Capture (every 30 min)
 
 on:
   schedule:
-    # Every :00 and :30 from 06:00–12:30 UTC = 09:00–15:30 EAT, Mon–Fri
-    - cron: "0,30 6-12 * * 1-5"
+    # Every :00 :15 :30 :45 from 06:00–12:45 UTC = 09:00–15:45 EAT, Mon–Fri
+    - cron: "0,15,30,45 6-12 * * 1-5"
   workflow_dispatch:
     inputs:
       backfill:
@@ -41,7 +44,7 @@ on:
         required: false
         default: "false"
 
-# Serialise on the scheduled 30-min cadence so a slow run never overlaps the
+# Serialise on the scheduled 15-min cadence so a slow run never overlaps the
 # next tick. Manual dispatch (backfills, single-ticker debugs) still queues.
 concurrency:
   group: nse-intraday-price-capture
@@ -51,7 +54,9 @@ jobs:
   capture:
     name: Scrape + push prices to Firestore
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Tighter than the 30-min cadence — a run that goes past 12 min likely
+    # hit an upstream outage and shouldn't hold up the next tick.
+    timeout-minutes: 12
 
     steps:
       - name: Checkout

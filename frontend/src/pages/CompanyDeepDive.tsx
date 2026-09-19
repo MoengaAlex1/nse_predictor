@@ -28,6 +28,7 @@ import { PriceMoveBanner } from "../components/investor/PriceMoveBanner";
 import { RadarScoreCard } from "../components/investor/RadarScoreCard";
 import { ModelAccuracyCard } from "../components/investor/ModelAccuracyCard";
 import { SignalBacktestChart } from "../components/investor/SignalBacktestChart";
+import { TradingViewChart } from "../components/investor/TradingViewChart";
 import { FinancialsPanel } from "../components/FinancialsPanel";
 import { FinancialNarrativeCard } from "../components/FinancialNarrativeCard";
 import { DeepAnalysisPanel } from "../components/DeepAnalysisPanel";
@@ -1532,6 +1533,14 @@ export const CompanyDeepDive: FC = () => {
                 each past call as a dot on the price line, so users can see
                 whether the model bought near dips or tops. */}
             <SignalBacktestChart snapshots={recentSnapshots} history={history} />
+
+            {/* TradingView reference chart. Collapsed by default because
+                the widget engine is heavy (~500KB over the wire) and
+                shouldn't render unless the user explicitly wants it.
+                NSEKE:${short} is the TradingView symbol convention for
+                NSE Kenya listings. Uses their official embed loader —
+                licensed, not scraped. */}
+            <TradingViewChart short={company.short} name={company.name} />
           </div>
 
           {/* ── Sidebar (right) ─────────────────────────────────────────
