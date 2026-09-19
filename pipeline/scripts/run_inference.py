@@ -248,7 +248,12 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         # neutral placeholders (see build_feature_matrix docstring).
         intraday_features_for_matrix: dict | None = None
         try:
-            _cdoc = db.collection("companies").document(company["short"]).get()
+            # run_company is invoked from a ThreadPool worker, so we can't
+            # capture the main() db handle in a closure. get_db() caches
+            # the Firestore client at module level (firebase_admin re-uses
+            # the initialised app), so this call is free after the first.
+            _db = get_db()
+            _cdoc = _db.collection("companies").document(company["short"]).get()
             if _cdoc.exists:
                 _cdata = _cdoc.to_dict() or {}
                 if _cdata.get("intraday_date") == TODAY:
@@ -372,7 +377,8 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         # Recent announcements enrich the signal_reasons list — best-effort.
         recent_announcements: list[dict] = []
         try:
-            fin_doc = db.collection("financials").document(company["short"]).get()
+            _db = get_db()
+            fin_doc = _db.collection("financials").document(company["short"]).get()
             if fin_doc.exists:
                 data = fin_doc.to_dict() or {}
                 recent_announcements = data.get("announcements") or []
