@@ -22,7 +22,7 @@ const navLinkCls = ({ isActive }: { isActive: boolean }) =>
     isActive ? "border-b-2 border-accent text-ink" : "text-sub hover:text-ink"
   }`;
 
-export type AppShellVariant = "default" | "investor";
+export type AppShellVariant = "default" | "investor" | "workstation";
 
 type AppShellProps = {
   children: ReactNode;
@@ -39,6 +39,45 @@ export const AppShell: FC<AppShellProps> = ({ children, variant = "default" }) =
         <SubNav />
         <RecentTickersStrip />
         <main>{children}</main>
+        <MobileNav isOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
+      </div>
+    );
+  }
+
+  // Workstation variant: minimum chrome, maximum chart. Renders only a
+  // compact 40px-tall top bar (logo + search + theme + sign-in) with no
+  // SubNav / RecentTickersStrip / TickerTape / max-width padding. Used
+  // for /chart/{ticker} where the TradingWorkstation component owns
+  // everything below — its own symbol search, timeframe controls, and
+  // right sidebar make the extra AppShell chrome redundant.
+  if (variant === "workstation") {
+    return (
+      <div className="flex min-h-screen flex-col bg-canvas text-ink">
+        <header className="sticky top-0 z-50 h-10 shrink-0 border-b border-seam bg-canvas/95 backdrop-blur">
+          <div className="mx-auto flex h-full max-w-none items-center justify-between px-3 sm:px-4">
+            <div className="flex items-center gap-3">
+              <NseLogo />
+              {/* Compact primary nav — three shortcut links so users can
+                  get back to Home / Screener / Markets without extra
+                  vertical rows. Hidden on narrow widths. */}
+              <nav className="hidden items-center gap-4 md:flex" aria-label="Main navigation">
+                {NAV_LINKS.filter(l => !l.disabled).map(({ label, to }) => (
+                  <NavLink key={label} to={to} className={navLinkCls}>
+                    {label}
+                  </NavLink>
+                ))}
+              </nav>
+            </div>
+            <div className="flex items-center gap-2">
+              <GlobalSearch />
+              <div className="hidden sm:block">
+                <ThemeToggle />
+              </div>
+              <MobileMenuButton onClick={() => setMobileOpen(true)} />
+            </div>
+          </div>
+        </header>
+        <main className="flex-1">{children}</main>
         <MobileNav isOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
       </div>
     );

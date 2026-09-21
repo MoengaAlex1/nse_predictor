@@ -35,20 +35,14 @@ export const InvestorChart = () => {
   const { data: financials } = useFinancialsDoc(cleaned);
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* Workstation is width-hungry — break out of the AppShell's max-w-7xl
-          container so the chart + right sidebar have room to breathe. The
-          negative margins undo the AppShell's px-4/sm:px-6/lg:px-8 padding
-          and the -mt-6 removes the outer py-6 above the chart. Below the
-          workstation we return to the shell's normal content width via a
-          plain max-w-7xl mx-auto wrapper. */}
-      <div className="-mx-4 -mt-6 sm:-mx-6 lg:-mx-8"
-           style={{ width: "auto" }}>
-        <TradingWorkstation short={cleaned} />
-      </div>
-
+    // AppShell variant="workstation" gives us a compact 40px top bar and
+    // full-viewport main — no max-width, no padding. The workstation fills
+    // the whole content area. FilingsPanel below returns to a max-w-7xl
+    // container so long tables don't stretch across a 1900px viewport.
+    <div className="flex flex-col">
+      <TradingWorkstation short={cleaned} />
       {financials && (
-        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto mt-4 w-full max-w-7xl px-4 pb-8 sm:px-6 lg:px-8">
           <FilingsPanel financials={financials} />
         </div>
       )}

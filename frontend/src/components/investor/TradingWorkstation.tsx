@@ -102,6 +102,19 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
 
   const [range, setRange] = useState<RangeKey>("1Y");
   const [chartType, setChartType] = useState<"line" | "area">("line");
+  // Right sidebar collapse — some users want the chart to fill the whole
+  // width; others want the watchlist visible alongside. Toggled by the
+  // small chevron at the divider. Persisted to localStorage so the
+  // preference sticks across navigations.
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("ws-sidebar-open") !== "0";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("ws-sidebar-open", sidebarOpen ? "1" : "0");
+    }
+  }, [sidebarOpen]);
 
   // Filter by selected range. Dropdown selector at the bottom of the chart
   // mirrors TradingView's timeframe strip.
@@ -165,7 +178,7 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
         onChartTypeChange={setChartType}
       />
 
-      <div className="flex" style={{ minHeight: 820 }}>
+      <div className="relative flex" style={{ minHeight: 820 }}>
         <LeftDrawingRail />
         <MainCanvas
           data={chartData}
@@ -174,14 +187,36 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
           bid={bid}
           ask={ask}
         />
-        <RightSidebarConnected
-          company={company}
-          latestPrice={latestPrice}
-          changeAbs={changeAbs}
-          changePct={changePct}
-          periodMin={pricePeriodMin}
-          periodMax={pricePeriodMax}
-        />
+
+        {/* Collapse toggle sits on the seam between canvas and sidebar
+            (or where the sidebar used to be) so it works in both states. */}
+        <button
+          type="button"
+          onClick={() => setSidebarOpen((v) => !v)}
+          aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+          title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+          className="absolute top-3 z-20 hidden h-8 w-4 items-center justify-center rounded-l lg:flex"
+          style={{
+            right: sidebarOpen ? 288 : 0, // 72*4=288 (w-72)
+            background: COLORS.panel,
+            border: `1px solid ${COLORS.border}`,
+            borderRight: sidebarOpen ? `1px solid ${COLORS.border}` : "none",
+            color: COLORS.muted,
+          }}
+        >
+          <Icon name={sidebarOpen ? "chevron-right" : "chevron-left"} size={12} />
+        </button>
+
+        {sidebarOpen && (
+          <RightSidebarConnected
+            company={company}
+            latestPrice={latestPrice}
+            changeAbs={changeAbs}
+            changePct={changePct}
+            periodMin={pricePeriodMin}
+            periodMax={pricePeriodMax}
+          />
+        )}
       </div>
 
       <BottomTimeframeStrip range={range} onChange={setRange} />
@@ -235,8 +270,10 @@ const TopRibbon: FC<{
 
   return (
     <div className="flex flex-col" style={{ borderBottom: `1px solid ${COLORS.border}`, background: COLORS.panel }}>
-      {/* Top row: symbol search + timeframe + chart type + tools + right-side utilities */}
-      <div className="flex items-center gap-3 px-3 py-1.5" style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+      {/* Top row: symbol search + timeframe + chart type + tools + right-side utilities.
+          overflow-x-auto so a very narrow viewport keeps everything reachable
+          via horizontal scroll instead of clipping. */}
+      <div className="flex items-center gap-2 overflow-x-auto px-3 py-1 whitespace-nowrap" style={{ borderBottom: `1px solid ${COLORS.border}` }}>
         {/* Hamburger placeholder */}
         <IconBtn label="Menu"><Icon name="menu" /></IconBtn>
 
@@ -339,29 +376,32 @@ const TopRibbon: FC<{
           <Icon name={chartType === "line" ? "line-chart" : "area-chart"} />
         </button>
 
-        {/* Analytical buttons */}
+        {/* Analytical buttons — Indicators + Alert always visible.
+            Templates + Replay hide below md breakpoint. */}
         <TextBtn icon="grid">Indicators</TextBtn>
-        <TextBtn icon="layers">Templates</TextBtn>
+        <span className="hidden md:inline-flex"><TextBtn icon="layers">Templates</TextBtn></span>
         <TextBtn icon="bell">Alert</TextBtn>
-        <TextBtn icon="rewind">Replay</TextBtn>
+        <span className="hidden md:inline-flex"><TextBtn icon="rewind">Replay</TextBtn></span>
 
-        {/* History controls */}
-        <div className="ml-1 flex items-center gap-0.5">
+        {/* History controls — hidden below md, essentials only on phones. */}
+        <div className="ml-1 hidden items-center gap-0.5 md:flex">
           <IconBtn label="Undo"><Icon name="undo" /></IconBtn>
           <IconBtn label="Redo"><Icon name="redo" /></IconBtn>
         </div>
 
-        {/* Right-side utilities (Save, camera, snapshot, fullscreen, trade, publish) */}
+        {/* Right-side utilities — pushed to the right with ml-auto. Trade
+            and Publish (the two CTA buttons) stay visible; less-critical
+            icon buttons hide below lg. */}
         <div className="ml-auto flex items-center gap-1">
-          <IconBtn label="Layout"><Icon name="layout" /></IconBtn>
-          <TextBtn icon="save">Save</TextBtn>
-          <IconBtn label="Alerts panel"><Icon name="bell" /></IconBtn>
-          <IconBtn label="Trading panel"><Icon name="briefcase" /></IconBtn>
+          <span className="hidden lg:inline-flex"><IconBtn label="Layout"><Icon name="layout" /></IconBtn></span>
+          <span className="hidden lg:inline-flex"><TextBtn icon="save">Save</TextBtn></span>
+          <span className="hidden xl:inline-flex"><IconBtn label="Alerts panel"><Icon name="bell" /></IconBtn></span>
+          <span className="hidden xl:inline-flex"><IconBtn label="Trading panel"><Icon name="briefcase" /></IconBtn></span>
           <IconBtn label="Fullscreen"><Icon name="maximize" /></IconBtn>
-          <IconBtn label="Snapshot"><Icon name="camera" /></IconBtn>
+          <span className="hidden md:inline-flex"><IconBtn label="Snapshot"><Icon name="camera" /></IconBtn></span>
           <button
             type="button"
-            className="rounded px-3 py-1 text-xs font-bold"
+            className="hidden rounded px-3 py-1 text-xs font-bold md:inline-block"
             style={{ color: COLORS.text, background: COLORS.bg, border: `1px solid ${COLORS.border}` }}
           >
             Trade
@@ -900,6 +940,8 @@ const Icon: FC<{ name: string; size?: number }> = ({ name, size = 16 }) => {
   switch (name) {
     case "menu":         return <svg {...common}><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>;
     case "chevron-down": return <svg {...common}><polyline points="6 9 12 15 18 9"/></svg>;
+    case "chevron-left": return <svg {...common}><polyline points="15 18 9 12 15 6"/></svg>;
+    case "chevron-right":return <svg {...common}><polyline points="9 18 15 12 9 6"/></svg>;
     case "plus":         return <svg {...common}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>;
     case "plus-circle":  return <svg {...common}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>;
     case "line-chart":   return <svg {...common}><polyline points="3 17 9 11 13 15 21 7"/></svg>;

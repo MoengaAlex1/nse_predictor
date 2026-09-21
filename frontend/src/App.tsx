@@ -38,6 +38,18 @@ export default function App() {
         }
       >
         <Route path="/dashboard/:ticker" element={<InvestorDashboard />} />
+      </Route>
+
+      {/* Workstation route uses a minimal chrome variant so the
+          TradingView-style chart canvas + right sidebar dominate the
+          viewport instead of competing with 5 rows of AppShell nav. */}
+      <Route
+        element={
+          <AppShell variant="workstation">
+            <Outlet />
+          </AppShell>
+        }
+      >
         <Route path="/chart/:ticker" element={<InvestorChart />} />
       </Route>
     </Routes>
