@@ -243,6 +243,26 @@ function decorateWithIndicators(
   }));
 }
 
+// ─── Alerts + history state ─────────────────────────────────────────────
+
+interface PriceAlert {
+  id: string;
+  threshold: number;
+  direction: "above" | "below";
+  note?: string;
+  created_at: string;
+}
+
+// Snapshot of the workstation's user-toggleable state, used by the
+// undo/redo history stack. Alerts referenced by ID so we don't inflate
+// the history with duplicated alert bodies.
+interface WsSnapshot {
+  range: RangeKey;
+  chartType: ChartType;
+  indicators: IndicatorKey[];
+  alertIds: string[];
+}
+
 interface Props {
   short: string;
 }
@@ -281,6 +301,95 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
       if (next.has(k)) next.delete(k); else next.add(k);
       return next;
     });
+
+  // Price alerts — per-ticker, persisted to localStorage. Firebase-side
+  // notifications (email/push when the price actually crosses the threshold)
+  // are a separate Firebase Function track. For now the alert is visible
+  // to the user via a horizontal ReferenceLine on the chart + a badge
+  // when the current price has already crossed.
+  const alertsKey = `ws-alerts-${short}`;
+  const [alerts, setAlerts] = useState<PriceAlert[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.localStorage.getItem(alertsKey);
+      return raw ? (JSON.parse(raw) as PriceAlert[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(alertsKey, JSON.stringify(alerts));
+    }
+  }, [alerts, alertsKey]);
+  const [alertModalOpen, setAlertModalOpen] = useState(false);
+  const addAlert = (a: Omit<PriceAlert, "id" | "created_at">) =>
+    setAlerts((prev) => [...prev, {
+      ...a,
+      id: `${Date.now()}-${Math.floor(Math.random() * 9999)}`,
+      created_at: new Date().toISOString(),
+    }]);
+  const deleteAlert = (id: string) => setAlerts((prev) => prev.filter(a => a.id !== id));
+
+  // Undo/Redo history stack. Every state change (chartType, indicators,
+  // range, alerts) is snapshotted; Undo walks the stack backwards. Kept
+  // shallow (last 20 snapshots) so memory stays bounded and users don't
+  // undo across ticker navigations. NOT persisted — a fresh page load
+  // starts with an empty history, matching TradingView's behaviour.
+  const historyRef = useRef<WsSnapshot[]>([]);
+  const historyIdxRef = useRef<number>(-1);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  // Suppress the snapshot push when the state change is FROM undo/redo
+  // itself, otherwise redo would immediately push a new "future" and
+  // truncate the redo branch.
+  const skipNextSnapshotRef = useRef(false);
+  useEffect(() => {
+    if (skipNextSnapshotRef.current) {
+      skipNextSnapshotRef.current = false;
+      return;
+    }
+    const snap: WsSnapshot = {
+      range, chartType,
+      indicators: [...indicators],
+      alertIds: alerts.map(a => a.id),
+    };
+    // Drop everything AFTER the current index (branching truncates redo).
+    const trimmed = historyRef.current.slice(0, historyIdxRef.current + 1);
+    trimmed.push(snap);
+    // Cap at 20 entries — drop from the front.
+    while (trimmed.length > 20) trimmed.shift();
+    historyRef.current = trimmed;
+    historyIdxRef.current = trimmed.length - 1;
+    setHistoryVersion(v => v + 1);
+  }, [range, chartType, indicators, alerts]);
+
+  const applySnapshot = (s: WsSnapshot) => {
+    skipNextSnapshotRef.current = true;
+    setRange(s.range);
+    setChartType(s.chartType);
+    setIndicators(new Set(s.indicators));
+    // Alert restoration by ID lookup — alerts with IDs no longer in the
+    // current set stay dropped. Alerts NEWER than the snapshot get removed.
+    setAlerts(prev => prev.filter(a => s.alertIds.includes(a.id)));
+  };
+  const canUndo = historyIdxRef.current > 0;
+  const canRedo = historyIdxRef.current < historyRef.current.length - 1;
+  const undo = () => {
+    if (!canUndo) return;
+    historyIdxRef.current -= 1;
+    applySnapshot(historyRef.current[historyIdxRef.current]);
+    setHistoryVersion(v => v + 1);
+  };
+  const redo = () => {
+    if (!canRedo) return;
+    historyIdxRef.current += 1;
+    applySnapshot(historyRef.current[historyIdxRef.current]);
+    setHistoryVersion(v => v + 1);
+  };
+  // Silence 'setHistoryVersion is unused' — we call it to trigger a
+  // re-render so the ribbon's Undo/Redo buttons update their disabled
+  // state after a step. The version number itself is not read anywhere.
+  void historyVersion;
   // Right sidebar collapse — some users want the chart to fill the whole
   // width; others want the watchlist visible alongside. Toggled by the
   // small chevron at the divider. Persisted to localStorage so the
@@ -413,6 +522,13 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreen}
         onSnapshot={snapshot}
+        alerts={alerts}
+        onOpenAlerts={() => setAlertModalOpen(true)}
+        onDeleteAlert={deleteAlert}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={undo}
+        onRedo={redo}
         allCompanies={allCompanies}
         company={company}
         latestPrice={latestPrice}
@@ -434,6 +550,7 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
           ask={ask}
           activeIndicators={indicators}
           mountRef={chartMountRef}
+          alerts={alerts}
         />
 
         {/* Collapse toggle sits on the seam between canvas and sidebar
@@ -468,6 +585,15 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
       </div>
 
       <BottomTimeframeStrip range={range} onChange={setRange} />
+
+      {alertModalOpen && (
+        <AlertModal
+          symbol={short}
+          currentPrice={latestPrice}
+          onClose={() => setAlertModalOpen(false)}
+          onSave={(a) => { addAlert(a); setAlertModalOpen(false); }}
+        />
+      )}
     </div>
   );
 };
@@ -490,20 +616,32 @@ const TopRibbon: FC<{
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
   onSnapshot: () => void;
+  alerts: PriceAlert[];
+  onOpenAlerts: () => void;
+  onDeleteAlert: (id: string) => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
 }> = ({
   symbol, allCompanies, company, latestPrice, changeAbs, changePct,
   range, onRangeChange, chartType, onChartTypeChange,
   indicators, onToggleIndicator, isFullscreen, onToggleFullscreen, onSnapshot,
+  alerts, onOpenAlerts, onDeleteAlert,
+  canUndo, canRedo, onUndo, onRedo,
 }) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [chartTypeMenuOpen, setChartTypeMenuOpen] = useState(false);
   const [indicatorsMenuOpen, setIndicatorsMenuOpen] = useState(false);
+  const [alertsListOpen, setAlertsListOpen] = useState(false);
   const chartTypeRef = useRef<HTMLDivElement | null>(null);
   const indicatorsRef = useRef<HTMLDivElement | null>(null);
+  const alertsListRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const h = (e: MouseEvent) => {
       if (chartTypeRef.current && !chartTypeRef.current.contains(e.target as Node)) setChartTypeMenuOpen(false);
       if (indicatorsRef.current && !indicatorsRef.current.contains(e.target as Node)) setIndicatorsMenuOpen(false);
+      if (alertsListRef.current && !alertsListRef.current.contains(e.target as Node)) setAlertsListOpen(false);
     };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
@@ -745,17 +883,114 @@ const TopRibbon: FC<{
           )}
         </div>
 
-        {/* Templates + Alert + Replay are visual only for now — the
-            underlying persistence + notification layers are separate
-            multi-day tracks. Tooltips make the "coming soon" state clear. */}
+        {/* Templates and Replay stay visual-only pending their real
+            multi-day tracks (Firestore persistence + temporal engine). */}
         <span className="hidden md:inline-flex"><TextBtn icon="layers">Templates</TextBtn></span>
-        <TextBtn icon="bell">Alert</TextBtn>
+
+        {/* Alert — click opens the create modal; chevron opens the
+            existing-alerts panel. Active count shown as a badge. */}
+        <div ref={alertsListRef} className="relative flex items-center">
+          <button
+            type="button"
+            onClick={onOpenAlerts}
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold hover:bg-slate-100"
+            style={{ color: alerts.length > 0 ? COLORS.accent : COLORS.text }}
+            title="Set a price alert"
+          >
+            <Icon name="bell" size={14} />
+            <span>Alert</span>
+            {alerts.length > 0 && (
+              <span
+                className="rounded-full px-1.5 text-[9px] font-bold text-white"
+                style={{ background: COLORS.accent }}
+              >
+                {alerts.length}
+              </span>
+            )}
+          </button>
+          {alerts.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setAlertsListOpen((v) => !v)}
+              className="rounded p-0.5 hover:bg-slate-100"
+              style={{ color: COLORS.muted }}
+              title="View existing alerts"
+            >
+              <Icon name="chevron-down" size={10} />
+            </button>
+          )}
+          {alertsListOpen && alerts.length > 0 && (
+            <div
+              className="absolute left-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-md shadow-lg"
+              style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}` }}
+            >
+              <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: COLORS.hint, borderBottom: `1px solid ${COLORS.border}` }}>
+                Active alerts on {symbol}
+              </div>
+              {alerts.map((a) => {
+                const crossed = latestPrice != null
+                  && ((a.direction === "above" && latestPrice >= a.threshold)
+                    || (a.direction === "below" && latestPrice <= a.threshold));
+                return (
+                  <div
+                    key={a.id}
+                    className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs hover:bg-slate-50"
+                    style={{ color: COLORS.text }}
+                  >
+                    <span className="flex flex-col">
+                      <span className="font-mono tabular-nums">
+                        {a.direction === "above" ? "▲" : "▼"} KES {a.threshold.toFixed(2)}
+                      </span>
+                      {crossed && (
+                        <span className="text-[9px]" style={{ color: COLORS.buy }}>
+                          ● Triggered
+                        </span>
+                      )}
+                      {a.note && (
+                        <span className="text-[9px]" style={{ color: COLORS.hint }}>{a.note}</span>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteAlert(a.id)}
+                      title="Delete alert"
+                      className="rounded p-1 hover:bg-slate-100"
+                      style={{ color: COLORS.muted }}
+                    >
+                      <Icon name="trash" size={12} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         <span className="hidden md:inline-flex"><TextBtn icon="rewind">Replay</TextBtn></span>
 
-        {/* History controls — hidden below md, essentials only on phones. */}
+        {/* History controls — hidden below md. Both grey out when the
+            history stack has no more steps in that direction. */}
         <div className="ml-1 hidden items-center gap-0.5 md:flex">
-          <IconBtn label="Undo"><Icon name="undo" /></IconBtn>
-          <IconBtn label="Redo"><Icon name="redo" /></IconBtn>
+          <button
+            type="button"
+            onClick={onUndo}
+            disabled={!canUndo}
+            title="Undo"
+            className="flex h-7 w-7 items-center justify-center rounded hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ color: COLORS.muted }}
+          >
+            <Icon name="undo" />
+          </button>
+          <button
+            type="button"
+            onClick={onRedo}
+            disabled={!canRedo}
+            title="Redo"
+            className="flex h-7 w-7 items-center justify-center rounded hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ color: COLORS.muted }}
+          >
+            <Icon name="redo" />
+          </button>
         </div>
 
         {/* Right-side utilities — pushed to the right with ml-auto. Trade
@@ -890,7 +1125,8 @@ const MainCanvas: FC<{
   ask: number | null;
   activeIndicators: Set<IndicatorKey>;
   mountRef: React.RefObject<HTMLDivElement | null>;
-}> = ({ data, latestPrice, chartType, bid, ask, activeIndicators, mountRef }) => {
+  alerts: PriceAlert[];
+}> = ({ data, latestPrice, chartType, bid, ask, activeIndicators, mountRef, alerts }) => {
   const totalVol = useMemo(() => data.reduce((a, d) => a + d.volume, 0), [data]);
 
   return (
@@ -1059,6 +1295,29 @@ const MainCanvas: FC<{
                   } as unknown as string}
                 />
               )}
+
+              {/* Price alerts render as horizontal dashed lines with a
+                  right-side label. Colour uses BUY (green) for below-
+                  threshold triggers and SELL (red) for above-threshold —
+                  matches the mental model of 'below = accumulate, above
+                  = take profit'. */}
+              {alerts.map((a) => (
+                <ReferenceLine
+                  key={a.id}
+                  y={a.threshold}
+                  stroke={a.direction === "above" ? COLORS.sell : COLORS.buy}
+                  strokeDasharray="4 4"
+                  strokeWidth={1}
+                  label={{
+                    value: `${a.direction === "above" ? "▲" : "▼"} ${a.threshold.toFixed(2)}`,
+                    fill: "#FFFFFF",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    position: "left",
+                    offset: 4,
+                  } as unknown as string}
+                />
+              ))}
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -1403,6 +1662,152 @@ const RightSidebar: FC<{
   );
 };
 
+// ─── Alert modal ────────────────────────────────────────────────────────────
+
+const AlertModal: FC<{
+  symbol: string;
+  currentPrice: number | null;
+  onClose: () => void;
+  onSave: (a: Omit<PriceAlert, "id" | "created_at">) => void;
+}> = ({ symbol, currentPrice, onClose, onSave }) => {
+  const [direction, setDirection] = useState<"above" | "below">("above");
+  const [threshold, setThreshold] = useState<string>(
+    currentPrice != null
+      ? (direction === "above" ? currentPrice * 1.05 : currentPrice * 0.95).toFixed(2)
+      : "",
+  );
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  // Close on Escape key — standard modal behaviour.
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const value = parseFloat(threshold);
+    if (!Number.isFinite(value) || value <= 0) {
+      setError("Threshold must be a positive number");
+      return;
+    }
+    onSave({ threshold: value, direction, note: note.trim() || undefined });
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <form
+        onSubmit={submit}
+        className="w-full max-w-sm rounded-lg shadow-xl"
+        style={{ background: COLORS.panel, color: COLORS.text }}
+      >
+        <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+          <div>
+            <p className="text-sm font-bold">Create alert · {symbol}</p>
+            {currentPrice != null && (
+              <p className="text-[11px]" style={{ color: COLORS.hint }}>
+                Current: KES {currentPrice.toFixed(2)}
+              </p>
+            )}
+          </div>
+          <button type="button" onClick={onClose} className="rounded p-1 hover:bg-slate-100" style={{ color: COLORS.muted }}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+
+        <div className="space-y-4 px-5 py-4">
+          <div>
+            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider" style={{ color: COLORS.muted }}>
+              Trigger when price is
+            </label>
+            <div className="grid grid-cols-2 gap-1 rounded-md p-0.5" style={{ background: COLORS.bg }}>
+              {(["above", "below"] as const).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setDirection(d)}
+                  className="rounded px-3 py-1.5 text-xs font-semibold"
+                  style={{
+                    color: direction === d ? "#FFFFFF" : COLORS.text,
+                    background: direction === d
+                      ? (d === "above" ? COLORS.sell : COLORS.buy)
+                      : "transparent",
+                  }}
+                >
+                  {d === "above" ? "▲ Above" : "▼ Below"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider" style={{ color: COLORS.muted }}>
+              Threshold (KES)
+            </label>
+            <input
+              type="number"
+              step="0.05"
+              inputMode="decimal"
+              value={threshold}
+              onChange={(e) => { setThreshold(e.target.value); setError(null); }}
+              autoFocus
+              className="w-full rounded-md px-3 py-2 text-sm outline-none"
+              style={{ background: COLORS.bg, color: COLORS.text, border: `1px solid ${error ? COLORS.sell : COLORS.border}` }}
+            />
+            {error && (
+              <p className="mt-1 text-[11px]" style={{ color: COLORS.sell }}>{error}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider" style={{ color: COLORS.muted }}>
+              Note (optional)
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Take profit here"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              maxLength={80}
+              className="w-full rounded-md px-3 py-2 text-sm outline-none"
+              style={{ background: COLORS.bg, color: COLORS.text, border: `1px solid ${COLORS.border}` }}
+            />
+          </div>
+
+          <p className="text-[10px] italic" style={{ color: COLORS.hint }}>
+            Alerts are stored locally in this browser. Email / push notifications
+            when the price actually crosses the threshold are a separate track
+            (Firebase Function) — for now the alert only shows as a line on the chart.
+          </p>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-5 py-3" style={{ borderTop: `1px solid ${COLORS.border}` }}>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded px-3 py-1.5 text-xs font-semibold hover:bg-slate-100"
+            style={{ color: COLORS.text }}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="rounded px-4 py-1.5 text-xs font-bold text-white"
+            style={{ background: COLORS.accent }}
+          >
+            Create alert
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
 // ─── Bottom timeframe strip ─────────────────────────────────────────────────
 
 const BottomTimeframeStrip: FC<{ range: RangeKey; onChange: (r: RangeKey) => void }> = ({
@@ -1503,6 +1908,7 @@ const Icon: FC<{ name: string; size?: number }> = ({ name, size = 16 }) => {
     case "lock":         return <svg {...common}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>;
     case "eye-off":      return <svg {...common}><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a19.61 19.61 0 0 1 4.22-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg>;
     case "trash":        return <svg {...common}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>;
+    case "x":            return <svg {...common}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
     default:             return <svg {...common}><circle cx="12" cy="12" r="10"/></svg>;
   }
 };
