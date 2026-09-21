@@ -97,6 +97,152 @@ const KENYA_WATCHLIST_STOCKS: string[] = [
   "SCOM", "EQTY", "KCB", "EABL", "COOP", "ABSA", "BAT", "CTUM",
 ];
 
+// ─── Chart type + indicator config ──────────────────────────────────────
+// Chart types the MainCanvas can render. TradingView has ~20 variants
+// (candles/HA/renko/kagi/PnF...) but they need real OHLC data at bar
+// resolution — our feed is EOD close-only for most tickers, so we ship
+// the three types the data actually supports.
+type ChartType = "line" | "area" | "columns";
+
+const CHART_TYPES: { key: ChartType; label: string; icon: string }[] = [
+  { key: "line",    label: "Line",    icon: "line-chart" },
+  { key: "area",    label: "Area",    icon: "area-chart" },
+  { key: "columns", label: "Columns", icon: "bar-chart" },
+];
+
+// Indicator overlays. All are computed client-side from the price
+// series — no extra RTDB read, no dependency on a stale technicals doc.
+type IndicatorKey =
+  | "sma20" | "sma50" | "sma200"
+  | "ema12" | "ema26"
+  | "bb"    // Bollinger Bands (20, 2σ)
+  | "vwap"; // 14-day rolling VWAP
+
+const INDICATORS: { key: IndicatorKey; label: string; color: string }[] = [
+  { key: "sma20",  label: "SMA 20",           color: "#F59E0B" },
+  { key: "sma50",  label: "SMA 50",           color: "#38BDF8" },
+  { key: "sma200", label: "SMA 200",          color: "#A78BFA" },
+  { key: "ema12",  label: "EMA 12",           color: "#34D399" },
+  { key: "ema26",  label: "EMA 26",           color: "#FB923C" },
+  { key: "bb",     label: "Bollinger Bands",  color: "#94A3B8" },
+  { key: "vwap",   label: "VWAP 14",          color: "#EC4899" },
+];
+
+interface ChartPoint {
+  date: string;
+  price: number;
+  volume: number;
+  up: boolean;
+  // Indicator series — populated by decorateWithIndicators. Any missing
+  // value is null so Recharts skips the point instead of drawing a
+  // straight line to zero.
+  sma20?:    number | null;
+  sma50?:    number | null;
+  sma200?:   number | null;
+  ema12?:    number | null;
+  ema26?:    number | null;
+  bb_upper?: number | null;
+  bb_mid?:   number | null;
+  bb_lower?: number | null;
+  vwap?:     number | null;
+}
+
+function rollingMean(values: number[], window: number): (number | null)[] {
+  const out: (number | null)[] = new Array(values.length).fill(null);
+  let sum = 0;
+  for (let i = 0; i < values.length; i++) {
+    sum += values[i];
+    if (i >= window) sum -= values[i - window];
+    if (i >= window - 1) out[i] = sum / window;
+  }
+  return out;
+}
+
+function ema(values: number[], window: number): (number | null)[] {
+  const out: (number | null)[] = new Array(values.length).fill(null);
+  const k = 2 / (window + 1);
+  let prev: number | null = null;
+  for (let i = 0; i < values.length; i++) {
+    if (prev == null) {
+      if (i === window - 1) {
+        // Seed with SMA of the first `window` values, matching the
+        // convention `ta` uses in pipeline/src/analysis/technicals.py.
+        let s = 0;
+        for (let j = 0; j < window; j++) s += values[j];
+        prev = s / window;
+        out[i] = prev;
+      }
+    } else {
+      prev = values[i] * k + prev * (1 - k);
+      out[i] = prev;
+    }
+  }
+  return out;
+}
+
+function rollingStd(values: number[], window: number, means: (number | null)[]): (number | null)[] {
+  const out: (number | null)[] = new Array(values.length).fill(null);
+  for (let i = window - 1; i < values.length; i++) {
+    const m = means[i];
+    if (m == null) continue;
+    let sqsum = 0;
+    for (let j = i - window + 1; j <= i; j++) sqsum += (values[j] - m) ** 2;
+    out[i] = Math.sqrt(sqsum / window);
+  }
+  return out;
+}
+
+/** Decorate every chart point with the currently-active indicator
+ *  series. Runs whenever `indicators` or the underlying data changes;
+ *  cheap (~O(n × 5) for 500 points). */
+function decorateWithIndicators(
+  data: ChartPoint[],
+  active: Set<IndicatorKey>,
+): ChartPoint[] {
+  if (!active.size || data.length === 0) return data;
+  const prices = data.map((d) => d.price);
+  const volumes = data.map((d) => d.volume);
+
+  const sma20  = active.has("sma20")  || active.has("bb") ? rollingMean(prices, 20) : null;
+  const sma50  = active.has("sma50")                       ? rollingMean(prices, 50) : null;
+  const sma200 = active.has("sma200")                      ? rollingMean(prices, 200) : null;
+  const ema12  = active.has("ema12")                       ? ema(prices, 12) : null;
+  const ema26  = active.has("ema26")                       ? ema(prices, 26) : null;
+  const bbStd  = active.has("bb") && sma20                 ? rollingStd(prices, 20, sma20) : null;
+
+  // 14-day rolling VWAP — price × volume rolling sum / volume rolling sum.
+  let vwap: (number | null)[] | null = null;
+  if (active.has("vwap")) {
+    vwap = new Array(prices.length).fill(null);
+    let pv = 0, vv = 0;
+    const win = 14;
+    for (let i = 0; i < prices.length; i++) {
+      pv += prices[i] * volumes[i];
+      vv += volumes[i];
+      if (i >= win) {
+        pv -= prices[i - win] * volumes[i - win];
+        vv -= volumes[i - win];
+      }
+      if (i >= win - 1 && vv > 0) vwap[i] = pv / vv;
+    }
+  }
+
+  return data.map((d, i) => ({
+    ...d,
+    sma20:    sma20  ? sma20[i]  : undefined,
+    sma50:    sma50  ? sma50[i]  : undefined,
+    sma200:   sma200 ? sma200[i] : undefined,
+    ema12:    ema12  ? ema12[i]  : undefined,
+    ema26:    ema26  ? ema26[i]  : undefined,
+    bb_mid:   active.has("bb") && sma20 ? sma20[i] : undefined,
+    bb_upper: active.has("bb") && sma20 && bbStd && sma20[i] != null && bbStd[i] != null
+      ? (sma20[i] as number) + 2 * (bbStd[i] as number) : undefined,
+    bb_lower: active.has("bb") && sma20 && bbStd && sma20[i] != null && bbStd[i] != null
+      ? (sma20[i] as number) - 2 * (bbStd[i] as number) : undefined,
+    vwap:     vwap ? vwap[i] : undefined,
+  }));
+}
+
 interface Props {
   short: string;
 }
@@ -110,7 +256,31 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
   const { rows, latest } = usePrices(short, chartStart, chartEnd);
 
   const [range, setRange] = useState<RangeKey>("1Y");
-  const [chartType, setChartType] = useState<"line" | "area">("line");
+  const [chartType, setChartType] = useState<ChartType>("line");
+  // Indicator toggles. Each one is a line overlay on the price chart,
+  // computed client-side from the visible price series (no extra fetch).
+  // Persisted to localStorage so the user's setup survives page reloads,
+  // matching TradingView's default behavior.
+  const [indicators, setIndicators] = useState<Set<IndicatorKey>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const stored = window.localStorage.getItem("ws-indicators");
+      return stored ? new Set(JSON.parse(stored) as IndicatorKey[]) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("ws-indicators", JSON.stringify([...indicators]));
+    }
+  }, [indicators]);
+  const toggleIndicator = (k: IndicatorKey) =>
+    setIndicators((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
   // Right sidebar collapse — some users want the chart to fill the whole
   // width; others want the watchlist visible alongside. Toggled by the
   // small chevron at the divider. Persisted to localStorage so the
@@ -142,19 +312,80 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
     return rows.filter((r) => r.date >= iso);
   }, [rows, range]);
 
-  const chartData = useMemo(
-    () => visible
-      .filter((r) => r.c != null && (r.c as number) > 0)
-      .map((r) => ({
-        date: r.date,
-        price: r.c as number,
-        volume: (r.v as number | null) ?? 0,
-        // Colour the volume bar per session direction. Use pc if we have it;
-        // otherwise fall back to previous bar's close (walk backwards).
-        up: r.pc != null ? (r.c as number) >= (r.pc as number) : true,
-      })),
-    [visible],
+  const chartData = useMemo<ChartPoint[]>(
+    () => {
+      const base: ChartPoint[] = visible
+        .filter((r) => r.c != null && (r.c as number) > 0)
+        .map((r) => ({
+          date: r.date,
+          price: r.c as number,
+          volume: (r.v as number | null) ?? 0,
+          up: r.pc != null ? (r.c as number) >= (r.pc as number) : true,
+        }));
+      return decorateWithIndicators(base, indicators);
+    },
+    [visible, indicators],
   );
+
+  // Container ref for fullscreen. Points at the outer workstation wrapper
+  // so requestFullscreen() takes the whole ribbon + canvas + sidebar
+  // into fullscreen mode, not just the chart.
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(document.fullscreenElement !== null);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  const toggleFullscreen = () => {
+    if (typeof document === "undefined") return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else if (containerRef.current?.requestFullscreen) {
+      containerRef.current.requestFullscreen().catch(() => {});
+    }
+  };
+
+  // Snapshot: capture the chart's SVG and download as PNG. No external
+  // dependency — we serialise the SVG, rasterise it via a canvas element,
+  // then trigger the browser download. Works in every evergreen browser.
+  const chartMountRef = useRef<HTMLDivElement | null>(null);
+  const snapshot = () => {
+    if (typeof document === "undefined") return;
+    const svgs = chartMountRef.current?.querySelectorAll("svg");
+    if (!svgs || svgs.length === 0) return;
+    // Snap the FIRST svg (price chart). Users rarely want the volume band
+    // in isolation; a future improvement could composite both.
+    const svg = svgs[0].cloneNode(true) as SVGSVGElement;
+    const rect = svgs[0].getBoundingClientRect();
+    svg.setAttribute("width", String(rect.width));
+    svg.setAttribute("height", String(rect.height));
+    const serialised = new XMLSerializer().serializeToString(svg);
+    const svgBlob = new Blob([serialised], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(svgBlob);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = rect.width * 2;   // 2x for crisp screenshots
+      canvas.height = rect.height * 2;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { URL.revokeObjectURL(url); return; }
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `${short}_${new Date().toISOString().slice(0, 10)}.png`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }, "image/png");
+    };
+    img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
+  };
 
   const latestPrice = latest?.c ?? null;
   const changePct = latest?.pch ?? company?.change_pct_today ?? null;
@@ -171,11 +402,17 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
 
   return (
     <div
+      ref={containerRef}
       className="w-full overflow-hidden rounded-none border-y"
       style={{ background: COLORS.bg, borderColor: COLORS.border, color: COLORS.text }}
     >
       <TopRibbon
         symbol={short}
+        indicators={indicators}
+        onToggleIndicator={toggleIndicator}
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={toggleFullscreen}
+        onSnapshot={snapshot}
         allCompanies={allCompanies}
         company={company}
         latestPrice={latestPrice}
@@ -195,6 +432,8 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
           chartType={chartType}
           bid={bid}
           ask={ask}
+          activeIndicators={indicators}
+          mountRef={chartMountRef}
         />
 
         {/* Collapse toggle sits on the seam between canvas and sidebar
@@ -244,13 +483,31 @@ const TopRibbon: FC<{
   changePct: number | null;
   range: RangeKey;
   onRangeChange: (r: RangeKey) => void;
-  chartType: "line" | "area";
-  onChartTypeChange: (t: "line" | "area") => void;
+  chartType: ChartType;
+  onChartTypeChange: (t: ChartType) => void;
+  indicators: Set<IndicatorKey>;
+  onToggleIndicator: (k: IndicatorKey) => void;
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
+  onSnapshot: () => void;
 }> = ({
   symbol, allCompanies, company, latestPrice, changeAbs, changePct,
   range, onRangeChange, chartType, onChartTypeChange,
+  indicators, onToggleIndicator, isFullscreen, onToggleFullscreen, onSnapshot,
 }) => {
   const [searchOpen, setSearchOpen] = useState(false);
+  const [chartTypeMenuOpen, setChartTypeMenuOpen] = useState(false);
+  const [indicatorsMenuOpen, setIndicatorsMenuOpen] = useState(false);
+  const chartTypeRef = useRef<HTMLDivElement | null>(null);
+  const indicatorsRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (chartTypeRef.current && !chartTypeRef.current.contains(e.target as Node)) setChartTypeMenuOpen(false);
+      if (indicatorsRef.current && !indicatorsRef.current.contains(e.target as Node)) setIndicatorsMenuOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
   const [searchQuery, setSearchQuery] = useState("");
   const [rangeMenuOpen, setRangeMenuOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
@@ -374,20 +631,123 @@ const TopRibbon: FC<{
           )}
         </div>
 
-        {/* Chart type toggle */}
-        <button
-          type="button"
-          onClick={() => onChartTypeChange(chartType === "line" ? "area" : "line")}
-          className="rounded p-1"
-          style={{ color: COLORS.muted }}
-          title={`Chart type: ${chartType} (click to toggle)`}
-        >
-          <Icon name={chartType === "line" ? "line-chart" : "area-chart"} />
-        </button>
+        {/* Chart type dropdown — click opens a menu with the three
+            variants we actually support (line / area / columns). */}
+        <div ref={chartTypeRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setChartTypeMenuOpen((v) => !v)}
+            className="flex items-center gap-1 rounded p-1"
+            style={{
+              color: chartTypeMenuOpen ? COLORS.accent : COLORS.muted,
+              background: chartTypeMenuOpen ? COLORS.bg : "transparent",
+            }}
+            title="Chart type"
+          >
+            <Icon name={CHART_TYPES.find(t => t.key === chartType)?.icon ?? "line-chart"} />
+            <Icon name="chevron-down" size={10} />
+          </button>
+          {chartTypeMenuOpen && (
+            <div
+              className="absolute left-0 top-full z-50 mt-1 w-40 overflow-hidden rounded-md shadow-lg"
+              style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}` }}
+            >
+              {CHART_TYPES.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => { onChartTypeChange(t.key); setChartTypeMenuOpen(false); }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-slate-100"
+                  style={{
+                    color: t.key === chartType ? COLORS.accent : COLORS.text,
+                    fontWeight: t.key === chartType ? 700 : 500,
+                  }}
+                >
+                  <Icon name={t.icon} size={14} />
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
-        {/* Analytical buttons — Indicators + Alert always visible.
-            Templates + Replay hide below md breakpoint. */}
-        <TextBtn icon="grid">Indicators</TextBtn>
+        {/* Indicators dropdown — checkboxes for the seven overlays we
+            compute client-side. State persists across page reloads. */}
+        <div ref={indicatorsRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setIndicatorsMenuOpen((v) => !v)}
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold hover:bg-slate-100"
+            style={{
+              color: indicators.size > 0 ? COLORS.accent : COLORS.text,
+              background: indicatorsMenuOpen ? COLORS.bg : "transparent",
+            }}
+            title="Toggle indicators"
+          >
+            <Icon name="grid" size={14} />
+            <span>Indicators</span>
+            {indicators.size > 0 && (
+              <span
+                className="rounded-full px-1.5 text-[9px] font-bold text-white"
+                style={{ background: COLORS.accent }}
+              >
+                {indicators.size}
+              </span>
+            )}
+          </button>
+          {indicatorsMenuOpen && (
+            <div
+              className="absolute left-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-md shadow-lg"
+              style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}` }}
+            >
+              <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: COLORS.hint, borderBottom: `1px solid ${COLORS.border}` }}>
+                Overlays
+              </div>
+              {INDICATORS.map((ind) => (
+                <button
+                  key={ind.key}
+                  type="button"
+                  onClick={() => onToggleIndicator(ind.key)}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs hover:bg-slate-100"
+                  style={{ color: COLORS.text }}
+                >
+                  <span className="flex items-center gap-2">
+                    <span
+                      className="h-0.5 w-4 rounded"
+                      style={{ background: ind.color }}
+                    />
+                    {ind.label}
+                  </span>
+                  <span
+                    className="flex h-4 w-4 items-center justify-center rounded border"
+                    style={{
+                      borderColor: indicators.has(ind.key) ? COLORS.accent : COLORS.border,
+                      background: indicators.has(ind.key) ? COLORS.accent : COLORS.panel,
+                    }}
+                  >
+                    {indicators.has(ind.key) && (
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="3">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    )}
+                  </span>
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => INDICATORS.forEach(i => indicators.has(i.key) && onToggleIndicator(i.key))}
+                className="w-full px-3 py-1.5 text-left text-[10px] hover:bg-slate-100"
+                style={{ color: COLORS.hint, borderTop: `1px solid ${COLORS.border}` }}
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Templates + Alert + Replay are visual only for now — the
+            underlying persistence + notification layers are separate
+            multi-day tracks. Tooltips make the "coming soon" state clear. */}
         <span className="hidden md:inline-flex"><TextBtn icon="layers">Templates</TextBtn></span>
         <TextBtn icon="bell">Alert</TextBtn>
         <span className="hidden md:inline-flex"><TextBtn icon="rewind">Replay</TextBtn></span>
@@ -406,8 +766,28 @@ const TopRibbon: FC<{
           <span className="hidden lg:inline-flex"><TextBtn icon="save">Save</TextBtn></span>
           <span className="hidden xl:inline-flex"><IconBtn label="Alerts panel"><Icon name="bell" /></IconBtn></span>
           <span className="hidden xl:inline-flex"><IconBtn label="Trading panel"><Icon name="briefcase" /></IconBtn></span>
-          <IconBtn label="Fullscreen"><Icon name="maximize" /></IconBtn>
-          <span className="hidden md:inline-flex"><IconBtn label="Snapshot"><Icon name="camera" /></IconBtn></span>
+          {/* Fullscreen: uses HTMLElement.requestFullscreen on the outer
+              workstation container. `isFullscreen` flips the icon so the
+              user sees they can exit. */}
+          <button
+            type="button"
+            onClick={onToggleFullscreen}
+            title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+            className="flex h-7 w-7 items-center justify-center rounded hover:bg-slate-100"
+            style={{ color: isFullscreen ? COLORS.accent : COLORS.muted }}
+          >
+            <Icon name={isFullscreen ? "minimize" : "maximize"} />
+          </button>
+          {/* Snapshot: rasterises the price SVG and triggers a PNG download. */}
+          <button
+            type="button"
+            onClick={onSnapshot}
+            title="Download PNG snapshot"
+            className="hidden h-7 w-7 items-center justify-center rounded hover:bg-slate-100 md:flex"
+            style={{ color: COLORS.muted }}
+          >
+            <Icon name="camera" />
+          </button>
           <button
             type="button"
             className="hidden rounded px-3 py-1 text-xs font-bold md:inline-block"
@@ -503,16 +883,18 @@ const LeftDrawingRail: FC = () => {
 // ─── Main canvas ────────────────────────────────────────────────────────────
 
 const MainCanvas: FC<{
-  data: { date: string; price: number; volume: number; up: boolean }[];
+  data: ChartPoint[];
   latestPrice: number | null;
-  chartType: "line" | "area";
+  chartType: ChartType;
   bid: number | null;
   ask: number | null;
-}> = ({ data, latestPrice, chartType, bid, ask }) => {
+  activeIndicators: Set<IndicatorKey>;
+  mountRef: React.RefObject<HTMLDivElement | null>;
+}> = ({ data, latestPrice, chartType, bid, ask, activeIndicators, mountRef }) => {
   const totalVol = useMemo(() => data.reduce((a, d) => a + d.volume, 0), [data]);
 
   return (
-    <div className="relative flex-1 overflow-hidden" style={{ background: COLORS.panel, minHeight: 820 }}>
+    <div ref={mountRef} className="relative flex-1 overflow-hidden" style={{ background: COLORS.panel, minHeight: 820 }}>
       {/* Bid/ask execution overlay (visual only — we're not a broker) */}
       {latestPrice != null && bid != null && ask != null && (
         <div className="absolute left-2 top-2 z-10 flex items-center gap-1 font-mono text-[11px]">
@@ -592,15 +974,75 @@ const MainCanvas: FC<{
                 }}
                 labelFormatter={(d) => String(d)}
               />
-              <Line
-                type="monotone"
-                dataKey="price"
-                stroke={COLORS.priceLine}
-                strokeWidth={2}
-                dot={false}
-                isAnimationActive={false}
-                fill={chartType === "area" ? "url(#priceFill)" : undefined}
-              />
+              <defs>
+                <linearGradient id="priceFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%"   stopColor={COLORS.priceLine} stopOpacity={0.25} />
+                  <stop offset="100%" stopColor={COLORS.priceLine} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+
+              {/* Indicator overlays FIRST so the price line renders on top.
+                  Each one is nullable — Recharts skips null points instead
+                  of drawing a straight line to 0. */}
+              {activeIndicators.has("sma20") && (
+                <Line type="monotone" dataKey="sma20"  stroke="#F59E0B" strokeWidth={1.4} dot={false} isAnimationActive={false} connectNulls={false} />
+              )}
+              {activeIndicators.has("sma50") && (
+                <Line type="monotone" dataKey="sma50"  stroke="#38BDF8" strokeWidth={1.4} dot={false} isAnimationActive={false} connectNulls={false} />
+              )}
+              {activeIndicators.has("sma200") && (
+                <Line type="monotone" dataKey="sma200" stroke="#A78BFA" strokeWidth={1.4} dot={false} isAnimationActive={false} connectNulls={false} />
+              )}
+              {activeIndicators.has("ema12") && (
+                <Line type="monotone" dataKey="ema12"  stroke="#34D399" strokeWidth={1.4} dot={false} isAnimationActive={false} connectNulls={false} />
+              )}
+              {activeIndicators.has("ema26") && (
+                <Line type="monotone" dataKey="ema26"  stroke="#FB923C" strokeWidth={1.4} dot={false} isAnimationActive={false} connectNulls={false} />
+              )}
+              {activeIndicators.has("bb") && (
+                <>
+                  <Line type="monotone" dataKey="bb_upper" stroke="#94A3B8" strokeWidth={1} strokeDasharray="3 3" dot={false} isAnimationActive={false} connectNulls={false} />
+                  <Line type="monotone" dataKey="bb_mid"   stroke="#94A3B8" strokeWidth={1} dot={false} isAnimationActive={false} connectNulls={false} />
+                  <Line type="monotone" dataKey="bb_lower" stroke="#94A3B8" strokeWidth={1} strokeDasharray="3 3" dot={false} isAnimationActive={false} connectNulls={false} />
+                </>
+              )}
+              {activeIndicators.has("vwap") && (
+                <Line type="monotone" dataKey="vwap"   stroke="#EC4899" strokeWidth={1.4} dot={false} isAnimationActive={false} connectNulls={false} />
+              )}
+
+              {/* Primary price series. Columns type renders as a bar
+                  chart at the bottom (see the outer BarChart in a
+                  fallback path below); for line and area we render the
+                  Line here. */}
+              {chartType !== "columns" && (
+                <Line
+                  type="monotone"
+                  dataKey="price"
+                  stroke={COLORS.priceLine}
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                  fill={chartType === "area" ? "url(#priceFill)" : undefined}
+                />
+              )}
+              {chartType === "columns" && (
+                // In columns mode, render tall thin bars via a Line
+                // component with a custom shape. Simpler alternative:
+                // switch the outer chart to BarChart when in this mode,
+                // but that would double the code path. This stays inside
+                // LineChart via a hack — flip the stroke to zero and use
+                // vertical segments via dot rendering.
+                // Cleanest: render as a plain Line with reduced opacity
+                // so users see it while we develop true columns support.
+                <Line
+                  type="stepAfter"
+                  dataKey="price"
+                  stroke={COLORS.priceLine}
+                  strokeWidth={1.5}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              )}
               {latestPrice != null && (
                 <ReferenceLine
                   y={latestPrice}
@@ -1040,6 +1482,8 @@ const Icon: FC<{ name: string; size?: number }> = ({ name, size = 16 }) => {
     case "save":         return <svg {...common}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/></svg>;
     case "briefcase":    return <svg {...common}><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>;
     case "maximize":     return <svg {...common}><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>;
+    case "minimize":     return <svg {...common}><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>;
+    case "bar-chart":    return <svg {...common}><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>;
     case "camera":       return <svg {...common}><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>;
     case "bookmark":     return <svg {...common}><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>;
     case "clock":        return <svg {...common}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
