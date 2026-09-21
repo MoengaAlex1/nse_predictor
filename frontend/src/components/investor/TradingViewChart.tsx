@@ -58,14 +58,17 @@ interface Props {
   height?: number;
   /** Default timeframe: 'D' = daily, '60' = 60min, '15' = 15min. */
   interval?: "1" | "5" | "15" | "30" | "60" | "D" | "W";
-  /** Start collapsed. The widget is heavy (loads its whole engine over
-   *  the wire) so we default to collapsed and let users opt in. */
+  /** Start collapsed. Default is now `false` (2026-09-21) — users
+   *  asked for the TradingView chart to render as the primary
+   *  chart on the deep-dive, not hidden behind a click. Pass `true`
+   *  explicitly when placing the widget somewhere non-primary and
+   *  the ~500KB load matters. */
   startCollapsed?: boolean;
 }
 
 export const TradingViewChart: FC<Props> = ({
-  short, name, theme = "dark", height = 500, interval = "D",
-  startCollapsed = true,
+  short, name, theme = "dark", height = 620, interval = "D",
+  startCollapsed = false,
 }) => {
   const [open, setOpen] = useState(!startCollapsed);
   const [error, setError] = useState<string | null>(null);
@@ -101,10 +104,28 @@ export const TradingViewChart: FC<Props> = ({
             locale: "en",
             toolbar_bg: theme === "dark" ? "#0f1114" : "#f1f3f6",
             enable_publishing: false,
-            hide_side_toolbar: false,
-            allow_symbol_change: false,
-            withdateranges: true,
-            details: false,
+            // Every panel from the reference screenshot enabled:
+            hide_side_toolbar: false,     // left drawing-tools rail
+            hide_top_toolbar:  false,     // top symbol / timeframe / indicators bar
+            hide_legend:       false,     // ticker + OHLC caption on chart
+            hide_volume:       false,     // volume histogram under price
+            allow_symbol_change: true,    // header symbol picker
+            withdateranges:    true,      // bottom 1D 5D 1M 3M 6M YTD 1Y 5Y All
+            details:           true,      // right-side symbol details panel
+            hotlist:           true,      // right-side "top movers" tab
+            calendar:          true,      // right-side economic calendar tab
+            watchlist:         [          // pre-loaded watchlist mirroring the ref
+              `NSEKE:${short.toUpperCase()}`,
+              "NSEKE:SCOM", "NSEKE:EQTY", "NSEKE:KCB",
+              "NSEKE:EABL", "NSEKE:COOP", "NSEKE:ABSA",
+            ],
+            news:              ["headlines"], // top-of-panel news headlines
+            save_image:        true,      // screenshot button
+            show_popup_button: true,      // pop-out button
+            studies:           [
+              "Volume@tv-basicstudies",   // pre-mounted volume study
+            ],
+            support_host: "https://www.tradingview.com",
             container_id: containerId,
           });
         } catch (e) {

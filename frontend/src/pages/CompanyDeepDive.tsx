@@ -1441,6 +1441,19 @@ export const CompanyDeepDive: FC = () => {
         {/* ── Data quality banner — full width so problems land above the fold */}
         <DataQualityBanner history={history} />
 
+        {/* ── Primary chart: TradingView Advanced Chart widget ───────────────
+            Full-width, above-the-fold, expanded by default. Users asked for
+            the TradingView UI to BE the chart, not a hidden secondary view.
+            Drawing tools, 100+ indicators, watchlist, details panel, news,
+            timeframe selector, save/screenshot — all included via the
+            licensed s3.tradingview.com/tv.js embed (see TradingViewChart.tsx). */}
+        <TradingViewChart
+          short={company.short}
+          name={company.name}
+          height={720}
+          startCollapsed={false}
+        />
+
         {/* ── Company profile — full width, then everything below splits 2/3+1/3 */}
         <CompanyProfileCard company={company} />
 
@@ -1533,14 +1546,6 @@ export const CompanyDeepDive: FC = () => {
                 each past call as a dot on the price line, so users can see
                 whether the model bought near dips or tops. */}
             <SignalBacktestChart snapshots={recentSnapshots} history={history} />
-
-            {/* TradingView reference chart. Collapsed by default because
-                the widget engine is heavy (~500KB over the wire) and
-                shouldn't render unless the user explicitly wants it.
-                NSEKE:${short} is the TradingView symbol convention for
-                NSE Kenya listings. Uses their official embed loader —
-                licensed, not scraped. */}
-            <TradingViewChart short={company.short} name={company.name} />
           </div>
 
           {/* ── Sidebar (right) ─────────────────────────────────────────
