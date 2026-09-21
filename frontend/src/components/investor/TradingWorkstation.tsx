@@ -8,6 +8,7 @@ import {
 import { useCompany } from "../../hooks/useCompany";
 import { useCompanies } from "../../hooks/useCompanies";
 import { usePrices } from "../../hooks/usePrices";
+import { useExternalWatchlist, type ExternalQuote } from "../../hooks/useExternalWatchlist";
 import { fmtCompact, fmtPct } from "../../lib/format";
 import type { CompanyDoc } from "../../types";
 
@@ -167,7 +168,7 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
           bid={bid}
           ask={ask}
         />
-        <RightSidebar
+        <RightSidebarConnected
           company={company}
           latestPrice={latestPrice}
           changeAbs={changeAbs}
@@ -618,6 +619,21 @@ const MainCanvas: FC<{
 
 // ─── Right sidebar ──────────────────────────────────────────────────────────
 
+// Thin wrapper that fetches the external watchlist data and passes it in.
+// Kept separate so the RightSidebar render function stays testable with a
+// static quotes map.
+const RightSidebarConnected: FC<{
+  company: CompanyDoc | null | undefined;
+  latestPrice: number | null;
+  changeAbs: number | null;
+  changePct: number | null;
+  periodMin: number;
+  periodMax: number;
+}> = (props) => {
+  const { data: externalQuotes } = useExternalWatchlist();
+  return <RightSidebar {...props} externalQuotes={externalQuotes} />;
+};
+
 const RightSidebar: FC<{
   company: CompanyDoc | null | undefined;
   latestPrice: number | null;
@@ -625,7 +641,8 @@ const RightSidebar: FC<{
   changePct: number | null;
   periodMin: number;
   periodMax: number;
-}> = ({ company, latestPrice, changeAbs, changePct, periodMin, periodMax }) => {
+  externalQuotes: Map<string, ExternalQuote> | undefined;
+}> = ({ company, latestPrice, changeAbs, changePct, periodMin, periodMax, externalQuotes }) => {
   const [tab] = useState<"watchlist" | "details" | "alerts">("watchlist");
   const isUp = (changePct ?? 0) >= 0;
   const changeColor = isUp ? COLORS.buy : COLORS.sell;
@@ -677,32 +694,48 @@ const RightSidebar: FC<{
               <div className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-semibold" style={{ color: COLORS.hint }}>
                 <Icon name="chevron-down" size={10} /> {section}
               </div>
-              {(grouped[section] ?? []).map((row) => (
-                <div
-                  key={row.symbol}
-                  className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-3 py-1.5 text-xs hover:bg-slate-50"
-                  style={{ color: COLORS.text }}
-                >
-                  <span className="flex items-center gap-2">
-                    <span
-                      className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-bold text-white"
-                      style={{ background: row.color }}
-                    >
-                      {row.symbol.slice(0, 1)}
+              {(grouped[section] ?? []).map((row) => {
+                const q = externalQuotes?.get(row.symbol);
+                const chgColor = q?.chg == null
+                  ? COLORS.hint
+                  : q.chg >= 0 ? COLORS.buy : COLORS.sell;
+                const fmtLast = (v: number | null | undefined) => {
+                  if (v == null) return "—";
+                  if (v >= 1000) return v.toLocaleString("en-US", { maximumFractionDigits: 2 });
+                  return v.toFixed(v >= 100 ? 2 : 3);
+                };
+                return (
+                  <div
+                    key={row.symbol}
+                    className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-3 py-1.5 text-xs hover:bg-slate-50"
+                    style={{ color: COLORS.text }}
+                    title={q?.updated_at ? `Updated ${q.updated_at}` : "Awaiting first yfinance fetch"}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span
+                        className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-bold text-white"
+                        style={{ background: row.color }}
+                      >
+                        {row.symbol.slice(0, 1)}
+                      </span>
+                      <span className="font-semibold">{row.symbol}</span>
                     </span>
-                    <span className="font-semibold">{row.symbol}</span>
-                    <span className="text-[10px]" style={{ color: COLORS.hint }}>·</span>
-                  </span>
-                  <span className="text-right font-mono tabular-nums text-[11px]" style={{ color: COLORS.hint }}>—</span>
-                  <span className="text-right font-mono tabular-nums text-[11px]" style={{ color: COLORS.hint }}>—</span>
-                  <span className="text-right font-mono tabular-nums text-[11px]" style={{ color: COLORS.hint }}>—</span>
-                </div>
-              ))}
+                    <span className="text-right font-mono tabular-nums text-[11px]" style={{ color: COLORS.text }}>
+                      {fmtLast(q?.last ?? null)}
+                    </span>
+                    <span className="text-right font-mono tabular-nums text-[11px]" style={{ color: chgColor }}>
+                      {q?.chg == null ? "—" : (q.chg >= 0 ? "+" : "") + q.chg.toFixed(2)}
+                    </span>
+                    <span className="text-right font-mono tabular-nums text-[11px]" style={{ color: chgColor }}>
+                      {q?.chg_pct == null ? "—" : (q.chg_pct >= 0 ? "+" : "") + q.chg_pct.toFixed(2) + "%"}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           ))}
           <p className="px-3 py-2 text-[10px] italic" style={{ color: COLORS.hint }}>
-            External symbols show placeholders — NSE-listed tickers use live RTDB data
-            via the search bar above.
+            External quotes via Yahoo Finance, refreshed every 30 min during US market hours.
           </p>
         </div>
       )}
