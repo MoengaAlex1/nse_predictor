@@ -7,10 +7,10 @@ import {
 } from "recharts";
 import { useCompany } from "../../hooks/useCompany";
 import { useCompanies } from "../../hooks/useCompanies";
+import { useMarketOverview } from "../../hooks/useMarket";
 import { usePrices } from "../../hooks/usePrices";
-import { useExternalWatchlist, type ExternalQuote } from "../../hooks/useExternalWatchlist";
 import { fmtCompact, fmtPct } from "../../lib/format";
-import type { CompanyDoc } from "../../types";
+import type { CompanyDoc, IndexReading } from "../../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TradingView-style workstation for a single ticker.
@@ -67,25 +67,34 @@ const RANGES = [
 ] as const;
 type RangeKey = typeof RANGES[number]["key"];
 
-// Static watchlist mirroring the reference screenshot. Prices are
-// intentionally None on load — a real prices feed for indices / US stocks
-// would need a new data source. Marked visibly so users see they're
-// placeholders rather than stale data.
-const WATCHLIST: {
-  section: "INDICES" | "STOCKS" | "FUTURES";
-  symbol: string;
-  color: string;
-}[] = [
-  { section: "INDICES", symbol: "SPX",  color: "#3B82F6" },
-  { section: "INDICES", symbol: "NDQ",  color: "#8B5CF6" },
-  { section: "INDICES", symbol: "DJI",  color: "#F59E0B" },
-  { section: "INDICES", symbol: "VIX",  color: "#10B981" },
-  { section: "INDICES", symbol: "DXY",  color: "#6366F1" },
-  { section: "STOCKS",  symbol: "AAPL", color: "#0F172A" },
-  { section: "STOCKS",  symbol: "TSLA", color: "#DC2626" },
-  { section: "STOCKS",  symbol: "NFLX", color: "#B91C1C" },
-  { section: "FUTURES", symbol: "USOIL", color: "#78716C" },
-  { section: "FUTURES", symbol: "GOLD",  color: "#EAB308" },
+// Kenya-focused watchlist. Two sections:
+//   - NSE INDICES: live values from `market_overview.indices` in Firestore
+//     (populated by pipeline/src/analysis/indices.py). NASI / NSE 20 / NSE
+//     25 / NSE 10 / NSE BSI. M.CAP is intentionally excluded — it's not a
+//     tradable index and its scale (billions of KES) throws off the table.
+//   - NSE STOCKS: 8 most-followed tickers on the NSE by market cap /
+//     liquidity. Prices come from the `useCompanies` feed which already
+//     merges the RTDB `prices_latest` mirror into the CompanyDoc.
+//
+// The old US-heavy watchlist (SPX / AAPL / GOLD / USOIL from yfinance)
+// is retired — the pipeline scraper `fetch_external_watchlist.py` keeps
+// running to warm the RTDB in case we want to re-expose it via a
+// user-toggleable "Global markets" tab later.
+
+// Ordered set of NSE index keys we surface in the watchlist. Keys match
+// pipeline/src/analysis/indices.py's canonical output.
+const KENYA_INDEX_KEYS: { key: string; label: string; color: string }[] = [
+  { key: "NASI",   label: "NASI",   color: "#3B82F6" },
+  { key: "NSE20",  label: "NSE 20", color: "#8B5CF6" },
+  { key: "NSE25",  label: "NSE 25", color: "#F59E0B" },
+  { key: "NSE10",  label: "NSE 10", color: "#10B981" },
+  { key: "NSEBSI", label: "NSE BSI", color: "#6366F1" },
+];
+
+// Default NSE watchlist stocks. Picked for liquidity + investor coverage;
+// users can override this via the search bar to load any listed ticker.
+const KENYA_WATCHLIST_STOCKS: string[] = [
+  "SCOM", "EQTY", "KCB", "EABL", "COOP", "ABSA", "BAT", "CTUM",
 ];
 
 interface Props {
@@ -677,9 +686,10 @@ const MainCanvas: FC<{
 
 // ─── Right sidebar ──────────────────────────────────────────────────────────
 
-// Thin wrapper that fetches the external watchlist data and passes it in.
-// Kept separate so the RightSidebar render function stays testable with a
-// static quotes map.
+// Thin wrapper that fetches Kenya watchlist data (NSE indices from
+// market_overview + NSE stocks from companies mirror) and passes it in.
+// Kept separate so the RightSidebar render function stays testable with
+// static inputs.
 const RightSidebarConnected: FC<{
   company: CompanyDoc | null | undefined;
   latestPrice: number | null;
@@ -688,8 +698,15 @@ const RightSidebarConnected: FC<{
   periodMin: number;
   periodMax: number;
 }> = (props) => {
-  const { data: externalQuotes } = useExternalWatchlist();
-  return <RightSidebar {...props} externalQuotes={externalQuotes} />;
+  const { data: market } = useMarketOverview();
+  const { data: companies } = useCompanies();
+  return (
+    <RightSidebar
+      {...props}
+      indexReadings={market?.indices}
+      companies={companies}
+    />
+  );
 };
 
 const RightSidebar: FC<{
@@ -699,19 +716,24 @@ const RightSidebar: FC<{
   changePct: number | null;
   periodMin: number;
   periodMax: number;
-  externalQuotes: Map<string, ExternalQuote> | undefined;
-}> = ({ company, latestPrice, changeAbs, changePct, periodMin, periodMax, externalQuotes }) => {
+  indexReadings: Record<string, IndexReading> | undefined;
+  companies: CompanyDoc[] | undefined;
+}> = ({ company, latestPrice, changeAbs, changePct, periodMin, periodMax, indexReadings, companies }) => {
   const [tab] = useState<"watchlist" | "details" | "alerts">("watchlist");
   const isUp = (changePct ?? 0) >= 0;
   const changeColor = isUp ? COLORS.buy : COLORS.sell;
 
-  const grouped = useMemo(() => {
-    const groups: Record<string, typeof WATCHLIST> = {};
-    for (const item of WATCHLIST) {
-      (groups[item.section] ??= []).push(item);
-    }
-    return groups;
-  }, []);
+  // Compose two watchlist sections from real data:
+  //   INDICES: NSE 20/NASI/etc. from today's market_overview doc
+  //   STOCKS:  hand-picked NSE tickers, prices from the companies feed
+  //            (which already merges the RTDB prices_latest mirror)
+  const stockRows = useMemo(() => {
+    if (!companies?.length) return [];
+    const byId = new Map(companies.map((c) => [c.id, c]));
+    return KENYA_WATCHLIST_STOCKS
+      .map((short) => byId.get(short))
+      .filter((c): c is CompanyDoc => !!c);
+  }, [companies]);
 
   return (
     <aside
@@ -747,53 +769,115 @@ const RightSidebar: FC<{
             <span>Symbol</span><span className="text-right">Last</span><span className="text-right">Chg</span><span className="text-right">Chg%</span>
           </div>
 
-          {(["INDICES", "STOCKS", "FUTURES"] as const).map((section) => (
-            <div key={section}>
-              <div className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-semibold" style={{ color: COLORS.hint }}>
-                <Icon name="chevron-down" size={10} /> {section}
-              </div>
-              {(grouped[section] ?? []).map((row) => {
-                const q = externalQuotes?.get(row.symbol);
-                const chgColor = q?.chg == null
-                  ? COLORS.hint
-                  : q.chg >= 0 ? COLORS.buy : COLORS.sell;
-                const fmtLast = (v: number | null | undefined) => {
-                  if (v == null) return "—";
-                  if (v >= 1000) return v.toLocaleString("en-US", { maximumFractionDigits: 2 });
-                  return v.toFixed(v >= 100 ? 2 : 3);
-                };
-                return (
-                  <div
-                    key={row.symbol}
-                    className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-3 py-1.5 text-xs hover:bg-slate-50"
-                    style={{ color: COLORS.text }}
-                    title={q?.updated_at ? `Updated ${q.updated_at}` : "Awaiting first yfinance fetch"}
-                  >
-                    <span className="flex items-center gap-2">
-                      <span
-                        className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-bold text-white"
-                        style={{ background: row.color }}
-                      >
-                        {row.symbol.slice(0, 1)}
-                      </span>
-                      <span className="font-semibold">{row.symbol}</span>
-                    </span>
-                    <span className="text-right font-mono tabular-nums text-[11px]" style={{ color: COLORS.text }}>
-                      {fmtLast(q?.last ?? null)}
-                    </span>
-                    <span className="text-right font-mono tabular-nums text-[11px]" style={{ color: chgColor }}>
-                      {q?.chg == null ? "—" : (q.chg >= 0 ? "+" : "") + q.chg.toFixed(2)}
-                    </span>
-                    <span className="text-right font-mono tabular-nums text-[11px]" style={{ color: chgColor }}>
-                      {q?.chg_pct == null ? "—" : (q.chg_pct >= 0 ? "+" : "") + q.chg_pct.toFixed(2) + "%"}
-                    </span>
+          {/* Format helper for the Last column: 4200.15 stays two-decimal
+              formatted, 100+ two decimals, small-cap 3 decimals. */}
+          {(() => {
+            const fmtLast = (v: number | null | undefined) => {
+              if (v == null) return "—";
+              if (v >= 1000) return v.toLocaleString("en-KE", { maximumFractionDigits: 2 });
+              return v.toFixed(v >= 100 ? 2 : 3);
+            };
+            return (
+              <>
+                {/* ── NSE INDICES ─────────────────────────────────────── */}
+                <div>
+                  <div className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-semibold" style={{ color: COLORS.hint }}>
+                    <Icon name="chevron-down" size={10} /> NSE INDICES
                   </div>
-                );
-              })}
-            </div>
-          ))}
+                  {KENYA_INDEX_KEYS.map((idx) => {
+                    const reading = indexReadings?.[idx.key];
+                    const chg = reading?.change_points ?? null;
+                    const chgPct = reading?.change_pct ?? null;
+                    const chgColor = chg == null
+                      ? COLORS.hint
+                      : chg >= 0 ? COLORS.buy : COLORS.sell;
+                    return (
+                      <Link
+                        key={idx.key}
+                        to="/"
+                        className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-3 py-1.5 text-xs hover:bg-slate-50"
+                        style={{ color: COLORS.text }}
+                        title={`${idx.label} · from market_overview`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span
+                            className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-bold text-white"
+                            style={{ background: idx.color }}
+                          >
+                            {idx.label.replace(/\s.*/, "").slice(0, 1)}
+                          </span>
+                          <span className="font-semibold">{idx.label}</span>
+                        </span>
+                        <span className="text-right font-mono tabular-nums text-[11px]" style={{ color: COLORS.text }}>
+                          {fmtLast(reading?.value)}
+                        </span>
+                        <span className="text-right font-mono tabular-nums text-[11px]" style={{ color: chgColor }}>
+                          {chg == null ? "—" : (chg >= 0 ? "+" : "") + chg.toFixed(2)}
+                        </span>
+                        <span className="text-right font-mono tabular-nums text-[11px]" style={{ color: chgColor }}>
+                          {chgPct == null ? "—" : (chgPct >= 0 ? "+" : "") + chgPct.toFixed(2) + "%"}
+                        </span>
+                      </Link>
+                    );
+                  })}
+                </div>
+
+                {/* ── NSE STOCKS ──────────────────────────────────────── */}
+                <div>
+                  <div className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-semibold" style={{ color: COLORS.hint }}>
+                    <Icon name="chevron-down" size={10} /> NSE STOCKS
+                  </div>
+                  {stockRows.length === 0 ? (
+                    <p className="px-3 py-2 text-[10px] italic" style={{ color: COLORS.hint }}>
+                      Loading NSE tickers…
+                    </p>
+                  ) : (
+                    stockRows.map((c) => {
+                      const price = c.current_price ?? c.last_known_price ?? null;
+                      const chgPct = c.change_pct_today ?? null;
+                      const chgAbs =
+                        price != null && chgPct != null && chgPct !== 0
+                          ? (price / (1 + chgPct / 100)) * (chgPct / 100)
+                          : null;
+                      const chgColor = chgPct == null
+                        ? COLORS.hint
+                        : chgPct >= 0 ? COLORS.buy : COLORS.sell;
+                      return (
+                        <Link
+                          key={c.id}
+                          to={`/chart/${c.ticker}`}
+                          className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-3 py-1.5 text-xs hover:bg-slate-50"
+                          style={{ color: COLORS.text }}
+                          title={c.name}
+                        >
+                          <span className="flex items-center gap-2">
+                            <span
+                              className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-bold text-white"
+                              style={{ background: c.color || COLORS.accent }}
+                            >
+                              {c.short.slice(0, 1)}
+                            </span>
+                            <span className="font-semibold">{c.short}</span>
+                          </span>
+                          <span className="text-right font-mono tabular-nums text-[11px]" style={{ color: COLORS.text }}>
+                            {fmtLast(price)}
+                          </span>
+                          <span className="text-right font-mono tabular-nums text-[11px]" style={{ color: chgColor }}>
+                            {chgAbs == null ? "—" : (chgAbs >= 0 ? "+" : "") + chgAbs.toFixed(2)}
+                          </span>
+                          <span className="text-right font-mono tabular-nums text-[11px]" style={{ color: chgColor }}>
+                            {chgPct == null ? "—" : (chgPct >= 0 ? "+" : "") + chgPct.toFixed(2) + "%"}
+                          </span>
+                        </Link>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            );
+          })()}
           <p className="px-3 py-2 text-[10px] italic" style={{ color: COLORS.hint }}>
-            External quotes via Yahoo Finance, refreshed every 30 min during US market hours.
+            Live NSE indices + NSE tickers. Click any row to jump into its chart.
           </p>
         </div>
       )}
