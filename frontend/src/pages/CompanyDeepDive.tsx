@@ -29,6 +29,7 @@ import { RadarScoreCard } from "../components/investor/RadarScoreCard";
 import { ModelAccuracyCard } from "../components/investor/ModelAccuracyCard";
 import { SignalBacktestChart } from "../components/investor/SignalBacktestChart";
 import { TradingViewChart } from "../components/investor/TradingViewChart";
+import { TradingWorkstation } from "../components/investor/TradingWorkstation";
 import { FinancialsPanel } from "../components/FinancialsPanel";
 import { FinancialNarrativeCard } from "../components/FinancialNarrativeCard";
 import { DeepAnalysisPanel } from "../components/DeepAnalysisPanel";
@@ -1441,18 +1442,24 @@ export const CompanyDeepDive: FC = () => {
         {/* ── Data quality banner — full width so problems land above the fold */}
         <DataQualityBanner history={history} />
 
-        {/* ── Primary chart: TradingView Advanced Chart widget ───────────────
-            Full-width, above-the-fold, expanded by default. Users asked for
-            the TradingView UI to BE the chart, not a hidden secondary view.
-            Drawing tools, 100+ indicators, watchlist, details panel, news,
-            timeframe selector, save/screenshot — all included via the
-            licensed s3.tradingview.com/tv.js embed (see TradingViewChart.tsx). */}
-        <TradingViewChart
-          short={company.short}
-          name={company.name}
-          height={720}
-          startCollapsed={false}
-        />
+        {/* ── Primary chart: native TradingView-style workstation ─────────
+            Replaces the embedded s3.tradingview.com widget with a native
+            build per the 2026-09-21 design brief:
+              - vertical drawing rail (left)
+              - top control ribbon (symbol / timeframe / chart type /
+                indicators / alert / replay / undo / redo / sub-header /
+                bid-ask execution boxes)
+              - main canvas (dotted grid, orange line, blue live-price
+                Y-axis badge, sharp green/red volume histogram)
+              - right sidebar (watchlist + company details + key stats)
+            Drawing tools are visual-only placeholders — a persisted
+            drawing engine is a separate track. See TradingWorkstation.tsx. */}
+        <TradingWorkstation short={company.short} />
+
+        {/* The licensed TradingView embed is no longer rendered but the
+            import is kept so the component stays in the tree for a quick
+            A/B swap if we ever want it back. */}
+        {void TradingViewChart}
 
         {/* ── Company profile — full width, then everything below splits 2/3+1/3 */}
         <CompanyProfileCard company={company} />
