@@ -2,7 +2,7 @@ import { useMemo, useState, useRef, useEffect } from "react";
 import type { FC } from "react";
 import { Link } from "react-router-dom";
 import {
-  ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, ReferenceLine,
+  LineChart, BarChart, Line, Bar, XAxis, YAxis, Tooltip, ReferenceLine,
   ResponsiveContainer, CartesianGrid, Cell,
 } from "recharts";
 import { useCompany } from "../../hooks/useCompany";
@@ -39,13 +39,19 @@ const COLORS = {
   muted:   "#5D6778",
   hint:    "#8A96A8",
   border:  "#E0E3EB",
-  grid:    "#E0E3EB",
+  grid:    "#EEF0F5",
   accent:  "#2962FF",
   orange:  "#FF6D00",
+  // Violet used for the primary price line — matches the TradingView
+  // reference on NSEKE-COOP / NSEKE-KEGN screenshots. Distinct from
+  // brand orange so users don't confuse the line with the NSE
+  // Intelligence logo colour.
+  priceLine: "#7C3AED",
+  livePrice: "#EC4899",
   buy:     "#26A69A",
   sell:    "#EF5350",
-  volUp:   "rgba(38, 166, 154, 0.9)",
-  volDown: "rgba(239, 83, 80, 0.9)",
+  volUp:   "#26A69A",
+  volDown: "#EF5350",
 };
 
 const RANGES = [
@@ -159,7 +165,7 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
         onChartTypeChange={setChartType}
       />
 
-      <div className="flex" style={{ minHeight: 720 }}>
+      <div className="flex" style={{ minHeight: 820 }}>
         <LeftDrawingRail />
         <MainCanvas
           data={chartData}
@@ -457,7 +463,7 @@ const MainCanvas: FC<{
   const totalVol = useMemo(() => data.reduce((a, d) => a + d.volume, 0), [data]);
 
   return (
-    <div className="relative flex-1 overflow-hidden" style={{ background: COLORS.panel, minHeight: 720 }}>
+    <div className="relative flex-1 overflow-hidden" style={{ background: COLORS.panel, minHeight: 820 }}>
       {/* Bid/ask execution overlay (visual only — we're not a broker) */}
       {latestPrice != null && bid != null && ask != null && (
         <div className="absolute left-2 top-2 z-10 flex items-center gap-1 font-mono text-[11px]">
@@ -489,124 +495,136 @@ const MainCanvas: FC<{
         </span>
       </div>
 
-      {/* Chart area — price on top 75%, volume on bottom 25% */}
-      <div className="h-full w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 8, right: 60, bottom: 8, left: 0 }}>
-            <defs>
-              <linearGradient id="priceFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%"   stopColor={COLORS.orange} stopOpacity={0.25} />
-                <stop offset="100%" stopColor={COLORS.orange} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid
-              strokeDasharray="1 3"
-              stroke={COLORS.grid}
-              vertical
-              horizontal
-            />
-            <XAxis
-              dataKey="date"
-              tick={{ fontSize: 10, fill: COLORS.muted }}
-              tickFormatter={(d: string) => {
-                const dt = new Date(d);
-                return dt.toLocaleDateString("en-US", { month: "short" });
-              }}
-              interval="preserveStartEnd"
-              minTickGap={40}
-              stroke={COLORS.border}
-            />
-            <YAxis
-              yAxisId="price"
-              orientation="right"
-              tick={{ fontSize: 10, fill: COLORS.muted }}
-              tickFormatter={(v: number) => v.toFixed(2)}
-              domain={["dataMin - 0.5", "dataMax + 0.5"]}
-              stroke={COLORS.border}
-              width={55}
-            />
-            <YAxis
-              yAxisId="vol"
-              orientation="left"
-              hide
-              domain={[0, "dataMax * 5"]}
-            />
-            <Tooltip
-              contentStyle={{
-                background: COLORS.panel,
-                border: `1px solid ${COLORS.border}`,
-                fontSize: 12,
-                color: COLORS.text,
-                borderRadius: 4,
-              }}
-              formatter={(value, name) => {
-                const v = typeof value === "number" ? value : Number(value);
-                if (name === "price") return [`KES ${v.toFixed(2)}`, "Close"];
-                if (name === "volume") return [fmtCompact(v), "Volume"];
-                return [String(value), String(name)];
-              }}
-            />
-
-            {/* Volume histogram on the bottom */}
-            <Bar
-              yAxisId="vol"
-              dataKey="volume"
-              barSize={6}
-              isAnimationActive={false}
+      {/* Chart area — price on top 85%, volume on bottom 15%. Two
+          separate charts so the volume bars can't overlap the price
+          line, and so the price line has a proper Y-axis scale. */}
+      <div className="flex h-full w-full flex-col">
+        {/* Price band — 85% */}
+        <div style={{ flex: "1 1 85%" }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={data}
+              margin={{ top: 8, right: 68, bottom: 0, left: 0 }}
+              syncId="ws-price-vol"
             >
-              {data.map((d, i) => (
-                <Cell key={i} fill={d.up ? COLORS.volUp : COLORS.volDown} />
-              ))}
-            </Bar>
-
-            {/* Price line — orange per spec, thicker for prominence */}
-            <Line
-              yAxisId="price"
-              type="monotone"
-              dataKey="price"
-              stroke={COLORS.orange}
-              strokeWidth={1.8}
-              dot={false}
-              isAnimationActive={false}
-            />
-
-            {chartType === "area" && (
-              // Area fill under price when area mode is chosen.
-              // Recharts doesn't have a native area+bar composition that
-              // stays clean; we render a semi-transparent gradient via a
-              // second Line with fill. Simple; not perfect.
+              <CartesianGrid
+                strokeDasharray="1 4"
+                stroke={COLORS.grid}
+                vertical
+                horizontal
+              />
+              <XAxis
+                dataKey="date"
+                tick={false}
+                axisLine={{ stroke: COLORS.border }}
+                tickLine={false}
+                height={0}
+              />
+              <YAxis
+                orientation="right"
+                tick={{ fontSize: 11, fill: COLORS.muted }}
+                tickFormatter={(v: number) => v.toFixed(2)}
+                domain={["dataMin - 0.3", "dataMax + 0.3"]}
+                stroke={COLORS.border}
+                width={62}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: COLORS.panel,
+                  border: `1px solid ${COLORS.border}`,
+                  fontSize: 12,
+                  color: COLORS.text,
+                  borderRadius: 4,
+                }}
+                formatter={(value, name) => {
+                  const v = typeof value === "number" ? value : Number(value);
+                  if (name === "price") return [`KES ${v.toFixed(2)}`, "Close"];
+                  return [String(value), String(name)];
+                }}
+                labelFormatter={(d) => String(d)}
+              />
               <Line
-                yAxisId="price"
                 type="monotone"
                 dataKey="price"
-                stroke="none"
-                fill="url(#priceFill)"
-                isAnimationActive={false}
+                stroke={COLORS.priceLine}
+                strokeWidth={2}
                 dot={false}
+                isAnimationActive={false}
+                fill={chartType === "area" ? "url(#priceFill)" : undefined}
               />
-            )}
+              {latestPrice != null && (
+                <ReferenceLine
+                  y={latestPrice}
+                  stroke={COLORS.livePrice}
+                  strokeDasharray="2 3"
+                  strokeWidth={1}
+                  label={{
+                    value: latestPrice.toFixed(2),
+                    fill: "#FFFFFF",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    position: "right",
+                    offset: 4,
+                  } as unknown as string}
+                />
+              )}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
 
-            {/* Live-price horizontal line + right-side badge */}
-            {latestPrice != null && (
-              <ReferenceLine
-                yAxisId="price"
-                y={latestPrice}
-                stroke={COLORS.accent}
-                strokeDasharray="2 4"
-                label={{
-                  value: latestPrice.toFixed(2),
-                  fill: "#fff",
-                  fontSize: 11,
-                  fontWeight: 700,
-                  position: "right",
-                  style: {
-                    background: COLORS.accent,
-                  },
-                } as unknown as string}
+        {/* Volume band — 15% */}
+        <div
+          style={{ flex: "1 1 15%", borderTop: `1px solid ${COLORS.border}` }}
+        >
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={data}
+              margin={{ top: 4, right: 68, bottom: 4, left: 0 }}
+              syncId="ws-price-vol"
+              barCategoryGap={1}
+            >
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 10, fill: COLORS.muted }}
+                tickFormatter={(d: string) => {
+                  const dt = new Date(d);
+                  return dt.toLocaleDateString("en-US", { month: "short" });
+                }}
+                interval="preserveStartEnd"
+                minTickGap={40}
+                stroke={COLORS.border}
               />
-            )}
-          </ComposedChart>
-        </ResponsiveContainer>
+              <YAxis
+                orientation="right"
+                tick={false}
+                axisLine={false}
+                tickLine={false}
+                domain={[0, "dataMax"]}
+                width={62}
+              />
+              <Tooltip
+                cursor={{ fill: "rgba(0,0,0,0.03)" }}
+                contentStyle={{
+                  background: COLORS.panel,
+                  border: `1px solid ${COLORS.border}`,
+                  fontSize: 12,
+                  color: COLORS.text,
+                  borderRadius: 4,
+                }}
+                formatter={(value) => [fmtCompact(Number(value)), "Volume"]}
+              />
+              <Bar
+                dataKey="volume"
+                isAnimationActive={false}
+                maxBarSize={12}
+              >
+                {data.map((d, i) => (
+                  <Cell key={i} fill={d.up ? COLORS.volUp : COLORS.volDown} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       {/* TradingView-like watermark bottom-left */}
