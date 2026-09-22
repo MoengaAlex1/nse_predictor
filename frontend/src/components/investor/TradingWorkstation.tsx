@@ -540,7 +540,7 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
         onChartTypeChange={setChartType}
       />
 
-      <div className="relative flex" style={{ minHeight: 820 }}>
+      <div className="relative flex min-h-[480px] sm:min-h-[600px] md:min-h-[720px] lg:min-h-[820px]">
         <LeftDrawingRail />
         <MainCanvas
           data={chartData}
@@ -676,8 +676,9 @@ const TopRibbon: FC<{
     <div className="flex flex-col" style={{ borderBottom: `1px solid ${COLORS.border}`, background: COLORS.panel }}>
       {/* Top row: symbol search + timeframe + chart type + tools + right-side utilities.
           overflow-x-auto so a very narrow viewport keeps everything reachable
-          via horizontal scroll instead of clipping. */}
-      <div className="flex items-center gap-2 overflow-x-auto px-3 py-1 whitespace-nowrap" style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+          via horizontal scroll instead of clipping. Tighter gap+padding on
+          phones so more controls fit before scroll kicks in. */}
+      <div className="flex items-center gap-1 overflow-x-auto px-2 py-1 whitespace-nowrap sm:gap-2 sm:px-3" style={{ borderBottom: `1px solid ${COLORS.border}` }}>
         {/* Hamburger placeholder */}
         <IconBtn label="Menu"><Icon name="menu" /></IconBtn>
 
@@ -1040,28 +1041,29 @@ const TopRibbon: FC<{
         </div>
       </div>
 
-      {/* Sub-header: company name · timeframe · exchange · price */}
-      <div className="flex items-center gap-3 px-3 py-1.5 text-xs">
-        <span style={{ color: COLORS.orange }}>●</span>
-        <span className="font-semibold" style={{ color: COLORS.text }}>
-          {company?.name ?? "…"} · 1D · NSEKE
+      {/* Sub-header: company name · timeframe · exchange · price.
+          Wraps on mobile so a long company name doesn't force horizontal
+          scroll; on md+ everything sits in a single row. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-2 py-1 text-[11px] sm:px-3 sm:py-1.5 sm:text-xs">
+        <span className="flex items-center gap-2">
+          <span style={{ color: COLORS.orange }}>●</span>
+          <span className="font-semibold" style={{ color: COLORS.text }}>
+            {company?.name ?? "…"}{" "}
+            <span className="hidden sm:inline" style={{ color: COLORS.muted }}>
+              · 1D · NSEKE
+            </span>
+          </span>
         </span>
         {latestPrice != null && (
-          <>
-            <span className="font-mono tabular-nums" style={{ color: changeColor }}>
-              {latestPrice.toFixed(2)}
-            </span>
+          <span className="flex items-center gap-2 font-mono tabular-nums" style={{ color: changeColor }}>
+            <span>{latestPrice.toFixed(2)}</span>
             {changeAbs != null && (
-              <span className="font-mono tabular-nums" style={{ color: changeColor }}>
-                {changeAbs >= 0 ? "+" : ""}{changeAbs.toFixed(2)}
-              </span>
+              <span>{changeAbs >= 0 ? "+" : ""}{changeAbs.toFixed(2)}</span>
             )}
             {changePct != null && (
-              <span className="font-mono tabular-nums" style={{ color: changeColor }}>
-                ({changePct >= 0 ? "+" : ""}{changePct.toFixed(2)}%)
-              </span>
+              <span>({changePct >= 0 ? "+" : ""}{changePct.toFixed(2)}%)</span>
             )}
-          </>
+          </span>
         )}
       </div>
     </div>
@@ -1091,9 +1093,13 @@ const DRAWING_TOOLS: { name: string; label: string }[] = [
 
 const LeftDrawingRail: FC = () => {
   const [active, setActive] = useState<string>("crosshair");
+  // Hidden below md: on phones the 40px rail eats horizontal space that
+  // the chart canvas needs. Drawing tools aren't functional yet anyway;
+  // if we ship a real drawing engine we should surface it via a bottom
+  // sheet or a top-ribbon button on mobile.
   return (
     <div
-      className="flex flex-col items-center gap-0.5 py-2"
+      className="hidden flex-col items-center gap-0.5 py-2 md:flex"
       style={{ background: COLORS.panel, borderRight: `1px solid ${COLORS.border}`, width: 40 }}
     >
       {DRAWING_TOOLS.map((tool) => (
@@ -1130,32 +1136,33 @@ const MainCanvas: FC<{
   const totalVol = useMemo(() => data.reduce((a, d) => a + d.volume, 0), [data]);
 
   return (
-    <div ref={mountRef} className="relative flex-1 overflow-hidden" style={{ background: COLORS.panel, minHeight: 820 }}>
-      {/* Bid/ask execution overlay (visual only — we're not a broker) */}
+    <div ref={mountRef} className="relative flex-1 overflow-hidden min-h-[480px] sm:min-h-[600px] md:min-h-[720px] lg:min-h-[820px]" style={{ background: COLORS.panel }}>
+      {/* Bid/ask execution overlay (visual only — we're not a broker).
+          Tighter padding on mobile so it doesn't dominate the small canvas. */}
       {latestPrice != null && bid != null && ask != null && (
-        <div className="absolute left-2 top-2 z-10 flex items-center gap-1 font-mono text-[11px]">
+        <div className="absolute left-1.5 top-1.5 z-10 flex items-center gap-0.5 font-mono text-[10px] sm:left-2 sm:top-2 sm:gap-1 sm:text-[11px]">
           <span
-            className="rounded px-2 py-1 text-white"
+            className="rounded px-1.5 py-0.5 text-white sm:px-2 sm:py-1"
             style={{ background: COLORS.sell }}
           >
-            <div className="text-[9px] leading-none opacity-90">SELL</div>
+            <div className="text-[8px] leading-none opacity-90 sm:text-[9px]">SELL</div>
             <div className="font-bold tabular-nums">{bid.toFixed(2)}</div>
           </span>
-          <span className="rounded px-1.5 py-0.5 text-[10px]" style={{ background: COLORS.bg, color: COLORS.muted }}>
+          <span className="hidden rounded px-1 py-0.5 text-[9px] sm:inline sm:px-1.5 sm:text-[10px]" style={{ background: COLORS.bg, color: COLORS.muted }}>
             {(ask - bid).toFixed(2)}
           </span>
           <span
-            className="rounded px-2 py-1 text-white"
+            className="rounded px-1.5 py-0.5 text-white sm:px-2 sm:py-1"
             style={{ background: COLORS.accent }}
           >
-            <div className="text-[9px] leading-none opacity-90">BUY</div>
+            <div className="text-[8px] leading-none opacity-90 sm:text-[9px]">BUY</div>
             <div className="font-bold tabular-nums">{ask.toFixed(2)}</div>
           </span>
         </div>
       )}
 
       {/* Volume label top-left under bid-ask */}
-      <div className="absolute left-2 top-16 z-10 text-[11px]" style={{ color: COLORS.muted }}>
+      <div className="absolute left-1.5 top-14 z-10 text-[10px] sm:left-2 sm:top-16 sm:text-[11px]" style={{ color: COLORS.muted }}>
         Vol{" "}
         <span className="font-mono font-semibold" style={{ color: COLORS.text }}>
           {fmtCompact(totalVol)}
@@ -1814,7 +1821,7 @@ const BottomTimeframeStrip: FC<{ range: RangeKey; onChange: (r: RangeKey) => voi
   range, onChange,
 }) => (
   <div
-    className="flex items-center gap-1 px-3 py-1.5"
+    className="flex items-center gap-1 overflow-x-auto whitespace-nowrap px-2 py-1 sm:px-3 sm:py-1.5"
     style={{ borderTop: `1px solid ${COLORS.border}`, background: COLORS.panel }}
   >
     {RANGES.map((r) => (
@@ -1822,7 +1829,7 @@ const BottomTimeframeStrip: FC<{ range: RangeKey; onChange: (r: RangeKey) => voi
         key={r.key}
         type="button"
         onClick={() => onChange(r.key)}
-        className="rounded px-2 py-0.5 text-[11px] font-semibold"
+        className="rounded px-2 py-1 text-[11px] font-semibold sm:py-0.5"
         style={{
           color: r.key === range ? COLORS.accent : COLORS.muted,
           background: r.key === range ? COLORS.bg : "transparent",
@@ -1831,7 +1838,7 @@ const BottomTimeframeStrip: FC<{ range: RangeKey; onChange: (r: RangeKey) => voi
         {r.key}
       </button>
     ))}
-    <span className="ml-3 text-[10px]" style={{ color: COLORS.hint }}>
+    <span className="ml-3 hidden text-[10px] sm:inline" style={{ color: COLORS.hint }}>
       UTC · adjusted
     </span>
   </div>
