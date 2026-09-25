@@ -319,7 +319,7 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
   const { rows, latest } = usePrices(short, chartStart, chartEnd);
 
   const [range, setRange] = useState<RangeKey>("1Y");
-  // Drawing tool state â€” activeTool drives the LeftDrawingRail highlight and
+  // Drawing tool state — activeTool drives the LeftDrawingRail highlight and
   // the MainCanvas overlay's click-capture mode. Drawings are stored as an
   // append-only list; MainCanvas renders them as SVG marks (dots for anchors,
   // horizontal ReferenceLines for horizontal, dashed lines for trends, etc.).
@@ -748,28 +748,28 @@ const TopRibbon: FC<{
   const appMenuRef = useRef<HTMLDivElement | null>(null);
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const addSymbolRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const h = (e: MouseEvent) => {
-      if (chartTypeRef.current && !chartTypeRef.current.contains(e.target as Node)) setChartTypeMenuOpen(false);
-      if (indicatorsRef.current && !indicatorsRef.current.contains(e.target as Node)) setIndicatorsMenuOpen(false);
-      if (alertsListRef.current && !alertsListRef.current.contains(e.target as Node)) setAlertsListOpen(false);
-      if (appMenuRef.current && !appMenuRef.current.contains(e.target as Node)) setAppMenuOpen(false);
-      if (layoutRef.current && !layoutRef.current.contains(e.target as Node)) setLayoutMenuOpen(false);
-      if (addSymbolRef.current && !addSymbolRef.current.contains(e.target as Node)) setAddSymbolOpen(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
   const [searchQuery, setSearchQuery] = useState("");
   const [rangeMenuOpen, setRangeMenuOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const rangeRef  = useRef<HTMLDivElement>(null);
 
-  // Close dropdowns on outside click.
+  // Single mousedown listener that closes every dropdown whose ref is
+  // outside the click target. Also clears the add-symbol query so
+  // reopening the dropdown starts from a clean input.
   useEffect(() => {
     const h = (e: MouseEvent) => {
-      if (searchRef.current && !searchRef.current.contains(e.target as Node)) setSearchOpen(false);
-      if (rangeRef.current  && !rangeRef.current.contains(e.target as Node))  setRangeMenuOpen(false);
+      const t = e.target as Node;
+      if (chartTypeRef.current && !chartTypeRef.current.contains(t)) setChartTypeMenuOpen(false);
+      if (indicatorsRef.current && !indicatorsRef.current.contains(t)) setIndicatorsMenuOpen(false);
+      if (alertsListRef.current && !alertsListRef.current.contains(t)) setAlertsListOpen(false);
+      if (appMenuRef.current && !appMenuRef.current.contains(t)) setAppMenuOpen(false);
+      if (layoutRef.current && !layoutRef.current.contains(t)) setLayoutMenuOpen(false);
+      if (addSymbolRef.current && !addSymbolRef.current.contains(t)) {
+        setAddSymbolOpen(false);
+        setAddSymbolQuery("");
+      }
+      if (searchRef.current && !searchRef.current.contains(t)) setSearchOpen(false);
+      if (rangeRef.current && !rangeRef.current.contains(t)) setRangeMenuOpen(false);
     };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
@@ -793,7 +793,7 @@ const TopRibbon: FC<{
           via horizontal scroll instead of clipping. Tighter gap+padding on
           phones so more controls fit before scroll kicks in. */}
       <div className="flex items-center gap-1 overflow-x-auto px-2 py-1 whitespace-nowrap sm:gap-2 sm:px-3" style={{ borderBottom: `1px solid ${COLORS.border}` }}>
-        {/* Hamburger â€” global app menu */}
+        {/* Hamburger — global app menu */}
         <div ref={appMenuRef} className="relative">
           <IconBtn label="Menu" active={appMenuOpen} onClick={() => setAppMenuOpen(v => !v)}><Icon name="menu" /></IconBtn>
           {appMenuOpen && (
@@ -814,7 +814,7 @@ const TopRibbon: FC<{
               </button>
               <button
                 type="button"
-                onClick={onSnapshot}
+                onClick={() => { onSnapshot(); setAppMenuOpen(false); }}
                 className="block w-full px-3 py-1.5 text-left text-xs hover:bg-slate-100"
                 style={{ color: COLORS.text, borderTop: `1px solid ${COLORS.border}` }}
               >
@@ -822,7 +822,7 @@ const TopRibbon: FC<{
               </button>
               <button
                 type="button"
-                onClick={onToggleFullscreen}
+                onClick={() => { onToggleFullscreen(); setAppMenuOpen(false); }}
                 className="block w-full px-3 py-1.5 text-left text-xs hover:bg-slate-100"
                 style={{ color: COLORS.text }}
               >
@@ -886,7 +886,7 @@ const TopRibbon: FC<{
           )}
         </div>
 
-        {/* Add symbol â€” quick jump to another ticker */}
+        {/* Add symbol — quick jump to another ticker */}
         <div ref={addSymbolRef} className="relative">
           <IconBtn label="Add symbol" active={addSymbolOpen} onClick={() => setAddSymbolOpen(v => !v)}>
             <Icon name="plus-circle" />
@@ -898,7 +898,7 @@ const TopRibbon: FC<{
             >
               <input
                 type="text"
-                placeholder="Jump to symbolâ€¦"
+                placeholder="Jump to symbol…"
                 value={addSymbolQuery}
                 onChange={(e) => setAddSymbolQuery(e.target.value)}
                 autoFocus
@@ -916,7 +916,7 @@ const TopRibbon: FC<{
                   .map(c => (
                     <li key={c.id}>
                       <Link
-                        to={`/company/${c.id}`}
+                        to={`/chart/${c.ticker ?? c.short}`}
                         className="flex items-baseline justify-between gap-3 px-3 py-2 text-xs hover:bg-slate-100"
                         style={{ color: COLORS.text }}
                         onClick={() => { setAddSymbolOpen(false); setAddSymbolQuery(""); }}
@@ -1068,7 +1068,10 @@ const TopRibbon: FC<{
               ))}
               <button
                 type="button"
-                onClick={() => INDICATORS.forEach(i => indicators.has(i.key) && onToggleIndicator(i.key))}
+                onClick={() => {
+                  INDICATORS.forEach(i => indicators.has(i.key) && onToggleIndicator(i.key));
+                  setIndicatorsMenuOpen(false);
+                }}
                 className="w-full px-3 py-1.5 text-left text-[10px] hover:bg-slate-100"
                 style={{ color: COLORS.hint, borderTop: `1px solid ${COLORS.border}` }}
               >
@@ -1181,7 +1184,7 @@ const TopRibbon: FC<{
         <span className="hidden md:inline-flex">
           <TextBtn
             icon="rewind"
-            title="Historical replay â€” coming soon"
+            title="Historical replay — coming soon"
             onClick={() => window.alert("Historical replay (step-through backtesting) ships in a follow-up. For now, use the timeframe strip to bracket a window.")}
           >Replay</TextBtn>
         </span>
@@ -1215,7 +1218,7 @@ const TopRibbon: FC<{
             and Publish (the two CTA buttons) stay visible; less-critical
             icon buttons hide below lg. */}
         <div className="ml-auto flex items-center gap-1">
-          {/* Layout â€” opens a coming-soon multi-pane preview menu */}
+          {/* Layout — opens a coming-soon multi-pane preview menu */}
           <span className="hidden lg:inline-flex">
             <div ref={layoutRef} className="relative">
               <IconBtn label="Layout" active={layoutMenuOpen} onClick={() => setLayoutMenuOpen(v => !v)}>
@@ -1227,15 +1230,15 @@ const TopRibbon: FC<{
                   style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}` }}
                 >
                   <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider" style={{ color: COLORS.hint }}>Layout</div>
-                  <button type="button" className="block w-full px-3 py-1.5 text-left text-xs hover:bg-slate-100" style={{ color: COLORS.accent }}>Single chart (active)</button>
-                  <button type="button" disabled className="block w-full px-3 py-1.5 text-left text-xs opacity-40" style={{ color: COLORS.text }} title="Coming soon">2 up Â· horizontal</button>
-                  <button type="button" disabled className="block w-full px-3 py-1.5 text-left text-xs opacity-40" style={{ color: COLORS.text }} title="Coming soon">2 up Â· vertical</button>
-                  <button type="button" disabled className="block w-full px-3 py-1.5 text-left text-xs opacity-40" style={{ color: COLORS.text }} title="Coming soon">4 up Â· grid</button>
+                  <button type="button" onClick={() => setLayoutMenuOpen(false)} className="block w-full px-3 py-1.5 text-left text-xs hover:bg-slate-100" style={{ color: COLORS.accent }}>Single chart (active)</button>
+                  <button type="button" disabled className="block w-full px-3 py-1.5 text-left text-xs opacity-40" style={{ color: COLORS.text }} title="Coming soon">2 up · horizontal</button>
+                  <button type="button" disabled className="block w-full px-3 py-1.5 text-left text-xs opacity-40" style={{ color: COLORS.text }} title="Coming soon">2 up · vertical</button>
+                  <button type="button" disabled className="block w-full px-3 py-1.5 text-left text-xs opacity-40" style={{ color: COLORS.text }} title="Coming soon">4 up · grid</button>
                 </div>
               )}
             </div>
           </span>
-          {/* Save â€” persist workstation config to localStorage */}
+          {/* Save — persist workstation config to localStorage */}
           <span className="hidden lg:inline-flex">
             <TextBtn
               icon="save"
@@ -1250,14 +1253,14 @@ const TopRibbon: FC<{
               }}
             >Save</TextBtn>
           </span>
-          {/* Alerts panel â€” reuses onOpenAlerts (same UX as the left bell) */}
+          {/* Alerts panel — reuses onOpenAlerts (same UX as the left bell) */}
           <span className="hidden xl:inline-flex">
             <IconBtn label="Alerts panel" onClick={onOpenAlerts}><Icon name="bell" /></IconBtn>
           </span>
-          {/* Trading panel â€” explicit 'not a broker' notice per COLORS.sell comment on line 584 */}
+          {/* Trading panel — explicit 'not a broker' notice per COLORS.sell comment on line 584 */}
           <span className="hidden xl:inline-flex">
             <IconBtn
-              label="Trading panel â€” broker integration not available"
+              label="Trading panel — broker integration not available"
               disabled
             ><Icon name="briefcase" /></IconBtn>
           </span>
@@ -1286,7 +1289,7 @@ const TopRibbon: FC<{
           <button
             type="button"
             disabled
-            title="NSE Intelligence is not a broker â€” connect a partner broker to trade"
+            title="NSE Intelligence is not a broker — connect a partner broker to trade"
             className="hidden rounded px-3 py-1 text-xs font-bold md:inline-block disabled:cursor-not-allowed disabled:opacity-50"
             style={{ color: COLORS.text, background: COLORS.bg, border: `1px solid ${COLORS.border}` }}
           >
@@ -1380,13 +1383,19 @@ const LeftDrawingRail: FC<{
         const toggleOn =
           (tool.name === "lock" && drawingsLocked) ||
           (tool.name === "eye-off" && !drawingsVisible);
-        const iconName = tool.name === "eye-off" && drawingsVisible ? "eye-off" : tool.name;
+        // eye-off shows an open-eye icon when drawings are hidden (state
+        // indicator) and a crossed-out eye when drawings are visible.
+        const iconName = tool.name === "eye-off"
+          ? (drawingsVisible ? "eye-off" : "eye")
+          : tool.name;
+        const magnetDisabled = tool.name === "magnet";
+        const title = magnetDisabled ? "Magnet — coming soon" : tool.label;
         return (
           <button
             key={tool.name}
             type="button"
-            title={tool.label}
-            disabled={isOneShot && !hasDrawings}
+            title={title}
+            disabled={(isOneShot && !hasDrawings) || magnetDisabled}
             onClick={() => {
               if (isOneShot) {
                 if (hasDrawings && typeof window !== "undefined" && window.confirm("Delete all drawings on this chart?")) {
@@ -1435,7 +1444,10 @@ const MainCanvas: FC<{
 }> = ({ data, latestPrice, chartType, bid, ask, activeIndicators, mountRef, alerts, spanDays, activeTool, drawings, drawingsVisible, drawingsLocked, onAddDrawing }) => {
   const handleChartClick = (state: unknown) => {
     if (drawingsLocked) return;
-    if (activeTool === "crosshair" || activeTool === "zoom" || activeTool === "pattern") return;
+    // crosshair and zoom intentionally no-op on click (crosshair is the
+    // default hover mode; zoom's wheel/drag implementation is deferred).
+    // Every other tool — including pattern — drops an anchor.
+    if (activeTool === "crosshair" || activeTool === "zoom") return;
     const s = state as { activeLabel?: string; activePayload?: Array<{ payload?: ChartPoint }> } | null;
     if (!s || !s.activeLabel || !s.activePayload || !s.activePayload[0]?.payload) return;
     const p = s.activePayload[0].payload;
@@ -1700,7 +1712,7 @@ const MainCanvas: FC<{
                 domain={[0, "dataMax"]}
                 width={62}
               />
-              {/* Volume tooltip removed â€” the price LineChart's tooltip
+              {/* Volume tooltip removed — the price LineChart's tooltip
                   drives both bands via syncId="ws-price-vol", and a second
                   Tooltip inside the 15%-tall volume band was pinning to the
                   strip's top edge (reading as 'stuck bottom-left'). */}
