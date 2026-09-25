@@ -55,17 +55,60 @@ const COLORS = {
 };
 
 const RANGES = [
-  { key: "1D",  days: 1     },
-  { key: "5D",  days: 5     },
-  { key: "1M",  days: 30    },
-  { key: "3M",  days: 90    },
-  { key: "6M",  days: 180   },
-  { key: "YTD", days: -1    },
-  { key: "1Y",  days: 365   },
-  { key: "5Y",  days: 1825  },
-  { key: "All", days: null  },
+  { key: "1D",     days: 1     },
+  { key: "5D",     days: 5     },
+  { key: "1M",     days: 30    },
+  { key: "3M",     days: 90    },
+  { key: "6M",     days: 180   },
+  { key: "YTD",    days: -1    },
+  { key: "1Y",     days: 365   },
+  { key: "5Y",     days: 1825  },
+  { key: "All",    days: null  },
+  { key: "Custom", days: null  },
 ] as const;
 type RangeKey = typeof RANGES[number]["key"];
+
+// Format an ISO date (YYYY-MM-DD) for the volume x-axis. The label density
+// depends on how much time the visible window covers: narrow windows get
+// day + month, multi-year ones drop day and pick up the year so we don't
+// end up with "Sep / Sep / Sep" all across the strip.
+function formatAxisDate(iso: string, spanDays: number): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  if (spanDays <= 5) {
+    return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+  }
+  if (spanDays <= 400) {
+    return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  }
+  return d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+}
+
+// Full readable date for tooltips: "Fri, 12 Sep 2026". Falls back to the
+// raw ISO if the string can't be parsed (defensive — data always ships
+// with valid dates today).
+function formatTooltipDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+// Default Custom-range window. Anchored to today (- 3 months) so switching
+// to Custom lands on a plausible starting selection the user can tweak.
+function defaultCustomRange(): { start: string; end: string } {
+  const end = new Date();
+  const start = new Date();
+  start.setMonth(start.getMonth() - 3);
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10),
+  };
+}
 
 // Kenya-focused watchlist. Two sections:
 //   - NSE INDICES: live values from `market_overview.indices` in Firestore
@@ -276,6 +319,23 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
   const { rows, latest } = usePrices(short, chartStart, chartEnd);
 
   const [range, setRange] = useState<RangeKey>("1Y");
+  // Custom-range window. Only consulted when `range === "Custom"`; otherwise
+  // the fixed presets in RANGES drive the filter. Persisted per-ticker so
+  // switching away and back doesn't nuke the user's selection.
+  const customKey = `ws-custom-range-${short}`;
+  const [customRange, setCustomRange] = useState<{ start: string; end: string }>(() => {
+    if (typeof window === "undefined") return defaultCustomRange();
+    try {
+      const raw = window.localStorage.getItem(customKey);
+      if (raw) return JSON.parse(raw) as { start: string; end: string };
+    } catch { /* fall through */ }
+    return defaultCustomRange();
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(customKey, JSON.stringify(customRange));
+    }
+  }, [customRange, customKey]);
   const [chartType, setChartType] = useState<ChartType>("line");
   // Indicator toggles. Each one is a line overlay on the price chart,
   // computed client-side from the visible price series (no extra fetch).
@@ -405,9 +465,15 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
   }, [sidebarOpen]);
 
   // Filter by selected range. Dropdown selector at the bottom of the chart
-  // mirrors TradingView's timeframe strip.
+  // mirrors TradingView's timeframe strip. Custom lets the user bracket
+  // the analysis to any start/end pair (drives the Returns Calculator's
+  // period as well, since it consumes the same filtered window downstream).
   const visible = useMemo(() => {
     if (!rows.length) return [];
+    if (range === "Custom") {
+      const { start, end } = customRange;
+      return rows.filter((r) => r.date >= start && r.date <= end);
+    }
     if (range === "All") return rows;
     if (range === "YTD") {
       const cut = `${new Date().getFullYear()}-01-01`;
@@ -419,7 +485,17 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
     cutoff.setDate(cutoff.getDate() - days);
     const iso = cutoff.toISOString().slice(0, 10);
     return rows.filter((r) => r.date >= iso);
-  }, [rows, range]);
+  }, [rows, range, customRange]);
+
+  // Span (in days) of what's currently drawn — feeds the date-axis
+  // formatter so the tick density matches the window (day+month for short
+  // ranges, month+year for multi-year).
+  const visibleSpanDays = useMemo(() => {
+    if (visible.length < 2) return 30;
+    const a = new Date(visible[0].date).getTime();
+    const b = new Date(visible[visible.length - 1].date).getTime();
+    return Math.max(1, Math.round((b - a) / (24 * 3600 * 1000)));
+  }, [visible]);
 
   const chartData = useMemo<ChartPoint[]>(
     () => {
@@ -551,6 +627,7 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
           activeIndicators={indicators}
           mountRef={chartMountRef}
           alerts={alerts}
+          spanDays={visibleSpanDays}
         />
 
         {/* Collapse toggle sits on the seam between canvas and sidebar
@@ -584,7 +661,12 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
         )}
       </div>
 
-      <BottomTimeframeStrip range={range} onChange={setRange} />
+      <BottomTimeframeStrip
+        range={range}
+        onChange={setRange}
+        customRange={customRange}
+        onCustomRangeChange={setCustomRange}
+      />
 
       {alertModalOpen && (
         <AlertModal
@@ -1132,7 +1214,8 @@ const MainCanvas: FC<{
   activeIndicators: Set<IndicatorKey>;
   mountRef: React.RefObject<HTMLDivElement | null>;
   alerts: PriceAlert[];
-}> = ({ data, latestPrice, chartType, bid, ask, activeIndicators, mountRef, alerts }) => {
+  spanDays: number;
+}> = ({ data, latestPrice, chartType, bid, ask, activeIndicators, mountRef, alerts, spanDays }) => {
   const totalVol = useMemo(() => data.reduce((a, d) => a + d.volume, 0), [data]);
 
   return (
@@ -1215,7 +1298,7 @@ const MainCanvas: FC<{
                   if (name === "price") return [`KES ${v.toFixed(2)}`, "Close"];
                   return [String(value), String(name)];
                 }}
-                labelFormatter={(d) => String(d)}
+                labelFormatter={(d) => formatTooltipDate(String(d))}
               />
               <defs>
                 <linearGradient id="priceFill" x1="0" y1="0" x2="0" y2="1">
@@ -1343,12 +1426,9 @@ const MainCanvas: FC<{
               <XAxis
                 dataKey="date"
                 tick={{ fontSize: 10, fill: COLORS.muted }}
-                tickFormatter={(d: string) => {
-                  const dt = new Date(d);
-                  return dt.toLocaleDateString("en-US", { month: "short" });
-                }}
+                tickFormatter={(d: string) => formatAxisDate(d, spanDays)}
                 interval="preserveStartEnd"
-                minTickGap={40}
+                minTickGap={60}
                 stroke={COLORS.border}
               />
               <YAxis
@@ -1369,6 +1449,7 @@ const MainCanvas: FC<{
                   borderRadius: 4,
                 }}
                 formatter={(value) => [fmtCompact(Number(value)), "Volume"]}
+                labelFormatter={(d) => formatTooltipDate(String(d))}
               />
               <Bar
                 dataKey="volume"
@@ -1817,11 +1898,14 @@ const AlertModal: FC<{
 
 // ─── Bottom timeframe strip ─────────────────────────────────────────────────
 
-const BottomTimeframeStrip: FC<{ range: RangeKey; onChange: (r: RangeKey) => void }> = ({
-  range, onChange,
-}) => (
+const BottomTimeframeStrip: FC<{
+  range: RangeKey;
+  onChange: (r: RangeKey) => void;
+  customRange: { start: string; end: string };
+  onCustomRangeChange: (r: { start: string; end: string }) => void;
+}> = ({ range, onChange, customRange, onCustomRangeChange }) => (
   <div
-    className="flex items-center gap-1 overflow-x-auto whitespace-nowrap px-2 py-1 sm:px-3 sm:py-1.5"
+    className="flex flex-wrap items-center gap-1 overflow-x-auto whitespace-nowrap px-2 py-1 sm:px-3 sm:py-1.5"
     style={{ borderTop: `1px solid ${COLORS.border}`, background: COLORS.panel }}
   >
     {RANGES.map((r) => (
@@ -1838,6 +1922,28 @@ const BottomTimeframeStrip: FC<{ range: RangeKey; onChange: (r: RangeKey) => voi
         {r.key}
       </button>
     ))}
+    {range === "Custom" && (
+      <div className="ml-2 flex items-center gap-1 text-[11px]" style={{ color: COLORS.muted }}>
+        <span>from</span>
+        <input
+          type="date"
+          value={customRange.start}
+          max={customRange.end}
+          onChange={(e) => onCustomRangeChange({ ...customRange, start: e.target.value })}
+          className="rounded border px-1 py-0.5 font-mono text-[11px] outline-none"
+          style={{ background: COLORS.bg, borderColor: COLORS.border, color: COLORS.text }}
+        />
+        <span>to</span>
+        <input
+          type="date"
+          value={customRange.end}
+          min={customRange.start}
+          onChange={(e) => onCustomRangeChange({ ...customRange, end: e.target.value })}
+          className="rounded border px-1 py-0.5 font-mono text-[11px] outline-none"
+          style={{ background: COLORS.bg, borderColor: COLORS.border, color: COLORS.text }}
+        />
+      </div>
+    )}
     <span className="ml-3 hidden text-[10px] sm:inline" style={{ color: COLORS.hint }}>
       UTC · adjusted
     </span>

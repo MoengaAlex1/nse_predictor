@@ -1,27 +1,19 @@
 import { useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { useRecentTickers } from "../hooks/useRecentTickers";
-import { useFinancials as useFinancialsDoc } from "../hooks/useCompany";
+import { useCompany, useFinancials as useFinancialsDoc } from "../hooks/useCompany";
+import { usePrices } from "../hooks/usePrices";
 import { FilingsPanel } from "../components/investor/FilingsPanel";
+import { ReturnsCalculator } from "../components/investor/ReturnsCalculator";
 import { TradingWorkstation } from "../components/investor/TradingWorkstation";
 import { cleanTicker } from "../lib/timeframe";
 
-// 2026-09-21 rewrite:
-// Every ticker click across the app (Home tiles, movers table, top signals,
-// watchlist rail, ticker tape, peer chips, Companies list, Screener rows,
-// recent tickers strip) routes to this page. Previously we rendered a small
-// area chart inside a max-w-[1600px] two-column shell with the LeftWatchlistRail
-// on the left — that meant users clicked a ticker expecting a TradingView-
-// level chart and got a cramped ~450px area chart instead.
-//
-// Now: this page IS the workstation. The TradingWorkstation component owns
-// the top ribbon (with its own symbol search + watchlist), the left drawing
-// rail, the main canvas, and the right sidebar. We render it at full viewport
-// width and drop the redundant LeftWatchlistRail + ticker header (workstation
-// already surfaces the ticker in its own sub-header).
-//
-// FilingsPanel stays underneath as secondary content — corporate actions
-// aren't chart data and users still want them one scroll away.
+// InvestorChart is the workstation page: TradingWorkstation up top, then a
+// full-width analysis stack (Returns Calculator + Filings Library) below.
+// All three sections share the same horizontal container so they line up
+// at the same left/right edges — the previous layout let the workstation
+// go edge-to-edge while boxing FilingsPanel inside max-w-7xl, which made
+// the sections look mis-aligned on wide screens.
 export const InvestorChart = () => {
   const { ticker: rawTicker = "" } = useParams<{ ticker: string }>();
   const ticker = rawTicker.toUpperCase();
@@ -33,19 +25,27 @@ export const InvestorChart = () => {
   }, [ticker, pushRecent]);
 
   const { data: financials } = useFinancialsDoc(cleaned);
+  const { data: company } = useCompany(cleaned);
+
+  const chartEnd = new Date().toISOString().slice(0, 10);
+  const { points, latest } = usePrices(cleaned, "2008-01-01", chartEnd);
+  const currentPrice = latest?.c ?? company?.current_price ?? null;
 
   return (
-    // AppShell variant="workstation" gives us a compact 40px top bar and
-    // full-viewport main — no max-width, no padding. The workstation fills
-    // the whole content area. FilingsPanel below returns to a max-w-7xl
-    // container so long tables don't stretch across a 1900px viewport.
     <div className="flex flex-col">
       <TradingWorkstation short={cleaned} />
-      {financials && (
-        <div className="mx-auto mt-4 w-full max-w-7xl px-4 pb-8 sm:px-6 lg:px-8">
-          <FilingsPanel financials={financials} />
-        </div>
-      )}
+
+      <div className="w-full space-y-4 px-4 py-6 sm:px-6 lg:px-8">
+        {points.length > 0 && (
+          <ReturnsCalculator
+            ticker={cleaned}
+            history={points}
+            financials={financials}
+            currentPrice={currentPrice}
+          />
+        )}
+        {financials && <FilingsPanel financials={financials} />}
+      </div>
     </div>
   );
 };
