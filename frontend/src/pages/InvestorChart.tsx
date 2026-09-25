@@ -33,14 +33,14 @@ export const InvestorChart = () => {
 
   return (
     <div className="flex flex-col">
-      <TradingWorkstation short={cleaned} />
+      <TradingWorkstation key={cleaned} short={cleaned} />
 
       {/* No horizontal padding here on purpose: the TradingWorkstation above
           is edge-to-edge (border-y, w-full, no max-width) and the user's
           alignment complaint was that FilingsPanel was inset relative to
           the chart. Both sections now share the viewport edges so the
           eye follows a single left/right rule down the page. */}
-      <div className="w-full space-y-4 py-6">
+      <div className="w-full space-y-4 px-4 py-6 sm:px-6 lg:px-8">
         {points.length > 0 && (
           <ReturnsCalculator
             ticker={cleaned}

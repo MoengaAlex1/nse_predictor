@@ -1316,7 +1316,7 @@ const TopRibbon: FC<{
           <span className="font-semibold" style={{ color: COLORS.text }}>
             {company?.name ?? "…"}{" "}
             <span className="hidden sm:inline" style={{ color: COLORS.muted }}>
-              · 1D · NSEKE
+              · {range} · NSEKE
             </span>
           </span>
         </span>
@@ -1443,7 +1443,12 @@ const MainCanvas: FC<{
   onAddDrawing: (d: Drawing) => void;
 }> = ({ data, latestPrice, chartType, bid, ask, activeIndicators, mountRef, alerts, spanDays, activeTool, drawings, drawingsVisible, drawingsLocked, onAddDrawing }) => {
   const handleChartClick = (state: unknown) => {
-    if (drawingsLocked) return;
+    if (drawingsLocked) {
+      if (activeTool !== "crosshair" && activeTool !== "zoom" && typeof window !== "undefined") {
+        window.alert("Drawings are locked. Click the lock icon in the left rail to unlock.");
+      }
+      return;
+    }
     // crosshair and zoom intentionally no-op on click (crosshair is the
     // default hover mode; zoom's wheel/drag implementation is deferred).
     // Every other tool — including pattern — drops an anchor.
@@ -1513,7 +1518,7 @@ const MainCanvas: FC<{
               margin={{ top: 8, right: 68, bottom: 0, left: 0 }}
               syncId="ws-price-vol"
               onClick={handleChartClick}
-              style={{ cursor: activeTool !== "crosshair" && !drawingsLocked ? "crosshair" : "default" }}
+              style={{ cursor: drawingsLocked ? "not-allowed" : "crosshair" }}
             >
               <CartesianGrid
                 strokeDasharray="1 4"
@@ -1544,9 +1549,13 @@ const MainCanvas: FC<{
                   color: COLORS.text,
                   borderRadius: 4,
                 }}
-                formatter={(value, name) => {
+                formatter={(value, name, entry) => {
                   const v = typeof value === "number" ? value : Number(value);
-                  if (name === "price") return [`KES ${v.toFixed(2)}`, "Close"];
+                  if (name === "price") {
+                    const vol = (entry?.payload as ChartPoint | undefined)?.volume;
+                    const volLabel = vol != null ? ` · Vol ${fmtCompact(vol)}` : "";
+                    return [`KES ${v.toFixed(2)}${volLabel}`, "Close"];
+                  }
                   return [String(value), String(name)];
                 }}
                 labelFormatter={(d) => formatTooltipDate(String(d))}
@@ -1782,7 +1791,6 @@ const RightSidebar: FC<{
   indexReadings: Record<string, IndexReading> | undefined;
   companies: CompanyDoc[] | undefined;
 }> = ({ company, latestPrice, changeAbs, changePct, periodMin, periodMax, indexReadings, companies }) => {
-  const [tab] = useState<"watchlist" | "details" | "alerts">("watchlist");
   const isUp = (changePct ?? 0) >= 0;
   const changeColor = isUp ? COLORS.buy : COLORS.sell;
 
@@ -1814,9 +1822,8 @@ const RightSidebar: FC<{
         <IconBtn label="Layers"><Icon name="layers" size={14} /></IconBtn>
       </div>
 
-      {/* Tab: Watchlist */}
-      {tab === "watchlist" && (
-        <div className="flex-1">
+      {/* Watchlist (previously behind a tab guard; the sibling tabs were removed) */}
+      <div className="flex-1">
           <div className="flex items-center justify-between px-3 py-2" style={{ borderBottom: `1px solid ${COLORS.border}` }}>
             <button className="flex items-center gap-1 text-xs font-semibold" style={{ color: COLORS.text }}>
               Watchlist <Icon name="chevron-down" size={10} />
@@ -1943,7 +1950,6 @@ const RightSidebar: FC<{
             Live NSE indices + NSE tickers. Click any row to jump into its chart.
           </p>
         </div>
-      )}
 
       {/* Company deep-dive card at the bottom */}
       {company && (

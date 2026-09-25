@@ -1454,7 +1454,7 @@ export const CompanyDeepDive: FC = () => {
               - right sidebar (watchlist + company details + key stats)
             Drawing tools are visual-only placeholders — a persisted
             drawing engine is a separate track. See TradingWorkstation.tsx. */}
-        <TradingWorkstation short={company.short} />
+        <TradingWorkstation key={company.short} short={company.short} />
 
         {/* The licensed TradingView embed is no longer rendered but the
             import is kept so the component stays in the tree for a quick
