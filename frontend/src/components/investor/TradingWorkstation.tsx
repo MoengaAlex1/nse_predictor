@@ -319,6 +319,14 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
   const { rows, latest } = usePrices(short, chartStart, chartEnd);
 
   const [range, setRange] = useState<RangeKey>("1Y");
+  // Drawing tool state â€” activeTool drives the LeftDrawingRail highlight and
+  // the MainCanvas overlay's click-capture mode. Drawings are stored as an
+  // append-only list; MainCanvas renders them as SVG marks (dots for anchors,
+  // horizontal ReferenceLines for horizontal, dashed lines for trends, etc.).
+  const [activeTool, setActiveTool] = useState<string>("crosshair");
+  const [drawings, setDrawings] = useState<Array<{ id: string; tool: string; date: string; price: number; label?: string }>>([]);
+  const [drawingsVisible, setDrawingsVisible] = useState(true);
+  const [drawingsLocked, setDrawingsLocked] = useState(false);
   // Custom-range window. Only consulted when `range === "Custom"`; otherwise
   // the fixed presets in RANGES drive the filter. Persisted per-ticker so
   // switching away and back doesn't nuke the user's selection.
@@ -617,7 +625,16 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
       />
 
       <div className="relative flex min-h-[480px] sm:min-h-[600px] md:min-h-[720px] lg:min-h-[820px]">
-        <LeftDrawingRail />
+        <LeftDrawingRail
+          activeTool={activeTool}
+          onActiveToolChange={setActiveTool}
+          onClearDrawings={() => setDrawings([])}
+          hasDrawings={drawings.length > 0}
+          drawingsVisible={drawingsVisible}
+          onToggleDrawingsVisible={() => setDrawingsVisible(v => !v)}
+          drawingsLocked={drawingsLocked}
+          onToggleDrawingsLocked={() => setDrawingsLocked(v => !v)}
+        />
         <MainCanvas
           data={chartData}
           latestPrice={latestPrice}
@@ -628,6 +645,11 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
           mountRef={chartMountRef}
           alerts={alerts}
           spanDays={visibleSpanDays}
+          activeTool={activeTool}
+          drawings={drawings}
+          drawingsVisible={drawingsVisible}
+          drawingsLocked={drawingsLocked}
+          onAddDrawing={(d) => setDrawings(prev => [...prev, d])}
         />
 
         {/* Collapse toggle sits on the seam between canvas and sidebar
@@ -716,14 +738,24 @@ const TopRibbon: FC<{
   const [chartTypeMenuOpen, setChartTypeMenuOpen] = useState(false);
   const [indicatorsMenuOpen, setIndicatorsMenuOpen] = useState(false);
   const [alertsListOpen, setAlertsListOpen] = useState(false);
+  const [appMenuOpen, setAppMenuOpen] = useState(false);
+  const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
+  const [addSymbolOpen, setAddSymbolOpen] = useState(false);
+  const [addSymbolQuery, setAddSymbolQuery] = useState("");
   const chartTypeRef = useRef<HTMLDivElement | null>(null);
   const indicatorsRef = useRef<HTMLDivElement | null>(null);
   const alertsListRef = useRef<HTMLDivElement | null>(null);
+  const appMenuRef = useRef<HTMLDivElement | null>(null);
+  const layoutRef = useRef<HTMLDivElement | null>(null);
+  const addSymbolRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const h = (e: MouseEvent) => {
       if (chartTypeRef.current && !chartTypeRef.current.contains(e.target as Node)) setChartTypeMenuOpen(false);
       if (indicatorsRef.current && !indicatorsRef.current.contains(e.target as Node)) setIndicatorsMenuOpen(false);
       if (alertsListRef.current && !alertsListRef.current.contains(e.target as Node)) setAlertsListOpen(false);
+      if (appMenuRef.current && !appMenuRef.current.contains(e.target as Node)) setAppMenuOpen(false);
+      if (layoutRef.current && !layoutRef.current.contains(e.target as Node)) setLayoutMenuOpen(false);
+      if (addSymbolRef.current && !addSymbolRef.current.contains(e.target as Node)) setAddSymbolOpen(false);
     };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
@@ -761,8 +793,44 @@ const TopRibbon: FC<{
           via horizontal scroll instead of clipping. Tighter gap+padding on
           phones so more controls fit before scroll kicks in. */}
       <div className="flex items-center gap-1 overflow-x-auto px-2 py-1 whitespace-nowrap sm:gap-2 sm:px-3" style={{ borderBottom: `1px solid ${COLORS.border}` }}>
-        {/* Hamburger placeholder */}
-        <IconBtn label="Menu"><Icon name="menu" /></IconBtn>
+        {/* Hamburger â€” global app menu */}
+        <div ref={appMenuRef} className="relative">
+          <IconBtn label="Menu" active={appMenuOpen} onClick={() => setAppMenuOpen(v => !v)}><Icon name="menu" /></IconBtn>
+          {appMenuOpen && (
+            <div
+              className="absolute left-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-md shadow-lg"
+              style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}` }}
+            >
+              <Link to="/" onClick={() => setAppMenuOpen(false)} className="block px-3 py-1.5 text-xs hover:bg-slate-100" style={{ color: COLORS.text }}>Home</Link>
+              <Link to="/companies" onClick={() => setAppMenuOpen(false)} className="block px-3 py-1.5 text-xs hover:bg-slate-100" style={{ color: COLORS.text }}>Companies</Link>
+              <Link to="/screener" onClick={() => setAppMenuOpen(false)} className="block px-3 py-1.5 text-xs hover:bg-slate-100" style={{ color: COLORS.text }}>Screener</Link>
+              <button
+                type="button"
+                onClick={() => { onOpenAlerts(); setAppMenuOpen(false); }}
+                className="block w-full px-3 py-1.5 text-left text-xs hover:bg-slate-100"
+                style={{ color: COLORS.text }}
+              >
+                Create alert
+              </button>
+              <button
+                type="button"
+                onClick={onSnapshot}
+                className="block w-full px-3 py-1.5 text-left text-xs hover:bg-slate-100"
+                style={{ color: COLORS.text, borderTop: `1px solid ${COLORS.border}` }}
+              >
+                Download PNG snapshot
+              </button>
+              <button
+                type="button"
+                onClick={onToggleFullscreen}
+                className="block w-full px-3 py-1.5 text-left text-xs hover:bg-slate-100"
+                style={{ color: COLORS.text }}
+              >
+                {isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Symbol search dropdown */}
         <div ref={searchRef} className="relative">
@@ -818,8 +886,52 @@ const TopRibbon: FC<{
           )}
         </div>
 
-        {/* Add symbol */}
-        <IconBtn label="Add symbol"><Icon name="plus-circle" /></IconBtn>
+        {/* Add symbol â€” quick jump to another ticker */}
+        <div ref={addSymbolRef} className="relative">
+          <IconBtn label="Add symbol" active={addSymbolOpen} onClick={() => setAddSymbolOpen(v => !v)}>
+            <Icon name="plus-circle" />
+          </IconBtn>
+          {addSymbolOpen && (
+            <div
+              className="absolute left-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-md shadow-lg"
+              style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}` }}
+            >
+              <input
+                type="text"
+                placeholder="Jump to symbolâ€¦"
+                value={addSymbolQuery}
+                onChange={(e) => setAddSymbolQuery(e.target.value)}
+                autoFocus
+                className="w-full px-3 py-2 text-sm outline-none"
+                style={{ background: COLORS.bg, color: COLORS.text, borderBottom: `1px solid ${COLORS.border}` }}
+              />
+              <ul className="max-h-72 overflow-y-auto">
+                {allCompanies
+                  .filter(c => {
+                    const q = addSymbolQuery.trim().toLowerCase();
+                    if (!q) return true;
+                    return c.short.toLowerCase().includes(q) || c.name.toLowerCase().includes(q);
+                  })
+                  .slice(0, 8)
+                  .map(c => (
+                    <li key={c.id}>
+                      <Link
+                        to={`/company/${c.id}`}
+                        className="flex items-baseline justify-between gap-3 px-3 py-2 text-xs hover:bg-slate-100"
+                        style={{ color: COLORS.text }}
+                        onClick={() => { setAddSymbolOpen(false); setAddSymbolQuery(""); }}
+                      >
+                        <span className="flex items-baseline gap-2">
+                          <span className="font-bold">{c.short}</span>
+                          <span style={{ color: COLORS.muted }}>{c.name}</span>
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          )}
+        </div>
 
         {/* Timeframe */}
         <div ref={rangeRef} className="relative">
@@ -966,9 +1078,26 @@ const TopRibbon: FC<{
           )}
         </div>
 
-        {/* Templates and Replay stay visual-only pending their real
-            multi-day tracks (Firestore persistence + temporal engine). */}
-        <span className="hidden md:inline-flex"><TextBtn icon="layers">Templates</TextBtn></span>
+        {/* Templates: save/load workstation config (chartType + indicators + range) to localStorage. */}
+        <span className="hidden md:inline-flex">
+          <TextBtn
+            icon="layers"
+            title="Save the current chart config as a template"
+            onClick={() => {
+              const name = typeof window !== "undefined" ? window.prompt("Save chart template as:") : null;
+              if (!name) return;
+              try {
+                const raw = window.localStorage.getItem("ws-templates");
+                const list = raw ? JSON.parse(raw) as Array<{ name: string; range: RangeKey; chartType: ChartType; indicators: IndicatorKey[] }> : [];
+                list.push({ name, range, chartType, indicators: [...indicators] });
+                window.localStorage.setItem("ws-templates", JSON.stringify(list));
+                window.alert(`Template "${name}" saved.`);
+              } catch {
+                window.alert("Could not save template.");
+              }
+            }}
+          >Templates</TextBtn>
+        </span>
 
         {/* Alert — click opens the create modal; chevron opens the
             existing-alerts panel. Active count shown as a badge. */}
@@ -1049,7 +1178,13 @@ const TopRibbon: FC<{
           )}
         </div>
 
-        <span className="hidden md:inline-flex"><TextBtn icon="rewind">Replay</TextBtn></span>
+        <span className="hidden md:inline-flex">
+          <TextBtn
+            icon="rewind"
+            title="Historical replay â€” coming soon"
+            onClick={() => window.alert("Historical replay (step-through backtesting) ships in a follow-up. For now, use the timeframe strip to bracket a window.")}
+          >Replay</TextBtn>
+        </span>
 
         {/* History controls — hidden below md. Both grey out when the
             history stack has no more steps in that direction. */}
@@ -1080,10 +1215,52 @@ const TopRibbon: FC<{
             and Publish (the two CTA buttons) stay visible; less-critical
             icon buttons hide below lg. */}
         <div className="ml-auto flex items-center gap-1">
-          <span className="hidden lg:inline-flex"><IconBtn label="Layout"><Icon name="layout" /></IconBtn></span>
-          <span className="hidden lg:inline-flex"><TextBtn icon="save">Save</TextBtn></span>
-          <span className="hidden xl:inline-flex"><IconBtn label="Alerts panel"><Icon name="bell" /></IconBtn></span>
-          <span className="hidden xl:inline-flex"><IconBtn label="Trading panel"><Icon name="briefcase" /></IconBtn></span>
+          {/* Layout â€” opens a coming-soon multi-pane preview menu */}
+          <span className="hidden lg:inline-flex">
+            <div ref={layoutRef} className="relative">
+              <IconBtn label="Layout" active={layoutMenuOpen} onClick={() => setLayoutMenuOpen(v => !v)}>
+                <Icon name="layout" />
+              </IconBtn>
+              {layoutMenuOpen && (
+                <div
+                  className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-md shadow-lg"
+                  style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}` }}
+                >
+                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider" style={{ color: COLORS.hint }}>Layout</div>
+                  <button type="button" className="block w-full px-3 py-1.5 text-left text-xs hover:bg-slate-100" style={{ color: COLORS.accent }}>Single chart (active)</button>
+                  <button type="button" disabled className="block w-full px-3 py-1.5 text-left text-xs opacity-40" style={{ color: COLORS.text }} title="Coming soon">2 up Â· horizontal</button>
+                  <button type="button" disabled className="block w-full px-3 py-1.5 text-left text-xs opacity-40" style={{ color: COLORS.text }} title="Coming soon">2 up Â· vertical</button>
+                  <button type="button" disabled className="block w-full px-3 py-1.5 text-left text-xs opacity-40" style={{ color: COLORS.text }} title="Coming soon">4 up Â· grid</button>
+                </div>
+              )}
+            </div>
+          </span>
+          {/* Save â€” persist workstation config to localStorage */}
+          <span className="hidden lg:inline-flex">
+            <TextBtn
+              icon="save"
+              title="Save the current chart config"
+              onClick={() => {
+                try {
+                  window.localStorage.setItem(`ws-saved-${symbol}`, JSON.stringify({ range, chartType, indicators: [...indicators], savedAt: new Date().toISOString() }));
+                  window.alert(`Saved current ${symbol} config to this browser.`);
+                } catch {
+                  window.alert("Could not save.");
+                }
+              }}
+            >Save</TextBtn>
+          </span>
+          {/* Alerts panel â€” reuses onOpenAlerts (same UX as the left bell) */}
+          <span className="hidden xl:inline-flex">
+            <IconBtn label="Alerts panel" onClick={onOpenAlerts}><Icon name="bell" /></IconBtn>
+          </span>
+          {/* Trading panel â€” explicit 'not a broker' notice per COLORS.sell comment on line 584 */}
+          <span className="hidden xl:inline-flex">
+            <IconBtn
+              label="Trading panel â€” broker integration not available"
+              disabled
+            ><Icon name="briefcase" /></IconBtn>
+          </span>
           {/* Fullscreen: uses HTMLElement.requestFullscreen on the outer
               workstation container. `isFullscreen` flips the icon so the
               user sees they can exit. */}
@@ -1108,13 +1285,17 @@ const TopRibbon: FC<{
           </button>
           <button
             type="button"
-            className="hidden rounded px-3 py-1 text-xs font-bold md:inline-block"
+            disabled
+            title="NSE Intelligence is not a broker â€” connect a partner broker to trade"
+            className="hidden rounded px-3 py-1 text-xs font-bold md:inline-block disabled:cursor-not-allowed disabled:opacity-50"
             style={{ color: COLORS.text, background: COLORS.bg, border: `1px solid ${COLORS.border}` }}
           >
             Trade
           </button>
           <button
             type="button"
+            onClick={() => window.alert(`Publishing trade ideas about ${symbol} to the community feed ships next. Meanwhile, use Snapshot (camera icon) to export the chart as PNG.`)}
+            title="Publish a trading idea about this ticker"
             className="rounded px-3 py-1 text-xs font-bold text-white"
             style={{ background: COLORS.accent }}
           >
@@ -1173,37 +1354,68 @@ const DRAWING_TOOLS: { name: string; label: string }[] = [
   { name: "trash",         label: "Delete all" },
 ];
 
-const LeftDrawingRail: FC = () => {
-  const [active, setActive] = useState<string>("crosshair");
-  // Hidden below md: on phones the 40px rail eats horizontal space that
-  // the chart canvas needs. Drawing tools aren't functional yet anyway;
-  // if we ship a real drawing engine we should surface it via a bottom
-  // sheet or a top-ribbon button on mobile.
+const LeftDrawingRail: FC<{
+  activeTool: string;
+  onActiveToolChange: (t: string) => void;
+  onClearDrawings: () => void;
+  hasDrawings: boolean;
+  drawingsVisible: boolean;
+  onToggleDrawingsVisible: () => void;
+  drawingsLocked: boolean;
+  onToggleDrawingsLocked: () => void;
+}> = ({ activeTool, onActiveToolChange, onClearDrawings, hasDrawings, drawingsVisible, onToggleDrawingsVisible, drawingsLocked, onToggleDrawingsLocked }) => {
+  // Rail is hidden below md; drawing tools drop markers on the chart when
+  // active. Trash is a one-shot action (never becomes the active tool),
+  // lock/eye-off/magnet are toggles that flip their own state and don't
+  // change the active pointer mode.
   return (
     <div
       className="hidden flex-col items-center gap-0.5 py-2 md:flex"
       style={{ background: COLORS.panel, borderRight: `1px solid ${COLORS.border}`, width: 40 }}
     >
-      {DRAWING_TOOLS.map((tool) => (
-        <button
-          key={tool.name}
-          type="button"
-          title={`${tool.label} — drawing tools coming soon`}
-          onClick={() => setActive(tool.name)}
-          className="flex h-8 w-8 items-center justify-center rounded"
-          style={{
-            background: active === tool.name ? COLORS.bg : "transparent",
-            color: active === tool.name ? COLORS.accent : COLORS.muted,
-          }}
-        >
-          <Icon name={tool.name} size={16} />
-        </button>
-      ))}
+      {DRAWING_TOOLS.map((tool) => {
+        const isToggle = tool.name === "lock" || tool.name === "eye-off" || tool.name === "magnet";
+        const isOneShot = tool.name === "trash";
+        const isActive = !isOneShot && !isToggle && activeTool === tool.name;
+        const toggleOn =
+          (tool.name === "lock" && drawingsLocked) ||
+          (tool.name === "eye-off" && !drawingsVisible);
+        const iconName = tool.name === "eye-off" && drawingsVisible ? "eye-off" : tool.name;
+        return (
+          <button
+            key={tool.name}
+            type="button"
+            title={tool.label}
+            disabled={isOneShot && !hasDrawings}
+            onClick={() => {
+              if (isOneShot) {
+                if (hasDrawings && typeof window !== "undefined" && window.confirm("Delete all drawings on this chart?")) {
+                  onClearDrawings();
+                }
+                return;
+              }
+              if (tool.name === "lock") { onToggleDrawingsLocked(); return; }
+              if (tool.name === "eye-off") { onToggleDrawingsVisible(); return; }
+              if (tool.name === "magnet") { /* future: snap-to-OHLC toggle */ return; }
+              onActiveToolChange(tool.name);
+            }}
+            className="flex h-8 w-8 items-center justify-center rounded disabled:cursor-not-allowed disabled:opacity-30"
+            style={{
+              background: isActive || toggleOn ? COLORS.bg : "transparent",
+              color: isActive || toggleOn ? COLORS.accent : COLORS.muted,
+            }}
+          >
+            <Icon name={iconName} size={16} />
+          </button>
+        );
+      })}
     </div>
   );
 };
 
 // ─── Main canvas ────────────────────────────────────────────────────────────
+
+interface Drawing { id: string; tool: string; date: string; price: number; label?: string }
 
 const MainCanvas: FC<{
   data: ChartPoint[];
@@ -1215,7 +1427,32 @@ const MainCanvas: FC<{
   mountRef: React.RefObject<HTMLDivElement | null>;
   alerts: PriceAlert[];
   spanDays: number;
-}> = ({ data, latestPrice, chartType, bid, ask, activeIndicators, mountRef, alerts, spanDays }) => {
+  activeTool: string;
+  drawings: Drawing[];
+  drawingsVisible: boolean;
+  drawingsLocked: boolean;
+  onAddDrawing: (d: Drawing) => void;
+}> = ({ data, latestPrice, chartType, bid, ask, activeIndicators, mountRef, alerts, spanDays, activeTool, drawings, drawingsVisible, drawingsLocked, onAddDrawing }) => {
+  const handleChartClick = (state: unknown) => {
+    if (drawingsLocked) return;
+    if (activeTool === "crosshair" || activeTool === "zoom" || activeTool === "pattern") return;
+    const s = state as { activeLabel?: string; activePayload?: Array<{ payload?: ChartPoint }> } | null;
+    if (!s || !s.activeLabel || !s.activePayload || !s.activePayload[0]?.payload) return;
+    const p = s.activePayload[0].payload;
+    let label: string | undefined;
+    if (activeTool === "text") {
+      const entered = typeof window !== "undefined" ? window.prompt("Label:") : null;
+      if (!entered) return;
+      label = entered;
+    }
+    onAddDrawing({
+      id: `${Date.now()}-${Math.floor(Math.random() * 9999)}`,
+      tool: activeTool,
+      date: p.date,
+      price: p.price,
+      label,
+    });
+  };
   const totalVol = useMemo(() => data.reduce((a, d) => a + d.volume, 0), [data]);
 
   return (
@@ -1263,6 +1500,8 @@ const MainCanvas: FC<{
               data={data}
               margin={{ top: 8, right: 68, bottom: 0, left: 0 }}
               syncId="ws-price-vol"
+              onClick={handleChartClick}
+              style={{ cursor: activeTool !== "crosshair" && !drawingsLocked ? "crosshair" : "default" }}
             >
               <CartesianGrid
                 strokeDasharray="1 4"
@@ -1408,6 +1647,28 @@ const MainCanvas: FC<{
                   } as unknown as string}
                 />
               ))}
+
+              {/* User drawings — each drop-anchor becomes a horizontal
+                  ReferenceLine at that price. Trendline/fib/ruler take
+                  multiple anchors and render as chained horizontals; a full
+                  slope engine ships in a follow-up. */}
+              {drawingsVisible && drawings.map((d) => (
+                <ReferenceLine
+                  key={d.id}
+                  y={d.price}
+                  stroke={COLORS.accent}
+                  strokeDasharray={d.tool === "fib" ? "1 3" : "2 4"}
+                  strokeWidth={1}
+                  label={{
+                    value: d.label ?? `${d.tool} @ ${d.price.toFixed(2)}`,
+                    fill: COLORS.accent,
+                    fontSize: 9,
+                    fontWeight: 600,
+                    position: "insideTopRight",
+                    offset: 4,
+                  } as unknown as string}
+                />
+              ))}
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -1439,25 +1700,17 @@ const MainCanvas: FC<{
                 domain={[0, "dataMax"]}
                 width={62}
               />
-              <Tooltip
-                cursor={{ fill: "rgba(0,0,0,0.03)" }}
-                contentStyle={{
-                  background: COLORS.panel,
-                  border: `1px solid ${COLORS.border}`,
-                  fontSize: 12,
-                  color: COLORS.text,
-                  borderRadius: 4,
-                }}
-                formatter={(value) => [fmtCompact(Number(value)), "Volume"]}
-                labelFormatter={(d) => formatTooltipDate(String(d))}
-              />
+              {/* Volume tooltip removed â€” the price LineChart's tooltip
+                  drives both bands via syncId="ws-price-vol", and a second
+                  Tooltip inside the 15%-tall volume band was pinning to the
+                  strip's top edge (reading as 'stuck bottom-left'). */}
               <Bar
                 dataKey="volume"
                 isAnimationActive={false}
                 maxBarSize={12}
               >
                 {data.map((d, i) => (
-                  <Cell key={i} fill={d.up ? COLORS.volUp : COLORS.volDown} />
+                  <Cell key={i} fill={d.volume > 0 ? (d.up ? COLORS.volUp : COLORS.volDown) : "transparent"} />
                 ))}
               </Bar>
             </BarChart>
@@ -1465,8 +1718,17 @@ const MainCanvas: FC<{
         </div>
       </div>
 
-      {/* TradingView-like watermark bottom-left */}
-      <div className="absolute bottom-2 left-3 flex items-center gap-1 text-[10px]" style={{ color: COLORS.hint }}>
+      {/* Centered low-opacity brand watermark (behind the chart, pointer-events off) */}
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <span
+          className="select-none font-black tracking-[0.15em]"
+          style={{ fontSize: "clamp(28px, 5vw, 64px)", color: COLORS.text, opacity: 0.05 }}
+        >
+          NSE INTELLIGENCE
+        </span>
+      </div>
+      {/* Subtle brand tag pinned bottom-right so it never lands under a tooltip */}
+      <div className="pointer-events-none absolute bottom-2 right-4 flex items-center gap-1 text-[10px]" style={{ color: COLORS.hint }}>
         <span className="font-bold" style={{ color: COLORS.accent }}>NSE</span> Intelligence
       </div>
     </div>
@@ -1955,22 +2217,47 @@ const BottomTimeframeStrip: FC<{
 // library. Names mirror TradingView / Lucide conventions so they're easy to
 // substitute later.
 
-const IconBtn: FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+const IconBtn: FC<{
+  label: string;
+  children: React.ReactNode;
+  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  active?: boolean;
+  disabled?: boolean;
+}> = ({ label, children, onClick, active, disabled }) => (
   <button
     type="button"
     title={label}
-    className="flex h-7 w-7 items-center justify-center rounded hover:bg-slate-100"
-    style={{ color: COLORS.muted }}
+    aria-label={label}
+    onClick={onClick}
+    disabled={disabled}
+    className="flex h-7 w-7 items-center justify-center rounded hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+    style={{
+      color: active ? COLORS.accent : COLORS.muted,
+      background: active ? COLORS.bg : "transparent",
+    }}
   >
     {children}
   </button>
 );
 
-const TextBtn: FC<{ icon?: string; children: React.ReactNode }> = ({ icon, children }) => (
+const TextBtn: FC<{
+  icon?: string;
+  children: React.ReactNode;
+  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  active?: boolean;
+  disabled?: boolean;
+  title?: string;
+}> = ({ icon, children, onClick, active, disabled, title }) => (
   <button
     type="button"
-    className="flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold hover:bg-slate-100"
-    style={{ color: COLORS.text }}
+    onClick={onClick}
+    disabled={disabled}
+    title={title}
+    className="flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+    style={{
+      color: active ? COLORS.accent : COLORS.text,
+      background: active ? COLORS.bg : "transparent",
+    }}
   >
     {icon && <Icon name={icon} size={14} />}
     <span>{children}</span>
