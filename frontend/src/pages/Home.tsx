@@ -1,6 +1,5 @@
 import type { FC } from "react";
 import { Link } from "react-router-dom";
-import { Spinner } from "../components/ui/Spinner";
 import { Card } from "../components/ui/Card";
 import { useMarketOverview } from "../hooks/useMarket";
 import { useCompanies } from "../hooks/useCompanies";
@@ -26,8 +25,32 @@ export const Home: FC = () => {
       </div>
 
       {isLoading && (
-        <div className="flex justify-center py-16">
-          <Spinner size="lg" />
+        // Skeleton cards while the market_overview + companies queries land.
+        // Prior version showed a bare centered spinner for the entire cold
+        // load (~20s on the audited deploy) — the audit flagged that as a
+        // blank page. Skeletons keep the layout stable so nothing jumps.
+        <div className="space-y-6" role="status" aria-live="polite" aria-label="Loading market data">
+          <div className="grid gap-4 sm:grid-cols-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-20 animate-pulse rounded-xl border border-rim bg-raised/40" />
+            ))}
+          </div>
+          <div className="h-64 animate-pulse rounded-xl border border-rim bg-raised/40" />
+          <div className="grid gap-6 lg:grid-cols-3">
+            <div className="space-y-4 lg:col-span-2">
+              <div className="grid gap-4 sm:grid-cols-3">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="h-40 animate-pulse rounded-xl border border-rim bg-raised/40" />
+                ))}
+              </div>
+              <div className="h-72 animate-pulse rounded-xl border border-rim bg-raised/40" />
+            </div>
+            <div className="space-y-4">
+              <div className="h-48 animate-pulse rounded-xl border border-rim bg-raised/40" />
+              <div className="h-64 animate-pulse rounded-xl border border-rim bg-raised/40" />
+            </div>
+          </div>
+          <span className="sr-only">Loading market data…</span>
         </div>
       )}
 

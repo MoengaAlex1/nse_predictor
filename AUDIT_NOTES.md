@@ -69,6 +69,27 @@ The audit refers to minified bundle names; the source equivalents are:
 
 **Straightforward frontend, next up**: 11 side-panel Volume + AVG VOL median (30-min job), 12 sidebar tabs/watchlist (small — need a real watchlist store), 19 useMarketStatus (30 min), 20 signal-count consistency (aligned with 2 backend), 24 company chart range/labels (reuse workstation fixes), 26/27 visual (styling), 28 layout dedup (product decision).
 
+## Fix-prompt session (nse-intelligence-fix-prompt.md)
+
+Follow-up prompt asked for "no empty fields" completeness across every page. Shipped:
+
+| Phase | Item | Status | Note |
+|---|---|---|---|
+| 0 | audit-empty-fields | fixed | `frontend/scripts/audit-empty-fields.mjs`, `npm run audit-empty-fields -- --base https://…`. Needs `npx playwright install chromium` once |
+| 1 | Sidebar Volume "—" | fixed | RightSidebar Volume now reads `latest?.v ?? company?.volume_today ?? null` — freshest RTDB bar first |
+| 1 | Fundamental score 0/6 for missing input | fixed | RadarScoreCard now returns `{value: null, missing: "…"}` per axis; renders "n/a" with tooltip; total shows "X/Y · N of 5 axes scored" |
+| 2 #5 | Market status | fixed | `useMarketStatus` hook + `nse-holidays.json`; TradingWorkstation badge reads "Market closed · last close 25 Sep 2026" outside 09:00-15:00 EAT |
+| 2 #2/#3 | Target math + range order tests | fixed | `src/lib/consistency.test.ts` — 7 tests locking `pct === (target/price - 1)*100` and every range invariant (dayLow ≥ 52wLow, etc.) |
+| 2 #6 | News entities + pluralization | partial | Client-side `decodeEntities` covers &#8211;/&#8217;/&amp;/&quot;; "1 year ago" / "1 month ago" pluralization fixed. Cross-ticker leakage (SGL showing SBIC items) is ingest-side name-substring matching — needs pipeline fix |
+| 3 #13 | Home skeleton loaders | fixed | Replaced bare Spinner with layout-stable skeleton cards + `aria-live` |
+
+Deferred with reason:
+- **CEO / Chairperson / ISIN** — scraping the NSE/IR sites is out (three-vendor lock: GitHub + Firebase + Cloudflare only). Real fix is a Python ingest job with backfill.
+- **BVPS/P/Book/ROE cross-ticker completeness** — partly closed by the broader extractor regex + merge-logic fix (7 new records in the second workflow run). Full recovery needs `--use-ai` Claude fallback with ANTHROPIC_API_KEY (costs money, won't auto-invoke).
+- **Home widgets missing feed / Top BUY signals mismatch** — data-source unification needs the `market_summary/latest` Cloud Function that the audit's original Issue 2 proposed.
+- **Layout removals (Phase 3 #1, #3)** — user's rule "not to remove a feature, only enhance" rules these out.
+- **Auth / alerts-fire / news-feed page** — backend deploys blocked without Firebase secrets.
+
 ## Verification checklist (from Phase 5 of the prompt)
 
 - [ ] Playwright: each toolbar menu visible and clickable at 1280×950 and 390×844

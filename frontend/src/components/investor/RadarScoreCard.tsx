@@ -44,113 +44,79 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
-/**
- * Valuation — trailing P/E vs the sector median.
- *
- *   pe / sectorMedian  <= 0.5  → 6 (deeply undervalued vs peers)
- *   pe / sectorMedian  == 1.0  → 3 (fairly priced)
- *   pe / sectorMedian  >= 2.0  → 0 (rich vs peers)
- *
- * A negative or zero P/E scores 0 because the ratio is meaningless — better
- * to reflect "no signal" than to invert the direction.
+/*
+ * Every score function now returns { value: 0..SCORE_MAX } for a real
+ * score OR { value: null, missing: "…" } when the input required to
+ * compute it isn't available. The card renders "n/a" for null axes and
+ * excludes them from the total's denominator — the prompt's rule was
+ * "never score missing input as 0", because that reads as "worst" and
+ * misleads the viewer.
  */
-function scoreValuation(pe: number | null, sectorMedian: number | null): number {
-  if (pe == null || pe <= 0 || sectorMedian == null || sectorMedian <= 0) return 0;
+type Score = { value: number | null; missing?: string };
+
+function ok(value: number): Score { return { value }; }
+function na(missing: string): Score { return { value: null, missing }; }
+
+function scoreValuation(pe: number | null, sectorMedian: number | null): Score {
+  if (pe == null) return na("EPS missing — can't compute trailing P/E");
+  if (pe <= 0)    return ok(0);   // negative earnings → genuine low score, not missing
+  if (sectorMedian == null || sectorMedian <= 0) return na("Sector median P/E not defined");
   const ratio = pe / sectorMedian;
-  // Linear map: ratio 0.5 → 6, 1.0 → 4, 2.0 → 0
   const s = SCORE_MAX - (ratio - 0.5) * (SCORE_MAX / 1.5);
-  return Math.round(clamp(s, 0, SCORE_MAX));
+  return ok(Math.round(clamp(s, 0, SCORE_MAX)));
 }
 
-/**
- * Health — up-to-3 points for each of: consistently positive EPS in the
- * last 5 reported years, positive latest book value, and a dividend history
- * of any length. Companies that fail all three land at 0 (which is exactly
- * what MSN shows for INTC — negative net income for several years).
- */
-function scoreHealth(financials: FinancialsDoc | null | undefined): number {
+function scoreHealth(financials: FinancialsDoc | null | undefined): Score {
   const recent = (financials?.annual ?? []).slice(0, 5);
-  if (recent.length === 0) return 0;
+  if (recent.length === 0) return na("No annual results on file");
   const positiveEpsYears = recent.filter((a) => (a.eps ?? 0) > 0).length;
   const positiveBvps     = recent.some((a) => (a.bvps ?? 0) > 0);
   const paysDividend     = (financials?.dividends ?? []).length > 0;
-
-  // 0-4 from the EPS history (5 years reweighted to 0-4), 0-1 for BVPS,
-  // 0-1 for dividend history → total 0-6.
   const epsPart = Math.round((positiveEpsYears / recent.length) * 4);
-  return clamp(epsPart + (positiveBvps ? 1 : 0) + (paysDividend ? 1 : 0), 0, SCORE_MAX);
+  return ok(clamp(epsPart + (positiveBvps ? 1 : 0) + (paysDividend ? 1 : 0), 0, SCORE_MAX));
 }
 
-/**
- * Earnings — YoY EPS growth from the two most recent annual results.
- *
- *   growth  >= +20% → 6
- *   growth  ==   0% → 3
- *   growth  <= -20% → 0
- *
- * With linear interpolation between the anchors. No history / negative or
- * zero base → 0.
- */
-function scoreEarnings(financials: FinancialsDoc | null | undefined): number {
+function scoreEarnings(financials: FinancialsDoc | null | undefined): Score {
   const annual = (financials?.annual ?? [])
     .slice()
     .sort((a, b) => b.period_end.localeCompare(a.period_end));
-  if (annual.length < 2) return 0;
+  if (annual.length < 2) return na("Need at least 2 annual results to measure EPS growth");
   const eps1 = annual[0]?.eps;
   const eps0 = annual[1]?.eps;
-  if (eps1 == null || eps0 == null || eps0 <= 0) return 0;
+  if (eps1 == null || eps0 == null) return na("EPS missing in one of the two most recent filings");
+  if (eps0 <= 0) return ok(0);   // recovering from a loss year is a genuine 0
   const growth = (eps1 - eps0) / eps0;
-  // clamp growth to ±0.2 first, then rescale 0.0 → 3, ±0.2 → 6/0
   const g = clamp(growth, -0.2, 0.2);
-  return Math.round(3 + g * 15);
+  return ok(Math.round(3 + g * 15));
 }
 
-/**
- * Growth — YoY revenue growth. Same shape as Earnings but centered on 15%
- * (revenue growth is generally lower-variance than EPS growth so the
- * "full points" band is narrower).
- *
- *   growth  >= +15% → 6
- *   growth  ==   0% → 3
- *   growth  <= -15% → 0
- */
-function scoreGrowth(financials: FinancialsDoc | null | undefined): number {
+function scoreGrowth(financials: FinancialsDoc | null | undefined): Score {
   const annual = (financials?.annual ?? [])
     .slice()
     .sort((a, b) => b.period_end.localeCompare(a.period_end));
-  if (annual.length < 2) return 0;
+  if (annual.length < 2) return na("Need at least 2 annual results to measure revenue growth");
   const r1 = annual[0]?.revenue_kes_mn;
   const r0 = annual[1]?.revenue_kes_mn;
-  if (r1 == null || r0 == null || r0 <= 0) return 0;
+  if (r1 == null || r0 == null) return na("Revenue missing in one of the two most recent filings");
+  if (r0 <= 0) return ok(0);
   const growth = (r1 - r0) / r0;
   const g = clamp(growth, -0.15, 0.15);
-  return Math.round(3 + g * 20);
+  return ok(Math.round(3 + g * 20));
 }
 
-/**
- * Performance — 1-year price return from price_history. The anchor point is
- * the last close on or before the 365-day cutoff; anything earlier than
- * that is not enough history to score against, so returns 0.
- *
- *   1y return  >= +20% → 6
- *   1y return  ==   0% → 3
- *   1y return  <= -20% → 0
- */
-function scorePerformance(company: CompanyDoc): number {
+function scorePerformance(company: CompanyDoc): Score {
   const points = company.price_history ?? [];
-  if (points.length < 2) return 0;
+  if (points.length < 2) return na("Price history too short to compute 1Y return");
   const now = points[points.length - 1].price;
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 365);
   const cutoffStr = cutoff.toISOString().slice(0, 10);
-  // Prefer the last point ON OR BEFORE the cutoff — trims the window to
-  // approximately one year without depending on trading-day counts.
   const before = points.filter((p) => p.date <= cutoffStr);
   const yearAgo = before.length ? before[before.length - 1].price : points[0].price;
-  if (!yearAgo || yearAgo <= 0) return 0;
+  if (!yearAgo || yearAgo <= 0) return na("No valid price 1 year ago");
   const ret = (now - yearAgo) / yearAgo;
   const g = clamp(ret, -0.2, 0.2);
-  return Math.round(3 + g * 15);
+  return ok(Math.round(3 + g * 15));
 }
 
 // ── SVG geometry ────────────────────────────────────────────────────────────
@@ -191,14 +157,17 @@ export const RadarScoreCard: FC<Props> = ({ company, financials, currentPrice })
     : null;
   const sectorMedianPe = SECTOR_MEDIAN_PE[company.sector] ?? null;
 
-  const scores: Record<Dim, number> = {
+  const scores: Record<Dim, Score> = {
     Valuation:   scoreValuation(pe, sectorMedianPe),
     Health:      scoreHealth(financials),
     Earnings:    scoreEarnings(financials),
     Growth:      scoreGrowth(financials),
     Performance: scorePerformance(company),
   };
-  const totalScore = Object.values(scores).reduce((s, v) => s + v, 0);
+  const scoredDims = DIM_ORDER.filter(d => scores[d].value != null);
+  const totalScore = scoredDims.reduce((s, d) => s + (scores[d].value as number), 0);
+  const totalDenominator = scoredDims.length * SCORE_MAX;
+  const missingCount = DIM_ORDER.length - scoredDims.length;
 
   // ── Geometry ─────────────────────────────────────────────────────────
   const n = DIM_ORDER.length;
@@ -214,17 +183,20 @@ export const RadarScoreCard: FC<Props> = ({ company, financials, currentPrice })
 
   const axisEnds = angles.map((a) => polar(a, R));
 
-  const scorePoly = DIM_ORDER.map((dim, i) =>
-    polar(angles[i], (scores[dim] / SCORE_MAX) * R)
-  );
+  // Missing axes render at the center dot (distance 0) so they visibly
+  // "collapse" instead of biasing the polygon toward a mid-value. The
+  // per-axis label calls them out as n/a so the collapsed shape isn't
+  // read as "0/6".
+  const scorePoly = DIM_ORDER.map((dim, i) => {
+    const s = scores[dim].value;
+    return polar(angles[i], (s == null ? 0 : (s / SCORE_MAX) * R));
+  });
   const scorePolyPoints = scorePoly
     .map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`)
     .join(" ");
 
   const labels = DIM_ORDER.map((dim, i) => {
     const [x, y] = polar(angles[i], LABEL_R);
-    // Pick a horizontal text anchor based on which side of the center the
-    // label lands on. `middle` for the top vertex where x ≈ CX.
     const anchor: "end" | "middle" | "start" =
       x < CX - 5 ? "end" : x > CX + 5 ? "start" : "middle";
     return { dim, x, y, anchor, score: scores[dim] };
@@ -237,7 +209,9 @@ export const RadarScoreCard: FC<Props> = ({ company, financials, currentPrice })
           Fundamental Score
         </h3>
         <span className="text-[10px] text-hint">
-          {totalScore}/{SCORE_MAX * n} · each axis 0–{SCORE_MAX}
+          {scoredDims.length === 0
+            ? "insufficient data"
+            : `${totalScore}/${totalDenominator} · ${scoredDims.length} of ${DIM_ORDER.length} axes scored`}
         </span>
       </div>
 
@@ -297,7 +271,10 @@ export const RadarScoreCard: FC<Props> = ({ company, financials, currentPrice })
             />
           ))}
 
-          {/* Axis labels (dimension name + score) around the outside */}
+          {/* Axis labels (dimension name + score) around the outside.
+              For missing axes, render "n/a" with a native title tooltip
+              explaining WHY it's missing — the prompt's rule was
+              "never score missing input as 0". */}
           {labels.map(({ dim, x, y, anchor, score }) => (
             <g key={dim}>
               <text
@@ -315,15 +292,27 @@ export const RadarScoreCard: FC<Props> = ({ company, financials, currentPrice })
                 y={(y + 12).toFixed(1)}
                 textAnchor={anchor}
                 dominantBaseline="middle"
-                className="fill-hint font-mono"
+                className={score.value == null ? "fill-hint" : "fill-hint font-mono"}
                 style={{ fontSize: "10px" }}
               >
-                {score}/{SCORE_MAX}
+                {score.value == null
+                  ? <title>{score.missing ?? "insufficient data"}</title>
+                  : null}
+                {score.value == null ? "n/a" : `${score.value}/${SCORE_MAX}`}
               </text>
             </g>
           ))}
         </svg>
       </div>
+
+      {missingCount > 0 && (
+        <p className="mt-2 text-[10px] leading-relaxed text-hint">
+          {missingCount} axis{missingCount === 1 ? "" : "es"} shown as{" "}
+          <span className="font-mono">n/a</span> — hover the label for the
+          missing input. The score reflects only the axes where the input
+          data is present, not zero-filled placeholders.
+        </p>
+      )}
     </div>
   );
 };

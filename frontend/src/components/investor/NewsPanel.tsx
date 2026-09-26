@@ -32,8 +32,32 @@ function daysAgo(dateStr: string): string {
   if (diff === 0) return "Today";
   if (diff === 1) return "Yesterday";
   if (diff < 30) return `${diff} days ago`;
-  if (diff < 365) return `${Math.round(diff / 30)} months ago`;
-  return `${Math.round(diff / 365)} years ago`;
+  if (diff < 365) {
+    const m = Math.round(diff / 30);
+    return `${m} month${m === 1 ? "" : "s"} ago`;
+  }
+  const y = Math.round(diff / 365);
+  return `${y} year${y === 1 ? "" : "s"} ago`;
+}
+
+// Ingest sometimes stores titles with HTML entities intact (&#8211;, &amp;,
+// &quot;, &#8217;). Decode them client-side so the panel renders "H1 –
+// 2024" instead of "H1 &#8211; 2024". Small helper — a full DOMParser
+// pass is overkill and would strip whitespace.
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#039;/g, "'")
+    .replace(/&#8217;/g, "’")   // right single quote
+    .replace(/&#8216;/g, "‘")   // left single quote
+    .replace(/&#8220;/g, "“")   // left double quote
+    .replace(/&#8221;/g, "”")   // right double quote
+    .replace(/&#8211;/g, "–")   // en dash
+    .replace(/&#8212;/g, "—")   // em dash
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
 }
 
 function mergeAndDeduplicate(financials: FinancialsDoc | null | undefined, newsItems: NewsItem[]): NewsItem[] {
@@ -133,10 +157,10 @@ export const NewsPanel: FC<Props> = ({ financials, newsItems }) => {
                 </span>
               </div>
 
-              <p className="text-sm font-medium text-ink">{item.title}</p>
+              <p className="text-sm font-medium text-ink">{decodeEntities(item.title)}</p>
 
               {openId === item.id && item.body && (
-                <p className="mt-2 text-sm leading-relaxed text-sub">{item.body}</p>
+                <p className="mt-2 text-sm leading-relaxed text-sub">{decodeEntities(item.body)}</p>
               )}
 
               <div className="mt-2 flex flex-wrap items-center gap-3">
