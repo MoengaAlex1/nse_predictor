@@ -13,6 +13,11 @@ import { RecentTickersStrip } from "./RecentTickersStrip";
 const NAV_LINKS = [
   { label: "Markets",  to: "/companies", disabled: false },
   { label: "Screener", to: "/screener",  disabled: false },
+  // News + Calendar pages don't ship yet — link them to /companies so
+  // clicks go somewhere sensible instead of dead links. Marked disabled
+  // in the DEFAULT variant (grey-out), but shown as regular links in
+  // the workstation variant to match the visual density in the user's
+  // preferred layout screenshot. Follow-up: build the pages.
   { label: "News",     to: "/companies", disabled: true  },
   { label: "Calendar", to: "/companies", disabled: true  },
 ];
@@ -57,14 +62,26 @@ export const AppShell: FC<AppShellProps> = ({ children, variant = "default" }) =
           <div className="mx-auto flex h-full max-w-none items-center justify-between px-3 sm:px-4">
             <div className="flex items-center gap-3">
               <NseLogo />
-              {/* Compact primary nav — three shortcut links so users can
-                  get back to Home / Screener / Markets without extra
-                  vertical rows. Hidden on narrow widths. */}
+              {/* Full primary nav — Markets / Screener / News / Calendar.
+                  News + Calendar link to /companies until their own
+                  pages ship, shown with a "soon" title so users don't
+                  read them as dead. Matches the preferred layout
+                  screenshot the user marked as canonical. */}
               <nav className="hidden items-center gap-4 md:flex" aria-label="Main navigation">
-                {NAV_LINKS.filter(l => !l.disabled).map(({ label, to }) => (
-                  <NavLink key={label} to={to} className={navLinkCls}>
-                    {label}
-                  </NavLink>
+                {NAV_LINKS.map(({ label, to, disabled }) => (
+                  disabled ? (
+                    <span
+                      key={label}
+                      className="cursor-not-allowed text-sm font-medium text-hint"
+                      title="Coming soon — dedicated page in build"
+                    >
+                      {label}
+                    </span>
+                  ) : (
+                    <NavLink key={label} to={to} className={navLinkCls}>
+                      {label}
+                    </NavLink>
+                  )
                 ))}
               </nav>
             </div>
@@ -85,6 +102,11 @@ export const AppShell: FC<AppShellProps> = ({ children, variant = "default" }) =
             </div>
           </div>
         </header>
+        {/* Live ticker tape strip — 60s-refreshed price row across every
+            index/ticker. Was only on the default shell; the preferred
+            layout puts it on the workstation too so switching between
+            /company and /chart routes doesn't lose the market context. */}
+        <TickerTape />
         <main className="flex-1">{children}</main>
         <MobileNav isOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
       </div>

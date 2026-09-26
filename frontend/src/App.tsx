@@ -35,7 +35,21 @@ function CanonicalTicker({ base, children }: { base: string; children: React.Rea
   }
   return <>{children}</>;
 }
+
+// One-way redirect from the legacy /company/{ticker} URL to the
+// canonical /chart/{ticker} workstation. Preserves the ticker (with
+// suffix normalisation via toBase) so bookmarks and cross-app links
+// keep working.
+function CompanyToChartRedirect() {
+  const { ticker: raw = "" } = useParams<{ ticker: string }>();
+  const canonical = toBase(raw);
+  return <Navigate to={canonical ? `/chart/${canonical}` : "/companies"} replace />;
+}
 void TickerRedirect;
+// CompanyDeepDive is retained in the codebase as a component library
+// even though its route now redirects — InvestorChart re-uses several
+// of its cards (Financials, Valuation, etc.) inline below the chart.
+void CompanyDeepDive;
 
 export default function App() {
   useEffect(() => {
@@ -54,13 +68,17 @@ export default function App() {
       >
         <Route path="/" element={<Home />} />
         <Route path="/companies" element={<Companies />} />
+        {/* /company/{ticker} used to render a separate CompanyDeepDive
+            layout — the audit found users bounced between /company and
+            /chart with no clear reason for the two views. Both now
+            land on the workstation. Redirect preserves the ticker
+            path and normalises the suffix (/company/ABSA.NR ->
+            /chart/ABSA). CompanyDeepDive stays in the codebase as
+            a component so its unique sections can be reused inline
+            in the workstation page below. */}
         <Route
           path="/company/:ticker"
-          element={
-            <CanonicalTicker base="/company">
-              <CompanyDeepDive />
-            </CanonicalTicker>
-          }
+          element={<CompanyToChartRedirect />}
         />
         <Route path="/screener" element={<Screener />} />
       </Route>
