@@ -463,9 +463,16 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         # graceful no-op (snapshot ships without horizon_predictions,
         # frontend falls back to the ARIMA long forecast).
         try:
-            mhgbm_models, mhgbm_meta = load_multi_horizon(ticker, MODELS_TMP)
+            # train_multi_horizon saves with `company["short"]` (e.g.
+            # "ABSA"), but `ticker` in this loop is the display form
+            # ("ABSA.NR") — load_multi_horizon's ticker.replace(".", "_")
+            # then looked for ABSA_NR_mhgbm_meta.json which never exists.
+            # That's why the earlier run wrote 51 snapshots with
+            # forecast_long but no horizon_predictions.
+            mhgbm_key = company["short"]
+            mhgbm_models, mhgbm_meta = load_multi_horizon(mhgbm_key, MODELS_TMP)
             if not mhgbm_models:
-                mhgbm_models, mhgbm_meta = load_multi_horizon(ticker, MODELS_DIR)
+                mhgbm_models, mhgbm_meta = load_multi_horizon(mhgbm_key, MODELS_DIR)
             if mhgbm_models:
                 # Build the fundamental feature row for TODAY. Fetch the
                 # docs; the signal path above already touched financials

@@ -90,4 +90,3 @@ jobs:
           # into each snapshot. Firestore writes work even when Storage
           # doesn't — Firebase Storage 403 doesn't block this path.
           python pipeline/scripts/run_inference.py
-          "
