@@ -37,7 +37,7 @@ if str(PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINE_ROOT))
 
 from config import load_companies, MODELS_DIR
-from src.data.fetcher import load_nse_ticker, NSE_ARCHIVE_DIR
+from src.data.fetcher import fetch_nse_data
 from src.data.cleaner import clean_ohlcv
 from src.analysis.returns import daily_return_analysis
 from src.analysis.moving_averages import compute_moving_averages
@@ -93,9 +93,13 @@ def train_one(ticker: str, min_days: int) -> dict | None:
     short = company["short"]
 
     try:
-        raw_df = load_nse_ticker(ticker, archive_dir=NSE_ARCHIVE_DIR)
+        # CI-safe source: fetch_nse_data pulls from RTDB (or a local CSV
+        # if one is present in the runner's tmpfs). The archive-based
+        # loader used in local dev needs Downloads/archive to exist,
+        # which the GitHub Actions runner doesn't have.
+        raw_df = fetch_nse_data(ticker, csv_path=None)
     except Exception as e:  # noqa: BLE001
-        log.warning("%s: no archive data (%s)", short, e)
+        log.warning("%s: no price data (%s)", short, e)
         return None
 
     try:
