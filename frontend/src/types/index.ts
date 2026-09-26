@@ -91,6 +91,25 @@ export interface SnapshotDoc {
   forecast_long?: number[];
   forecast_long_dates?: string[];
   forecast_lstm_boundary_day?: number;
+
+  // Multi-horizon LightGBM predictions (direct multi-step). Emitted by
+  // run_inference when the train_multi_horizon workflow has produced a
+  // model for the ticker. Each entry is one calibrated prediction PLUS
+  // the walk-forward backtest MAPE so the UI can render a per-horizon
+  // confidence badge (e.g. "3M · +4.2% · ±5.2% MAPE"). Optional
+  // because pre-migration snapshots and tickers without enough history
+  // won't have it.
+  horizon_predictions?: Record<
+    string,
+    {
+      horizon_days: number;
+      pct_return: number;    // signed percent, e.g. +4.15 or -2.30
+      target_price: number;
+      mape: number | null;
+      direction_hit: number | null;   // 0..1 fraction
+    }
+  >;
+  horizon_predictions_trained_at?: string;
   recent_mape?: number;
   recent_direction_acc?: number;
   signal_reasons?: string[];

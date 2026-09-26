@@ -1,0 +1,73 @@
+name: Train multi-horizon LightGBM (1M/3M/6M/9M/12M)
+
+# Fits per-ticker LightGBM regressors for direct-step price prediction
+# at 5 horizons. Uses price + fundamental + announcement features so
+# the model has real signal for mid/long horizons (the old ARIMA-only
+# fallback mean-reverts).
+#
+# Runs weekly on Sunday 03:00 UTC (before the Sunday disclosure ingest)
+# plus workflow_dispatch for retraining after schema changes.
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"      # Sunday 03:00 UTC = 06:00 EAT
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: "Space-separated tickers (blank = all)"
+        required: false
+        default: ""
+      min_days:
+        description: "Skip tickers with fewer trading days"
+        required: false
+        default: "400"
+
+concurrency:
+  group: train-multi-horizon
+  cancel-in-progress: false
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - run: pip install -r pipeline/requirements.txt
+
+      - name: Train
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL:             ${{ secrets.FIREBASE_RTDB_URL }}
+          FIREBASE_STORAGE_BUCKET:       ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          ARGS="--min-days ${{ github.event.inputs.min_days || '400' }}"
+          if [ -n "${{ github.event.inputs.tickers }}" ]; then
+            ARGS="$ARGS --tickers ${{ github.event.inputs.tickers }}"
+          fi
+          python pipeline/scripts/train_multi_horizon.py $ARGS
+
+      - name: Upload models to Firebase Storage
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_STORAGE_BUCKET:       ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          # Push the per-horizon .pkl and _meta.json files to Storage so
+          # run_inference can download them at inference time. Reuses
+          # the same upload helper the LSTM/XGB models use.
+          python -c "
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'pipeline')
+          sys.path.insert(0, '.')
+          from pipeline.scripts.push_to_firestore import upload_model_to_storage
+          for p in sorted(Path('pipeline/models').glob('*_mhgbm_*')):
+              ok = upload_model_to_storage(str(p), f'models/{p.name}')
+              print(('ok' if ok else 'FAIL'), p.name)
+          "

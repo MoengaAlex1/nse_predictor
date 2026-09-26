@@ -45,6 +45,10 @@ from src.features.engineer import (
     build_feature_matrix, select_top_features,
     save_feature_cols, load_feature_cols,
 )
+from src.features.fundamental_features import add_fundamental_columns, FUNDAMENTAL_COLUMNS
+from src.models.multi_horizon_gbm import (
+    load_multi_horizon, predict_multi_horizon, HORIZONS as MHGBM_HORIZONS,
+)
 from src.models.lstm_model import (
     NSELSTMModel, train_lstm, save_lstm,
     lstm_predict, lstm_predict_next, lstm_forecast_30d,
@@ -106,6 +110,20 @@ def _download_models(safe: str) -> bool:
         if not ok:
             log.warning("Not found in Storage: %s", fname)
             all_ok = False
+    # Multi-horizon LightGBM artifacts — best-effort. Absent until the
+    # train_multi_horizon workflow runs; run_inference silently skips
+    # horizon_predictions when they're missing.
+    for key in ("1M", "3M", "6M", "9M", "12M"):
+        for suffix in (f"_mhgbm_{key}.pkl",):
+            fname = f"{safe}{suffix}"
+            download_model_from_storage(
+                storage_path=f"models/{fname}",
+                local_path=str(MODELS_TMP / fname),
+            )
+    download_model_from_storage(
+        storage_path=f"models/{safe}_mhgbm_meta.json",
+        local_path=str(MODELS_TMP / f"{safe}_mhgbm_meta.json"),
+    )
     return all_ok
 
 
@@ -437,6 +455,66 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
             # without re-fetching / re-computing.
             "intraday_features": intraday_features,
         }
+
+        # ── 8b. Multi-horizon predictions (LightGBM direct-multi-step) ───────
+        # One LightGBM per horizon (1M/3M/6M/9M/12M) trained on price +
+        # fundamentals + announcements. Loaded lazily — if the training
+        # job hasn't run yet the models are absent and this block is a
+        # graceful no-op (snapshot ships without horizon_predictions,
+        # frontend falls back to the ARIMA long forecast).
+        try:
+            mhgbm_models, mhgbm_meta = load_multi_horizon(ticker, MODELS_TMP)
+            if not mhgbm_models:
+                mhgbm_models, mhgbm_meta = load_multi_horizon(ticker, MODELS_DIR)
+            if mhgbm_models:
+                # Build the fundamental feature row for TODAY. Fetch the
+                # docs; the signal path above already touched financials
+                # so it's usually warm in the client cache.
+                _fin = {}
+                _fund = {}
+                _macro = {}
+                try:
+                    _db = get_db()
+                    fd = _db.collection("financials").document(company["short"]).get()
+                    if fd.exists: _fin = fd.to_dict() or {}
+                    ff = _db.collection("fundamentals").document(company["short"]).get()
+                    if ff.exists: _fund = ff.to_dict() or {}
+                    fm = _db.collection("macro").document("kenya").get()
+                    if fm.exists: _macro = fm.to_dict() or {}
+                except Exception as _e:
+                    log.warning("%s: fundamentals fetch for mhgbm failed: %s", ticker, _e)
+
+                mhgbm_frame = feature_df.tail(1).copy()
+                add_fundamental_columns(mhgbm_frame, _fin, _fund, _macro)
+                # Align to the model's expected column order. Every model
+                # was trained with (feature_cols + FUNDAMENTAL_COLUMNS);
+                # if a fundamental column is missing on a fresh ticker,
+                # add it with -1 sentinel so LightGBM doesn't crash.
+                mhgbm_cols = list(feature_cols) + FUNDAMENTAL_COLUMNS
+                for c in mhgbm_cols:
+                    if c not in mhgbm_frame.columns:
+                        mhgbm_frame[c] = -1.0
+                mhgbm_row = mhgbm_frame[mhgbm_cols]
+
+                preds = predict_multi_horizon(mhgbm_models, mhgbm_row, current_price)
+                horizon_predictions = {}
+                per_horizon_meta = (mhgbm_meta or {}).get("horizons", {})
+                for key, res in preds.items():
+                    hm = per_horizon_meta.get(key, {})
+                    horizon_predictions[key] = {
+                        "horizon_days": MHGBM_HORIZONS[key],
+                        "pct_return":   round(res["pct_return"] * 100.0, 3),
+                        "target_price": round(res["target_price"], 4),
+                        # Backtest metrics so the frontend can render a
+                        # per-horizon confidence badge ("±5.2% MAPE").
+                        "mape":          hm.get("mape"),
+                        "direction_hit": hm.get("direction_hit"),
+                    }
+                if horizon_predictions:
+                    snapshot["horizon_predictions"] = horizon_predictions
+                    snapshot["horizon_predictions_trained_at"] = (mhgbm_meta or {}).get("trained_at")
+        except Exception as _e:
+            log.warning("%s: multi-horizon inference skipped: %s", ticker, _e)
 
         # Canonical change_pct_today formula — shared with push_intraday_prices
         # and run_daily_update. Uses the last two DISTINCT closes so a

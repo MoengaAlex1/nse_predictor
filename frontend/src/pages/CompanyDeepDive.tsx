@@ -188,6 +188,12 @@ const ForecastPanel: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => {
   const [horizonKey, setHorizonKey] = useState<string>("1M");
   const active = HORIZON_OPTIONS.find(o => o.key === horizonKey) ?? HORIZON_OPTIONS[0];
   const hasLong = !!snapshot.forecast_long?.length;
+  // LightGBM direct-multi-step prediction for this horizon (populated
+  // once train_multi_horizon.yml has run). Distinct from the ARIMA
+  // green-zone trajectory — this is a single calibrated point estimate
+  // sourced from fundamentals + technicals, so it can differ from where
+  // the ARIMA curve lands and that difference is informative.
+  const mhPred = snapshot.horizon_predictions?.[horizonKey] ?? null;
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-800 bg-[#0d1117]">
@@ -200,6 +206,9 @@ const ForecastPanel: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => {
             Dashed line = today · Green zone = forward projection
             {hasLong && active.days > 30 && (
               <span> · Past day 30 uses ARIMA-only (LSTM accuracy degrades past ~10 bars)</span>
+            )}
+            {mhPred && (
+              <span> · LightGBM point estimate uses earnings + announcements + technicals</span>
             )}
           </p>
         </div>
@@ -226,6 +235,44 @@ const ForecastPanel: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => {
           })}
         </div>
       </div>
+
+      {/* LightGBM point estimate band. Renders only for horizons where a
+          trained model exists on this snapshot — silently absent
+          otherwise, so a ticker without enough history / a fresh listing
+          doesn't get a misleading placeholder. */}
+      {mhPred && (
+        <div className="flex flex-wrap items-baseline gap-4 border-b border-slate-800 px-4 py-2.5 text-[11px]">
+          <span className="uppercase tracking-wider text-slate-500">
+            {horizonKey} target
+          </span>
+          <span className="font-mono text-base font-semibold text-slate-100">
+            KES {mhPred.target_price.toFixed(2)}
+          </span>
+          <span
+            className={`font-mono font-semibold ${
+              mhPred.pct_return >= 0 ? "text-emerald-400" : "text-red-400"
+            }`}
+          >
+            {mhPred.pct_return >= 0 ? "+" : ""}
+            {mhPred.pct_return.toFixed(2)}%
+          </span>
+          <span className="text-slate-500">
+            over {mhPred.horizon_days} trading days
+          </span>
+          {mhPred.mape != null && (
+            <span
+              className="ml-auto rounded border border-slate-700 bg-slate-800/60 px-1.5 py-0.5 font-mono text-[10px] text-slate-400"
+              title="Walk-forward backtest MAPE — how far off the model was on unseen recent history."
+            >
+              ±{mhPred.mape.toFixed(1)}% MAPE
+              {mhPred.direction_hit != null && (
+                <span> · direction hit {(mhPred.direction_hit * 100).toFixed(0)}%</span>
+              )}
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="px-1 pb-3 pt-1">
         <PredictionChart
           actuals={snapshot.actuals}
