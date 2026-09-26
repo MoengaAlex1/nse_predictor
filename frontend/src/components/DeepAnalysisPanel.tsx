@@ -56,11 +56,35 @@ export function DeepAnalysisPanel({ ticker }: { ticker: string }) {
   }
 
   if (isError) {
-    return <div className="text-red-500 text-sm p-4">Failed to load analysis.</div>;
+    // Real transport failure — the hook already collapses permission-denied
+    // / not-found into null. Give the user a retry rather than a dead red
+    // banner.
+    return (
+      <div className="rounded-xl border border-rim bg-surface p-4">
+        <p className="text-sm text-sub">
+          Couldn't reach the deep-analysis service for {ticker}.
+          {" "}
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="underline hover:text-ink"
+          >
+            Retry
+          </button>
+        </p>
+      </div>
+    );
   }
 
   if (!data) {
-    return <div className="text-gray-400 text-sm p-4">No analysis available yet.</div>;
+    return (
+      <div className="rounded-xl border border-rim bg-surface p-4">
+        <p className="text-sm text-hint">
+          No deep analysis for {ticker} yet. The generator runs after each
+          fresh scored snapshot; check back after the next model run.
+        </p>
+      </div>
+    );
   }
 
   const driverBadge = DRIVER_BADGE[data.driver_type] ?? "bg-slate-700/60 text-slate-300 border-slate-600";

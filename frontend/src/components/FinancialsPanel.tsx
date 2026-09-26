@@ -68,8 +68,37 @@ export function FinancialsPanel({ ticker }: { ticker: string }) {
   const { data, isLoading, isError } = useFinancials(ticker);
 
   if (isLoading) return <div className="p-4 text-sm text-gray-500">Loading financials…</div>;
-  if (isError) return <div className="text-red-500 text-sm p-4">Failed to load financials.</div>;
-  if (!data) return <div className="p-4 text-sm text-gray-400">No financial data available yet.</div>;
+  // isError only fires now for genuine transport failures (see useFinancials
+  // — permission-denied / not-found collapse into null so ingest gaps
+  // render an empty state instead of a red error banner).
+  if (isError) {
+    return (
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+        <p className="text-sm text-gray-500">
+          Couldn't reach the financial statements service for {ticker}.
+          {" "}
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="underline hover:text-gray-700 dark:hover:text-gray-300"
+          >
+            Retry
+          </button>
+        </p>
+      </div>
+    );
+  }
+  if (!data) {
+    return (
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+        <p className="text-sm text-gray-400">
+          No statement data yet for {ticker}. Financials are ingested from the
+          latest published PDF; this ticker's most recent report hasn't been
+          processed yet.
+        </p>
+      </div>
+    );
+  }
 
   const section = getSection(data, SECTION_MAP[tab]);
 

@@ -16,7 +16,10 @@ export function FinancialNarrativeCard({ ticker }: { ticker: string }) {
   const [expanded, setExpanded] = useState<NarrativeKey | null>(null);
 
   if (isLoading) return null;
-  if (isError) return <div className="text-red-500 text-sm p-4">Failed to load analysis.</div>;
+  // isError: real transport failure only (hook collapses benign codes to
+  // null). Render nothing on the narrative card so the page's other
+  // financial sections still show — narrative is supplementary.
+  if (isError) return null;
   if (!data) return null;
 
   return (
