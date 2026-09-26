@@ -23,9 +23,9 @@ function filterCompanies(companies: CompanyDoc[], query: string): CompanyDoc[] {
   return companies
     .filter(
       c =>
-        c.ticker.toLowerCase().includes(q) ||
-        c.short.toLowerCase().includes(q) ||
-        c.name.toLowerCase().includes(q),
+        (c.ticker ?? "").toLowerCase().includes(q) ||
+        (c.short ?? "").toLowerCase().includes(q) ||
+        (c.name ?? "").toLowerCase().includes(q),
     )
     .slice(0, 6);
 }

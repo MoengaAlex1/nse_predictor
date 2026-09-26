@@ -843,7 +843,7 @@ const TopRibbon: FC<{
     const q = searchQuery.trim().toLowerCase();
     if (!q) return allCompanies.slice(0, 8);
     return allCompanies
-      .filter(c => c.short.toLowerCase().includes(q) || c.name.toLowerCase().includes(q))
+      .filter(c => (c.short ?? "").toLowerCase().includes(q) || (c.name ?? "").toLowerCase().includes(q))
       .slice(0, 8);
   }, [allCompanies, searchQuery]);
 
@@ -976,7 +976,7 @@ const TopRibbon: FC<{
                   .filter(c => {
                     const q = addSymbolQuery.trim().toLowerCase();
                     if (!q) return true;
-                    return c.short.toLowerCase().includes(q) || c.name.toLowerCase().includes(q);
+                    return (c.short ?? "").toLowerCase().includes(q) || (c.name ?? "").toLowerCase().includes(q);
                   })
                   .slice(0, 8)
                   .map(c => (

@@ -99,9 +99,9 @@ export const CompareControls: FC<CompareControlsProps> = ({
         .filter((c) => {
           const q = query.toLowerCase();
           return (
-            c.ticker.toLowerCase().includes(q) ||
-            c.short.toLowerCase().includes(q) ||
-            c.name.toLowerCase().includes(q)
+            (c.ticker ?? "").toLowerCase().includes(q) ||
+            (c.short ?? "").toLowerCase().includes(q) ||
+            (c.name ?? "").toLowerCase().includes(q)
           );
         })
         .slice(0, 6)

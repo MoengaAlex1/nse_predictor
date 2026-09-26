@@ -339,9 +339,9 @@ export const Companies: FC = () => {
       const q = search.toLowerCase();
       const matchSearch =
         !q ||
-        c.name.toLowerCase().includes(q) ||
-        c.short.toLowerCase().includes(q) ||
-        c.ticker.toLowerCase().includes(q);
+        (c.name ?? "").toLowerCase().includes(q) ||
+        (c.short ?? "").toLowerCase().includes(q) ||
+        (c.ticker ?? "").toLowerCase().includes(q);
       const matchSector = sector === "All" || c.sector === sector;
       return matchSearch && matchSector;
     });
