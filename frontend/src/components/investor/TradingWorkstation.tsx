@@ -596,7 +596,10 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
   return (
     <div
       ref={containerRef}
-      className="w-full overflow-hidden rounded-none border-y"
+      // overflow-visible so top-ribbon dropdowns (timeframe, chart type,
+      // indicators, layout, hamburger, alerts) aren't clipped. The audit
+      // circled every menu as "opens in DOM but invisible" — that clip.
+      className="w-full overflow-visible rounded-none border-y"
       style={{ background: COLORS.bg, borderColor: COLORS.border, color: COLORS.text }}
     >
       <TopRibbon
@@ -789,10 +792,12 @@ const TopRibbon: FC<{
   return (
     <div className="flex flex-col" style={{ borderBottom: `1px solid ${COLORS.border}`, background: COLORS.panel }}>
       {/* Top row: symbol search + timeframe + chart type + tools + right-side utilities.
-          overflow-x-auto so a very narrow viewport keeps everything reachable
-          via horizontal scroll instead of clipping. Tighter gap+padding on
-          phones so more controls fit before scroll kicks in. */}
-      <div className="flex items-center gap-1 overflow-x-auto px-2 py-1 whitespace-nowrap sm:gap-2 sm:px-3" style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+          overflow-x-auto ONLY on narrow viewports so the toolbar stays reachable
+          via horizontal scroll on phones. From md+ we switch to overflow-visible
+          so absolute-positioned dropdowns aren't clipped — the audit found
+          every dropdown was invisible because overflow-x-auto sets overflow-y
+          to auto too, hiding menu items below the ribbon. */}
+      <div className="flex items-center gap-1 overflow-x-auto md:overflow-visible px-2 py-1 whitespace-nowrap sm:gap-2 sm:px-3" style={{ borderBottom: `1px solid ${COLORS.border}` }}>
         {/* Hamburger — global app menu */}
         <div ref={appMenuRef} className="relative">
           <IconBtn label="Menu" active={appMenuOpen} onClick={() => setAppMenuOpen(v => !v)}><Icon name="menu" /></IconBtn>
