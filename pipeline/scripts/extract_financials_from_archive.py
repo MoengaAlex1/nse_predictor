@@ -287,8 +287,29 @@ def _period_label(period_type: str, period_end: str | None) -> str:
     return f"{year}-{month}"
 
 
-def _merge_into_ticker(db, ticker: str, records: list[dict], dry_run: bool) -> tuple[int, int]:
-    """Merge records into financials/{ticker}. Returns (annual_added, interim_added)."""
+_METRIC_KEYS = ("revenue_kes_mn", "net_income_kes_mn", "eps", "bvps", "dps_kes")
+
+
+def _metric_count(r: dict) -> int:
+    """How many of the 5 headline metrics this record actually has."""
+    return sum(1 for k in _METRIC_KEYS if r.get(k) is not None)
+
+
+def _merge_into_ticker(db, ticker: str, records: list[dict], force: bool, dry_run: bool) -> tuple[int, int]:
+    """Merge records into financials/{ticker}. Returns (annual_added, interim_added).
+
+    Update rules (an "update" is anything that changes the stored doc):
+      1. Same period_end doesn't exist yet → insert.
+      2. `force=True` → field-level backfill: for each metric key, if the
+         new value is not-None AND either the existing value is None OR
+         the new record was extracted from a newer disclosure, take the
+         new one. Never wipes a good field with None.
+      3. Higher confidence tier → the historic behaviour, still applies.
+      4. Same confidence but MORE non-null metrics → merge in the new
+         non-null values. This is the case the earlier code missed:
+         a record with 3 metrics + new BVPS should update even if the
+         confidence tier hasn't jumped from "high" to something above.
+    """
     if not records:
         return 0, 0
     doc_ref = db.collection("financials").document(ticker)
@@ -300,25 +321,57 @@ def _merge_into_ticker(db, ticker: str, records: list[dict], dry_run: bool) -> t
 
     added = {"annual": 0, "interim": 0}
 
+    def _backfill(prev: dict, rec: dict) -> dict | None:
+        """Field-level backfill. Returns the merged dict when at least one
+        field materially changed; None when nothing new to write."""
+        changed = False
+        merged = dict(prev)
+        for k in _METRIC_KEYS:
+            new_val = rec.get(k)
+            if new_val is None:
+                continue
+            if prev.get(k) is None:
+                merged[k] = new_val
+                changed = True
+        # Refresh the provenance fields so debugging shows which run last
+        # touched the record, but only when we actually changed something.
+        if changed:
+            for k in ("source_disclosure_sha", "source_url", "extraction_method",
+                      "confidence", "extracted_at", "period"):
+                if rec.get(k) is not None:
+                    merged[k] = rec[k]
+        return merged if changed else None
+
     for rec in records:
         bucket_key = "annual" if rec["period_type"] == "annual" else "interim"
         period_end = rec.get("period_end")
         if not period_end:
             continue
 
-        # Find existing record with same period_end, prefer higher confidence.
         bucket = existing[bucket_key]
         idx = next((i for i, r in enumerate(bucket)
                     if isinstance(r, dict) and r.get("period_end") == period_end), None)
         if idx is None:
             bucket.append(rec)
             added[bucket_key] += 1
-        else:
-            prev = bucket[idx]
-            if _confidence_rank(rec["confidence"]) > _confidence_rank(prev.get("confidence", "low")):
-                # Preserve any hand-curated fields the prior record had that
-                # the new one doesn't (e.g. period, notes).
-                merged = {**prev, **{k: v for k, v in rec.items() if v is not None or k not in prev}}
+            continue
+
+        prev = bucket[idx]
+        # Rule 3: higher confidence tier → adopt the whole new record (but
+        # preserve any hand-curated / provenance fields the previous had).
+        if _confidence_rank(rec["confidence"]) > _confidence_rank(prev.get("confidence", "low")):
+            merged = {**prev, **{k: v for k, v in rec.items() if v is not None or k not in prev}}
+            bucket[idx] = merged
+            added[bucket_key] += 1
+            continue
+
+        # Rule 2/4: same or lower confidence — if the new record adds any
+        # non-null field the previous was missing (or `--force` is set),
+        # do a field-level backfill. This is what makes a re-run with the
+        # broader BVPS regex actually reach previously-null-BVPS records.
+        if force or _metric_count(rec) > _metric_count(prev):
+            merged = _backfill(prev, rec)
+            if merged is not None:
                 bucket[idx] = merged
                 added[bucket_key] += 1
 
@@ -369,7 +422,7 @@ def process_ticker(db, ticker: str, use_ai: bool, force: bool, dry_run: bool) ->
         records.append(_to_record(r, item))
         stats["extracted"] += 1
 
-    annual_added, interim_added = _merge_into_ticker(db, ticker, records, dry_run)
+    annual_added, interim_added = _merge_into_ticker(db, ticker, records, force, dry_run)
     stats["annual_added"] = annual_added
     stats["interim_added"] = interim_added
     return stats
