@@ -145,14 +145,18 @@ def _train_one_horizon(
     model.fit(X_tr, y_tr, eval_set=[(X_te, y_te)], callbacks=[lgb.early_stopping(30, verbose=False)])
 
     pred = model.predict(X_te)
-    # MAPE on absolute pct-return magnitude — divides by |y| so a
-    # 0-return day doesn't dominate. Use max(1e-4, |y|) to avoid inf.
-    denom = np.maximum(np.abs(y_te.values), 1e-4)
-    mape = float(np.mean(np.abs(pred - y_te.values) / denom) * 100.0) if len(pred) else None
-    # Direction hit rate — the useful signal for retail investors.
+    # Report MAE on pct_return in percentage points (interpretable:
+    # "average error ±X pp on horizon return"). MAPE-on-return is
+    # ill-defined here because a horizon whose actual return is near
+    # zero blows the divisor up and gives 800%+ headline numbers that
+    # don't reflect real accuracy. The name is still `mape` for
+    # backward compatibility with the meta.json schema and frontend
+    # badge, but the semantics are MAE in percentage points.
     if len(pred):
+        mape = float(np.mean(np.abs(pred - y_te.values)) * 100.0)
         hit = float(np.mean(np.sign(pred) == np.sign(y_te.values)))
     else:
+        mape = None
         hit = None
 
     importances = sorted(

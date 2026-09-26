@@ -67,7 +67,9 @@ jobs:
           sys.path.insert(0, 'pipeline')
           sys.path.insert(0, '.')
           from pipeline.scripts.push_to_firestore import upload_model_to_storage
-          for p in sorted(Path('pipeline/models').glob('*_mhgbm_*')):
+          # MODELS_DIR from pipeline/config.py resolves to
+          # pipeline/models/saved — matches save_multi_horizon's target.
+          for p in sorted(Path('pipeline/models/saved').glob('*_mhgbm_*')):
               ok = upload_model_to_storage(str(p), f'models/{p.name}')
               print(('ok' if ok else 'FAIL'), p.name)
           "

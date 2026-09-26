@@ -262,9 +262,9 @@ const ForecastPanel: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => {
           {mhPred.mape != null && (
             <span
               className="ml-auto rounded border border-slate-700 bg-slate-800/60 px-1.5 py-0.5 font-mono text-[10px] text-slate-400"
-              title="Walk-forward backtest MAPE — how far off the model was on unseen recent history."
+              title={`Walk-forward backtest on unseen recent history. Avg error ${mhPred.mape.toFixed(1)}pp on horizon return${mhPred.direction_hit != null ? `; ${(mhPred.direction_hit * 100).toFixed(0)}% direction hit rate (up/down correct)` : ""}.`}
             >
-              ±{mhPred.mape.toFixed(1)}% MAPE
+              ±{mhPred.mape.toFixed(1)}pp
               {mhPred.direction_hit != null && (
                 <span> · direction hit {(mhPred.direction_hit * 100).toFixed(0)}%</span>
               )}

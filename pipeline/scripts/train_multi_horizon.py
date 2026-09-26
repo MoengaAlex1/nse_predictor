@@ -168,11 +168,18 @@ def main() -> None:
     # Aggregate per-horizon MAPE so a run reports which horizons are
     # trustworthy vs which are noise.
     for key in HORIZONS:
-        vals = [t["horizons"][key]["mape"] for t in trained.values()
-                if key in t.get("horizons", {}) and t["horizons"][key].get("mape") is not None]
-        if vals:
-            median = sorted(vals)[len(vals) // 2]
-            log.info("  %s  median MAPE=%.1f%% across %d tickers", key, median, len(vals))
+        mape_vals = [t["horizons"][key]["mape"] for t in trained.values()
+                     if key in t.get("horizons", {}) and t["horizons"][key].get("mape") is not None]
+        hit_vals = [t["horizons"][key]["direction_hit"] for t in trained.values()
+                    if key in t.get("horizons", {}) and t["horizons"][key].get("direction_hit") is not None]
+        if mape_vals:
+            median_mae = sorted(mape_vals)[len(mape_vals) // 2]
+            median_hit = sorted(hit_vals)[len(hit_vals) // 2] if hit_vals else None
+            hit_str = f"{median_hit * 100:.0f}%" if median_hit is not None else "—"
+            # "mape" is really MAE in percentage points now — see the
+            # comment in _train_one_horizon.
+            log.info("  %s  median MAE=%.1fpp   direction hit=%s   (n=%d tickers)",
+                     key, median_mae, hit_str, len(mape_vals))
 
 
 if __name__ == "__main__":
