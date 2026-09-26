@@ -6,6 +6,7 @@ import {
   ResponsiveContainer, CartesianGrid, Cell,
 } from "recharts";
 import { useCompany, useIntradayDay } from "../../hooks/useCompany";
+import { useMarketStatus, marketStatusLabel } from "../../hooks/useMarketStatus";
 import { useCompanies } from "../../hooks/useCompanies";
 import { useMarketOverview } from "../../hooks/useMarket";
 import { usePrices } from "../../hooks/usePrices";
@@ -736,6 +737,12 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
             changePct={changePct}
             periodMin={pricePeriodMin}
             periodMax={pricePeriodMax}
+            // Today's volume, RTDB bar first (freshest, populated by the
+            // 30-min ingest). Fall back to the Firestore company doc's
+            // pre-computed volume_today for tickers whose RTDB bar is
+            // missing v. Prior sidebar always showed "—" because it
+            // only looked at company.volume_today.
+            volumeToday={latest?.v ?? company?.volume_today ?? null}
           />
         )}
       </div>
@@ -1870,6 +1877,7 @@ const RightSidebarConnected: FC<{
   changePct: number | null;
   periodMin: number;
   periodMax: number;
+  volumeToday: number | null;
 }> = (props) => {
   const { data: market } = useMarketOverview();
   const { data: companies } = useCompanies();
@@ -1889,11 +1897,13 @@ const RightSidebar: FC<{
   changePct: number | null;
   periodMin: number;
   periodMax: number;
+  volumeToday: number | null;
   indexReadings: Record<string, IndexReading> | undefined;
   companies: CompanyDoc[] | undefined;
-}> = ({ company, latestPrice, changeAbs, changePct, periodMin, periodMax, indexReadings, companies }) => {
+}> = ({ company, latestPrice, changeAbs, changePct, periodMin, periodMax, volumeToday, indexReadings, companies }) => {
   const isUp = (changePct ?? 0) >= 0;
   const changeColor = isUp ? COLORS.buy : COLORS.sell;
+  const marketStatus = useMarketStatus();
 
   // Compose two watchlist sections from real data:
   //   INDICES: NSE 20/NASI/etc. from today's market_overview doc
@@ -2097,16 +2107,26 @@ const RightSidebar: FC<{
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1 text-[10px]" style={{ color: COLORS.buy }}>
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: COLORS.buy }} />
-            <span>Market open</span>
+          {/* Market status — driven by useMarketStatus so the badge is
+              never wrong on weekends, holidays, or outside 09:00-15:00 EAT.
+              Prior version hard-coded "Market open" which read as broken
+              when the audit hit the site on a Saturday. */}
+          <div
+            className="flex items-center gap-1 text-[10px]"
+            style={{ color: marketStatus.open ? COLORS.buy : COLORS.muted }}
+          >
+            <span
+              className="h-1.5 w-1.5 rounded-full"
+              style={{ background: marketStatus.open ? COLORS.buy : COLORS.muted }}
+            />
+            <span>{marketStatusLabel(marketStatus)}</span>
           </div>
 
           {/* Key stats grid */}
           <div className="mt-2 grid grid-cols-2 gap-y-1.5 text-[11px]">
             <span style={{ color: COLORS.muted }}>Volume</span>
             <span className="text-right font-mono tabular-nums" style={{ color: COLORS.text }}>
-              {company.volume_today != null ? fmtCompact(company.volume_today) : "—"}
+              {volumeToday != null ? fmtCompact(volumeToday) : "—"}
             </span>
             <span style={{ color: COLORS.muted }}>Period high</span>
             <span className="text-right font-mono tabular-nums" style={{ color: COLORS.text }}>

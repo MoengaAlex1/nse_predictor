@@ -1,0 +1,25 @@
+{
+  "notes": "NSE trading holidays. Update once per year from https://www.nse.co.ke/. Format: YYYY-MM-DD. Values here through end of 2027 based on the official NSE market calendar; anything past that falls through to weekday-hours-only detection.",
+  "holidays": [
+    "2026-01-01",
+    "2026-04-03",
+    "2026-04-06",
+    "2026-05-01",
+    "2026-06-01",
+    "2026-06-01",
+    "2026-10-10",
+    "2026-10-20",
+    "2026-12-12",
+    "2026-12-25",
+    "2026-12-26",
+    "2027-01-01",
+    "2027-03-26",
+    "2027-03-29",
+    "2027-05-01",
+    "2027-06-01",
+    "2027-10-11",
+    "2027-10-20",
+    "2027-12-13",
+    "2027-12-27"
+  ]
+}
