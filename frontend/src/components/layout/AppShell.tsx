@@ -69,6 +69,14 @@ export const AppShell: FC<AppShellProps> = ({ children, variant = "default" }) =
               </nav>
             </div>
             <div className="flex items-center gap-2">
+              {/* Visible build tag so cache issues can be diagnosed at a
+                  glance. Injected at build time via Vite's define hook. */}
+              <span
+                className="hidden font-mono text-[10px] text-hint sm:inline"
+                title="Deployed build tag — if this looks old, hard-refresh (Ctrl+Shift+R)"
+              >
+                {typeof __BUILD_TAG__ !== "undefined" ? __BUILD_TAG__ : "dev"}
+              </span>
               <GlobalSearch />
               <div className="hidden sm:block">
                 <ThemeToggle />

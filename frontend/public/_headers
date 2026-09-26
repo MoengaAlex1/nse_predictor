@@ -3,3 +3,14 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# HTML must always revalidate so a new deploy is visible on next navigation.
+# Hashed assets (JS/CSS bundles) can cache aggressively — their filename
+# changes every build so a stale copy is impossible.
+/
+  Cache-Control: no-cache, no-store, must-revalidate
+/index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
