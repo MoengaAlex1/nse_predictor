@@ -298,23 +298,32 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         last_row = feature_df[feature_cols].iloc[[-1]]
         xgb_next = float(xgb_model.predict(last_row)[0])
 
-        # ARIMA: refit on latest Close and forecast 30 days
-        # We refit because ARIMA state degrades without new data; it's fast (< 1s)
+        # ARIMA: refit on latest Close and forecast up to 252 trading days
+        # (~12 months). We refit because ARIMA state degrades without new
+        # data; it's fast (< 1s). One long series feeds every horizon —
+        # the frontend slices [0:21] for 1M, [0:63] for 3M, etc.
+        LONG_HORIZON_STEPS = 252   # ~12 trading months
         try:
             arima_fit_latest = train_arima(cleaned_df["Close"], order=(2, 1, 2))
-            arima_30d = arima_forecast(arima_fit_latest, steps=30).tolist()
+            arima_long = arima_forecast(arima_fit_latest, steps=LONG_HORIZON_STEPS).tolist()
         except Exception as e:
             log.warning("%s ARIMA refit failed (%s) — using loaded model", ticker, e)
-            arima_30d = arima_forecast(arima_fit, steps=30).tolist()
+            arima_long = arima_forecast(arima_fit, steps=LONG_HORIZON_STEPS).tolist()
 
+        arima_30d = arima_long[:30]
         arima_next = arima_30d[0]
 
         # ── 4. Ensemble next-day prediction ───────────────────────────────────
         w_lstm, w_xgb, w_arima = ENSEMBLE_WEIGHTS
         predicted_next = w_lstm * lstm_next + w_xgb * xgb_next + w_arima * arima_next
 
-        # ── 5. 30-day forecast for display ───────────────────────────────────
-        # Use ARIMA for the trajectory (native multi-step); blend with LSTM rolling
+        # ── 5. Forecast trajectory for display ───────────────────────────────
+        # 30d: blended LSTM + ARIMA + XGB (accurate for near-term).
+        # 30d - 252d: ARIMA-only. LSTM accuracy degrades past ~10 steps
+        # (see lstm_model.lstm_forecast_30d docstring); we don't want to
+        # extend it further and mislead the user with confident-looking
+        # long-range predictions from a model that isn't calibrated for
+        # them. ARIMA is honest about mean-reverting at longer horizons.
         try:
             lstm_30d = lstm_forecast_30d(lstm_model, feature_df, feature_cols, scaler, device)
             forecast_30d = [
@@ -324,6 +333,11 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         except Exception as e:
             log.warning("%s LSTM 30d forecast failed (%s) — using ARIMA only", ticker, e)
             forecast_30d = [round(float(v), 4) for v in arima_30d]
+
+        # The long forecast starts with the blended 30d slice, then continues
+        # as ARIMA-only past day 30. Consumer knows to switch labelling at
+        # the 30d boundary via forecast_lstm_boundary_day.
+        forecast_long = list(forecast_30d) + [round(float(v), 4) for v in arima_long[30:]]
 
         # ── 6. Ensemble metrics on historical test set (diagnostic) ──────────
         try:
@@ -397,6 +411,7 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
         # ── 8. Build Firestore payloads ───────────────────────────────────────
         target_date = _next_trading_day(date.today())
         forecast_dates = _forecast_trading_dates(date.today(), len(forecast_30d))
+        forecast_long_dates = _forecast_trading_dates(date.today(), len(forecast_long))
 
         snapshot = {
             **signal_result,
@@ -407,6 +422,13 @@ def run_company(company: dict, csv_override: Path | None = None) -> dict | None:
             "actuals":           actuals_out,
             "preds":             preds_out,
             "forecast":          forecast_30d,
+            # Multi-horizon forecast — ARIMA-only past day 30. Frontend
+            # slices by horizon (~21 days = 1M, 63 = 3M, 126 = 6M, 189 =
+            # 9M, 252 = 12M). forecast_lstm_boundary_day marks where the
+            # blended forecast ends and ARIMA-only takes over.
+            "forecast_long":     forecast_long,
+            "forecast_long_dates":       forecast_long_dates,
+            "forecast_lstm_boundary_day": 30,
             "lstm_next":         round(lstm_next, 4),
             "xgb_next":          round(xgb_next, 4),
             "arima_next":        round(arima_next, 4),

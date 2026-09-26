@@ -8,7 +8,7 @@ import { SignalBadge } from "../components/ui/Badge";
 import { CompanyLogo } from "../components/ui/CompanyLogo";
 import { TradingChart } from "../components/charts/TradingChart";
 import { TechnicalChart } from "../components/charts/TechnicalChart";
-import { PredictionChart } from "../components/charts/PredictionChart";
+import { PredictionChart, HORIZON_OPTIONS } from "../components/charts/PredictionChart";
 import { PriceExplainer } from "../components/company/PriceExplainer";
 import { useCompany, useLatestSnapshot, useRecentSnapshots, useLatestTechnicals, useCorporateEvents, useFinancials, useMacro, useIntradayDay, useFundamentals, useNews } from "../hooks/useCompany";
 import { usePrices } from "../hooks/usePrices";
@@ -172,6 +172,72 @@ const MonthlyHeatmap: FC<{ heatmap: Record<string, number> }> = ({ heatmap }) =>
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+};
+
+// ── Forecast panel with horizon selector ──────────────────────────────────────
+// User request: "users need 1, 3, 6, 9, 12 months predictions". Backend now
+// emits forecast_long (up to 252 trading days from ARIMA); this panel adds
+// the horizon chips + a clarifying note about the LSTM/ARIMA boundary so
+// readers don't over-read the long tail (ARIMA mean-reverts).
+const ForecastPanel: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => {
+  // Default to 1M so the first render matches historic behavior for
+  // any snapshot that doesn't yet carry forecast_long (backward-compat).
+  const [horizonKey, setHorizonKey] = useState<string>("1M");
+  const active = HORIZON_OPTIONS.find(o => o.key === horizonKey) ?? HORIZON_OPTIONS[0];
+  const hasLong = !!snapshot.forecast_long?.length;
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-800 bg-[#0d1117]">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 px-4 py-3">
+        <div>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+            Actual vs Model · Forecast
+          </h2>
+          <p className="mt-0.5 text-[10px] text-slate-600">
+            Dashed line = today · Green zone = forward projection
+            {hasLong && active.days > 30 && (
+              <span> · Past day 30 uses ARIMA-only (LSTM accuracy degrades past ~10 bars)</span>
+            )}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {HORIZON_OPTIONS.map(opt => {
+            const enabled = hasLong || opt.days <= 30;
+            const activeCls = opt.key === horizonKey
+              ? "bg-emerald-600 text-white"
+              : enabled
+                ? "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                : "text-slate-700 cursor-not-allowed";
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                disabled={!enabled}
+                onClick={() => enabled && setHorizonKey(opt.key)}
+                className={`rounded px-2 py-1 text-[11px] font-semibold transition-colors ${activeCls}`}
+                title={enabled ? opt.label : "Requires a fresh snapshot with forecast_long"}
+              >
+                {opt.key}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="px-1 pb-3 pt-1">
+        <PredictionChart
+          actuals={snapshot.actuals}
+          preds={snapshot.preds}
+          forecast={snapshot.forecast}
+          runDate={snapshot.run_date}
+          forecastDates={snapshot.forecast_dates}
+          forecastLong={snapshot.forecast_long}
+          forecastLongDates={snapshot.forecast_long_dates}
+          lstmBoundaryDay={snapshot.forecast_lstm_boundary_day ?? 30}
+          horizonDays={active.days}
+        />
       </div>
     </div>
   );
@@ -1147,25 +1213,7 @@ const GatedContent: FC<{
       )}
 
       {snapshot && snapshot.actuals.length > 0 && (
-        <div className="overflow-hidden rounded-xl border border-slate-800 bg-[#0d1117]">
-          <div className="border-b border-slate-800 px-4 py-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Actual vs Model · Forecast (30d)
-            </h2>
-            <p className="mt-0.5 text-[10px] text-slate-600">
-              Dashed line = today · Green zone = 30-day forecast
-            </p>
-          </div>
-          <div className="px-1 pb-3 pt-1">
-            <PredictionChart
-              actuals={snapshot.actuals}
-              preds={snapshot.preds}
-              forecast={snapshot.forecast}
-              runDate={snapshot.run_date}
-              forecastDates={snapshot.forecast_dates}
-            />
-          </div>
-        </div>
+        <ForecastPanel snapshot={snapshot} />
       )}
 
       {technicals && <TechnicalsCard technicals={technicals} />}

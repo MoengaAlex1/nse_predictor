@@ -19,13 +19,46 @@ interface Props {
   forecast: number[];
   runDate: string;
   forecastDates?: string[];
+  /** Long ARIMA-only forecast (up to 252 trading days ≈ 12 months) —
+   *  used when the caller selects a horizon > 30 days. Falls back to the
+   *  30-day `forecast` array when absent. */
+  forecastLong?: number[];
+  forecastLongDates?: string[];
+  /** Day (1-indexed) at which the blended LSTM+ARIMA forecast stops and
+   *  ARIMA-only takes over. Draws a vertical marker so the reader knows
+   *  where model confidence changes. Defaults to 30. */
+  lstmBoundaryDay?: number;
+  /** Horizon (in trading days) to display. Passed by the horizon selector. */
+  horizonDays?: number;
 }
 
 const fmtFull = fmtMedium;
 
-export const PredictionChart: FC<Props> = ({ actuals, preds, forecast, runDate, forecastDates }) => {
+export const PredictionChart: FC<Props> = ({
+  actuals,
+  preds,
+  forecast,
+  runDate,
+  forecastDates,
+  forecastLong,
+  forecastLongDates,
+  lstmBoundaryDay = 30,
+  horizonDays,
+}) => {
   const n = Math.min(actuals.length, preds.length);
   const ref = new Date(runDate + "T00:00:00");
+
+  // Pick the forecast series that best fits the requested horizon.
+  // If the caller didn't provide horizonDays, use the 30-day series so
+  // existing render paths keep their behavior.
+  const wantHorizon = horizonDays ?? 30;
+  const useLong = wantHorizon > 30 && forecastLong && forecastLong.length > 30;
+  const rawForecast = useLong ? forecastLong! : forecast;
+  const rawForecastDates = useLong
+    ? (forecastLongDates ?? forecast.map((_, i) => tradingDaysFrom(ref, i + 1)))
+    : (forecastDates ?? forecast.map((_, i) => tradingDaysFrom(ref, i + 1)));
+  const trimmedForecast = rawForecast.slice(0, wantHorizon);
+  const trimmedDates = rawForecastDates.slice(0, wantHorizon);
 
   const histData = Array.from({ length: n }, (_, i) => ({
     date: tradingDaysFrom(ref, -(n - 1 - i)),
@@ -33,9 +66,8 @@ export const PredictionChart: FC<Props> = ({ actuals, preds, forecast, runDate, 
     predicted: preds[i],
   }));
 
-  // Use stored trading-day dates from pipeline when available, else derive client-side
-  const forecastData = forecast.map((v, i) => ({
-    date: forecastDates?.[i] ?? tradingDaysFrom(ref, i + 1),
+  const forecastData = trimmedForecast.map((v, i) => ({
+    date: trimmedDates[i] ?? tradingDaysFrom(ref, i + 1),
     forecast: v,
     actual: undefined,
     predicted: undefined,
@@ -44,6 +76,13 @@ export const PredictionChart: FC<Props> = ({ actuals, preds, forecast, runDate, 
   const allData = [...histData, ...forecastData];
   const totalLen = allData.length;
   const step = Math.max(1, Math.floor(totalLen / 8));
+
+  // Position the LSTM-boundary marker on the x-axis if we're rendering a
+  // horizon that reaches past it. Signals "past this date the forecast
+  // is ARIMA-only" so the reader isn't misled by the same green fill.
+  const boundaryDate = wantHorizon > lstmBoundaryDay
+    ? (trimmedDates[lstmBoundaryDay - 1] ?? null)
+    : null;
 
   return (
     <ResponsiveContainer width="100%" height={320}>
@@ -88,6 +127,14 @@ export const PredictionChart: FC<Props> = ({ actuals, preds, forecast, runDate, 
           wrapperStyle={{ fontSize: 12, color: "#94a3b8", paddingTop: 8 }}
         />
         <ReferenceLine x={runDate} stroke="#475569" strokeDasharray="4 2" />
+        {boundaryDate && (
+          <ReferenceLine
+            x={boundaryDate}
+            stroke="#facc15"
+            strokeDasharray="2 2"
+            label={{ value: "ARIMA only →", position: "top", fill: "#facc15", fontSize: 10 }}
+          />
+        )}
         <Line
           type="monotone"
           dataKey="actual"
@@ -115,9 +162,24 @@ export const PredictionChart: FC<Props> = ({ actuals, preds, forecast, runDate, 
           strokeWidth={2}
           dot={false}
           activeDot={{ r: 3 }}
-          name="Forecast (30d)"
+          name={useLong ? `Forecast (${horizonLabelFor(wantHorizon)})` : "Forecast (30d)"}
         />
       </ComposedChart>
     </ResponsiveContainer>
   );
 };
+
+// Trading-day counts → human labels for the legend and any parent
+// button/chip that wants to keep the mapping in one place.
+export const HORIZON_OPTIONS: { key: string; label: string; days: number }[] = [
+  { key: "1M",  label: "1 month",   days: 21  },
+  { key: "3M",  label: "3 months",  days: 63  },
+  { key: "6M",  label: "6 months",  days: 126 },
+  { key: "9M",  label: "9 months",  days: 189 },
+  { key: "12M", label: "12 months", days: 252 },
+];
+
+function horizonLabelFor(days: number): string {
+  const opt = HORIZON_OPTIONS.find(o => o.days === days);
+  return opt?.key ?? `${days}d`;
+}

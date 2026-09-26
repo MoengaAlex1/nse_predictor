@@ -83,6 +83,14 @@ export interface SnapshotDoc {
   actuals: number[];
   preds: number[];
   forecast: number[];
+  // Multi-horizon forecast — ARIMA-only past forecast_lstm_boundary_day.
+  // Emitted by run_inference.py from the same ARIMA fit that produces
+  // `forecast`. Callers slice by horizon (~21 days = 1M, 63 = 3M, 126 =
+  // 6M, 189 = 9M, 252 = 12M). Optional so snapshots written before the
+  // multi-horizon change still validate.
+  forecast_long?: number[];
+  forecast_long_dates?: string[];
+  forecast_lstm_boundary_day?: number;
   recent_mape?: number;
   recent_direction_acc?: number;
   signal_reasons?: string[];
