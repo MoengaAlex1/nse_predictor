@@ -1,0 +1,56 @@
+name: Scrape NSE listed companies (ISIN + baseline profile)
+
+# Hits nse.co.ke/listed-companies/ and merges ISIN + baseline company
+# facts into fundamentals/{ticker}. Complements enrich_from_ir_pages.yml
+# which handles the deeper leadership / shareholder detail for
+# top-cap IR pages. Weekly cadence — the listed-companies index rarely
+# changes (new listings + delistings only), and we need a full sweep
+# to catch any additions.
+
+on:
+  schedule:
+    - cron: "30 4 * * 2"   # Tuesday 04:30 UTC = 07:30 EAT
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: "Space-separated tickers (blank = all scraped)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Skip Firestore writes"
+        required: false
+        default: "false"
+
+concurrency:
+  group: scrape-nse-listed-companies
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - run: pip install -r pipeline/requirements.txt
+
+      - name: Run scrape_nse_listed_companies.py
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL:             ${{ secrets.FIREBASE_RTDB_URL }}
+          FIREBASE_STORAGE_BUCKET:       ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.tickers }}" ]; then
+            ARGS="$ARGS --tickers ${{ github.event.inputs.tickers }}"
+          fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python pipeline/scripts/scrape_nse_listed_companies.py $ARGS
