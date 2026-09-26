@@ -191,7 +191,12 @@ export async function fetchLatestTechnicals(safeTicker: string): Promise<Technic
 }
 
 export async function fetchCorporateEvents(safeTicker: string): Promise<CorporateEvent[]> {
-  const ref = doc(db, "events", safeTicker);
+  // Events docs were seeded with the legacy underscored suffix form (ABSA_NR,
+  // EQTY_NR, …) — a one-off from an early ingest that never got migrated to
+  // the base ticker convention every other collection uses. Convert here so
+  // callers keep passing the base form.
+  const eventsId = safeTicker ? `${safeTicker}_NR` : "";
+  const ref = doc(db, "events", eventsId);
   const snap = await getDoc(ref);
   if (!snap.exists()) return [];
   const data = snap.data() as EventsDoc;

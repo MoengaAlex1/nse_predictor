@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, persistentLocalCache } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
@@ -12,5 +12,16 @@ const firebaseConfig = {
 };
 
 export const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+
+// Auto-detect long-polling and persistent cache. Long-polling fixes the
+// WebChannel 503/404 retry storm the audit observed on the Home page cold
+// load — some Cloudflare Pages POP + Firestore transport pairs never
+// complete the streaming handshake and fall through to bare polling that
+// TanStack Query interprets as an error. persistentLocalCache keeps the
+// last-known state across reloads so users see something instantly.
+export const db = initializeFirestore(app, {
+  experimentalAutoDetectLongPolling: true,
+  localCache: persistentLocalCache(),
+});
+
 export const auth = getAuth(app);

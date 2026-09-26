@@ -33,24 +33,24 @@ import { TimeframeTabs } from "../components/ui/TimeframeTabs";
 import { RightStatsRail } from "../components/layout/RightStatsRail";
 import { LeftWatchlistRail } from "../components/layout/LeftWatchlistRail";
 import {
-  cleanTicker,
   filterByTimeframe,
   FETCH_START,
   todayIso,
   type TimeframeKey,
 } from "../lib/timeframe";
+import { toBase } from "../lib/ticker";
 
 export const InvestorDashboard = () => {
   const { ticker: rawTicker = "" } = useParams<{ ticker: string }>();
-  const ticker = rawTicker.toUpperCase();
-  const cleaned = cleanTicker(ticker);
+  const cleaned = toBase(rawTicker);
+  const ticker = cleaned;
   const pushRecent = useRecentTickers((s) => s.push);
 
   const [timeframe, setTimeframe] = useState<TimeframeKey>("3M");
 
   useEffect(() => {
-    if (ticker) pushRecent(ticker);
-  }, [ticker, pushRecent]);
+    if (cleaned) pushRecent(cleaned);
+  }, [cleaned, pushRecent]);
 
   // Firestore doc ids are the "safe" ticker form — without .NR/.KE suffix
   // (paths can be edge-case fragile with dots). RTDB uses the same clean

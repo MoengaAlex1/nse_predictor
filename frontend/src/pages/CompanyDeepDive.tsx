@@ -13,6 +13,7 @@ import { PriceExplainer } from "../components/company/PriceExplainer";
 import { useCompany, useLatestSnapshot, useRecentSnapshots, useLatestTechnicals, useCorporateEvents, useFinancials, useMacro, useIntradayDay, useFundamentals, useNews } from "../hooks/useCompany";
 import { usePrices } from "../hooks/usePrices";
 import { resolveDisplayPrice } from "../lib/format";
+import { toBase } from "../lib/ticker";
 import type { PricePoint, IntradayPoint, SnapshotDoc, TechnicalsDoc, CompanyDoc, CorporateEvent, FinancialsDoc, NSEAnnouncement } from "../types";
 import { CompanyProfileCard } from "../components/investor/CompanyProfileCard";
 import { QuoteSummaryPanel } from "../components/investor/QuoteSummaryPanel";
@@ -1224,7 +1225,11 @@ const DataQualityBanner: FC<{ history: PricePoint[] }> = ({ history }) => {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export const CompanyDeepDive: FC = () => {
-  const { ticker = "" } = useParams<{ ticker: string }>();
+  const { ticker: rawTicker = "" } = useParams<{ ticker: string }>();
+  // Canonical base form. Every hook below receives the base ticker so a
+  // suffixed URL (/company/ABSA.NR) and a canonical URL (/company/ABSA)
+  // hit the same Firestore doc ids.
+  const ticker = toBase(rawTicker);
   const { data: company, isLoading, isError } = useCompany(ticker);
   const { data: snapshot, isLoading: snapLoading } = useLatestSnapshot(ticker);
   const { data: recentSnapshots } = useRecentSnapshots(ticker, 60);
@@ -1261,9 +1266,10 @@ export const CompanyDeepDive: FC = () => {
   // sidebar showed it.
   const chartEnd = new Date().toISOString().slice(0, 10);
   const chartStart = "2008-01-01";
-  const cleanTicker = ticker.replace(/\.(NR|KE)$/, "").replace(/_NR$/, "");
+  // `ticker` above is already the base form via toBase(rawTicker); pass it
+  // straight through to usePrices.
   const { rows: rtdbPrices, points: rtdbHistory, latest: rtdbLatest } = usePrices(
-    cleanTicker,
+    ticker,
     chartStart,
     chartEnd,
   );

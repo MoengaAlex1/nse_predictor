@@ -48,6 +48,27 @@ export function fmtCompact(v: number | null | undefined): string {
   return v.toLocaleString("en-KE");
 }
 
+// Alias for volume readouts. Same compact scale, but a distinct call-site
+// name so future divergence (e.g. always integer, no decimal) has a place
+// to live without touching every fmtCompact caller.
+export function fmtVolume(v: number | null | undefined): string {
+  return fmtCompact(v);
+}
+
+// Shares outstanding — always compact, always with the unit tag. Uses the
+// same K/M/B/T scale as fmtCompact so tables align.
+export function fmtShares(v: number | null | undefined): string {
+  return fmtCompact(v);
+}
+
+// Compact KES for large numbers (market cap, dividend totals). Distinct
+// from fmtCompactKes below so the two call-sites can diverge later
+// without a rename pass.
+export function fmtKesCompact(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return emDash;
+  return `KES ${fmtCompact(v)}`;
+}
+
 // KES 79.2B — compact currency with KES prefix (market cap card).
 export function fmtCompactKes(v: number | null | undefined): string {
   if (v == null || !Number.isFinite(v)) return emDash;

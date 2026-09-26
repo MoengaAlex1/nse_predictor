@@ -6,7 +6,7 @@ import { usePrices } from "../hooks/usePrices";
 import { FilingsPanel } from "../components/investor/FilingsPanel";
 import { ReturnsCalculator } from "../components/investor/ReturnsCalculator";
 import { TradingWorkstation } from "../components/investor/TradingWorkstation";
-import { cleanTicker } from "../lib/timeframe";
+import { toBase } from "../lib/ticker";
 
 // InvestorChart is the workstation page: TradingWorkstation up top, then a
 // full-width analysis stack (Returns Calculator + Filings Library) below.
@@ -16,13 +16,12 @@ import { cleanTicker } from "../lib/timeframe";
 // the sections look mis-aligned on wide screens.
 export const InvestorChart = () => {
   const { ticker: rawTicker = "" } = useParams<{ ticker: string }>();
-  const ticker = rawTicker.toUpperCase();
-  const cleaned = cleanTicker(ticker);
+  const cleaned = toBase(rawTicker);
   const pushRecent = useRecentTickers((s) => s.push);
 
   useEffect(() => {
-    if (ticker) pushRecent(ticker);
-  }, [ticker, pushRecent]);
+    if (cleaned) pushRecent(cleaned);
+  }, [cleaned, pushRecent]);
 
   const { data: financials } = useFinancialsDoc(cleaned);
   const { data: company } = useCompany(cleaned);
