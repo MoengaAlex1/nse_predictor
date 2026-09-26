@@ -14,14 +14,13 @@ export interface FinancialAnalysis {
   generated_at: string;
 }
 
-// permission-denied / not-found collapse into null so an ingest gap
-// renders as an empty state instead of a red banner. Same treatment as
-// useFinancials and useDeepAnalysis.
+// Any Firestore error collapses to "no data yet" — see useFinancials for
+// the reasoning. Code goes to console so real regressions still surface.
 function isBenignFirestoreError(e: unknown): boolean {
   if (e instanceof FirestoreError) {
     // eslint-disable-next-line no-console
     console.error(`[useFinancialAnalysis] ${e.code}: ${e.message}`);
-    return e.code === "permission-denied" || e.code === "not-found";
+    return true;
   }
   return false;
 }

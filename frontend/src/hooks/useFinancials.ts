@@ -27,15 +27,19 @@ export interface FinancialPeriod {
   returns: { annualised_roe: RoeValue };
 }
 
-// Firestore errors we treat as "no data yet" instead of a transport failure.
-// permission-denied means security rules block reads for this ticker (deployment
-// gap, not an outage); an empty collection is the same thing as missing data.
-// Anything else re-throws so react-query surfaces isError=true.
+// Any Firestore error for this hook collapses to "no data yet". The panel
+// UI would otherwise render "Couldn't reach the financial statements
+// service" for permission-denied, unavailable (WebChannel transport hiccup),
+// failed-precondition (missing index), and every other Firestore code —
+// all of which are indistinguishable to the user, none of which a Retry
+// button can fix from the frontend. Console still captures the code so
+// a real rules regression or missing index shows up in DevTools. Only
+// non-Firestore throws (parser bug, JS error) surface as isError=true.
 function isBenignFirestoreError(e: unknown): boolean {
   if (e instanceof FirestoreError) {
     // eslint-disable-next-line no-console
     console.error(`[useFinancials] ${e.code}: ${e.message}`);
-    return e.code === "permission-denied" || e.code === "not-found";
+    return true;
   }
   return false;
 }

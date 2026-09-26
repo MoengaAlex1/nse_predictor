@@ -22,15 +22,16 @@ export interface DeepAnalysis {
   date: string
 }
 
-// Same benign-error handling as useFinancials — permission-denied and
-// not-found collapse into "no data yet" so the UI renders a helpful empty
-// state instead of a red "Failed to load analysis" banner. Log the code
-// so a real rules regression still shows up in the console.
+// Any Firestore error collapses to "no data yet" — permission-denied,
+// unavailable, failed-precondition and friends are all indistinguishable
+// to the user and none of them are recoverable from the frontend. The
+// code is logged so real rules regressions and missing indexes still
+// surface in DevTools.
 function isBenignFirestoreError(e: unknown): boolean {
   if (e instanceof FirestoreError) {
     // eslint-disable-next-line no-console
     console.error(`[useDeepAnalysis] ${e.code}: ${e.message}`);
-    return e.code === "permission-denied" || e.code === "not-found";
+    return true;
   }
   return false;
 }
