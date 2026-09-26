@@ -5,7 +5,7 @@ import {
   LineChart, BarChart, Line, Bar, XAxis, YAxis, Tooltip, ReferenceLine,
   ResponsiveContainer, CartesianGrid, Cell,
 } from "recharts";
-import { useCompany } from "../../hooks/useCompany";
+import { useCompany, useIntradayDay } from "../../hooks/useCompany";
 import { useCompanies } from "../../hooks/useCompanies";
 import { useMarketOverview } from "../../hooks/useMarket";
 import { usePrices } from "../../hooks/usePrices";
@@ -335,6 +335,13 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
   const { rows, latest } = usePrices(short, chartStart, chartEnd);
 
   const [range, setRange] = useState<RangeKey>("1Y");
+  // Intraday for the 1D range. Prefer company.intraday_today (already on
+  // the loaded company doc — no extra read) and fall back to reading
+  // companies/{t}/intraday/{today} directly. The audit found /chart 1D
+  // was rendering a single dot because it only read EOD rows.
+  const intradayDate = company?.intraday_date ?? chartEnd;
+  const { data: intradayFetched } = useIntradayDay(short, intradayDate, range === "1D" && !company?.intraday_today?.length);
+  const intradayPoints = company?.intraday_today?.length ? company.intraday_today : (intradayFetched ?? []);
   // Drawing tool state — activeTool drives the LeftDrawingRail highlight and
   // the MainCanvas overlay's click-capture mode. Drawings are stored as an
   // append-only list; MainCanvas renders them as SVG marks (dots for anchors,
@@ -521,15 +528,29 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
     return Math.max(1, Math.round((b - a) / (24 * 3600 * 1000)));
   }, [visible]);
 
-  // Chart data. Indicators are computed over the FULL price series so
+  // Chart data. Two paths:
+  //
+  // 1D: use `intradayPoints` if available (company.intraday_today, or a
+  //     one-off fetch of companies/{t}/intraday/{today}). Each point becomes
+  //     a ChartPoint keyed by its time-of-day string so the tooltip/axis
+  //     read "09:45", "10:00", … Indicators don't apply intraday — the
+  //     20-day SMA has no meaning at 30-min resolution.
+  //
+  // Everything else: compute indicators over the FULL price history so
   // SMA 200 has values from bar 200 onwards regardless of which range
-  // the user picked — a 1Y view no longer waits until July for SMA 200
-  // to start drawing. We compute on `rows` (all history), then slice to
-  // the visible window. Prior version computed on `visible`, which meant
-  // any moving average with period > 20% of the visible window rendered
-  // as mostly-blank line + a stub at the right edge.
+  // the user picked, then slice to the visible window. Prior version
+  // computed on `visible`, which left any MA with period > 20% of the
+  // visible window mostly blank + a stub at the right edge.
   const chartData = useMemo<ChartPoint[]>(
     () => {
+      if (range === "1D" && intradayPoints.length > 0) {
+        return intradayPoints.map((p) => ({
+          date: p.time,
+          price: p.price,
+          volume: 0,
+          up: true,
+        }));
+      }
       const fullBase: ChartPoint[] = rows
         .filter((r) => r.c != null && (r.c as number) > 0)
         .map((r) => ({
@@ -544,7 +565,7 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
       const endDate = visible[visible.length - 1].date;
       return fullDecorated.filter(p => p.date >= startDate && p.date <= endDate);
     },
-    [rows, visible, indicators],
+    [range, intradayPoints, rows, visible, indicators],
   );
 
   // Container ref for fullscreen. Points at the outer workstation wrapper
