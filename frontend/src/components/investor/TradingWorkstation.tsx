@@ -9,7 +9,23 @@ import { useCompany } from "../../hooks/useCompany";
 import { useCompanies } from "../../hooks/useCompanies";
 import { useMarketOverview } from "../../hooks/useMarket";
 import { usePrices } from "../../hooks/usePrices";
-import { fmtCompact, fmtPct } from "../../lib/format";
+import { fmtCompact, fmtPct, fmtPrice } from "../../lib/format";
+
+// Human labels for chart tooltip. Keeps raw data keys ("bb_lower", "sma20")
+// out of the crosshair hover box — the audit flagged the old tooltip for
+// showing them verbatim next to 15-digit floats.
+const TOOLTIP_LABELS: Record<string, string> = {
+  price:    "Close",
+  sma20:    "SMA 20",
+  sma50:    "SMA 50",
+  sma200:   "SMA 200",
+  ema12:    "EMA 12",
+  ema26:    "EMA 26",
+  vwap:     "VWAP 14",
+  bb_upper: "BB Upper",
+  bb_mid:   "BB Middle",
+  bb_lower: "BB Lower",
+};
 import type { CompanyDoc, IndexReading } from "../../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1477,6 +1493,26 @@ const MainCanvas: FC<{
   };
   const totalVol = useMemo(() => data.reduce((a, d) => a + d.volume, 0), [data]);
 
+  // Volume-band scale. Sort non-zero volumes and take the 98th percentile
+  // as the y-axis cap; a single outlier (off-market block trade, corrections)
+  // otherwise crushes every bar to <1 px. Bars above the cap render at the
+  // cap height with a hatched fill so the eye reads "value truncated".
+  // Data has volumeDisplay = min(volume, cap) computed here rather than in
+  // decorateWithIndicators because it depends on the visible window.
+  const volumeAxisCap = useMemo(() => {
+    const vols = data.map(d => d.volume).filter(v => v > 0).sort((a, b) => a - b);
+    if (vols.length === 0) return 0;
+    // Ceil so tiny series (< 50 pts) still get a real p98 slot.
+    const idx = Math.min(vols.length - 1, Math.ceil(vols.length * 0.98) - 1);
+    const cap = vols[Math.max(0, idx)];
+    // 15% headroom so tallest bar isn't flush with the top border.
+    return cap * 1.15;
+  }, [data]);
+  const cappedData = useMemo(() => data.map(d => ({
+    ...d,
+    volumeDisplay: volumeAxisCap > 0 && d.volume > volumeAxisCap ? volumeAxisCap : d.volume,
+  })), [data, volumeAxisCap]);
+
   return (
     <div ref={mountRef} className="relative flex-1 overflow-hidden min-h-[480px] sm:min-h-[600px] md:min-h-[720px] lg:min-h-[820px]" style={{ background: COLORS.panel }}>
       {/* Bid/ask execution overlay (visual only — we're not a broker).
@@ -1555,13 +1591,18 @@ const MainCanvas: FC<{
                   borderRadius: 4,
                 }}
                 formatter={(value, name, entry) => {
+                  // Every series gets a readable KES-formatted value and a
+                  // human label instead of the raw key. Prior tooltip showed
+                  // "bb_lower : 26.75347033187166" — the audit flagged this
+                  // as unreadable; every overlay now prints via fmtPrice.
                   const v = typeof value === "number" ? value : Number(value);
+                  const label = TOOLTIP_LABELS[String(name)] ?? String(name);
                   if (name === "price") {
                     const vol = (entry?.payload as ChartPoint | undefined)?.volume;
-                    const volLabel = vol != null ? ` · Vol ${fmtCompact(vol)}` : "";
-                    return [`KES ${v.toFixed(2)}${volLabel}`, "Close"];
+                    const volLine = vol != null ? ` · Vol ${fmtCompact(vol)}` : "";
+                    return [`KES ${fmtPrice(v)}${volLine}`, label];
                   }
-                  return [String(value), String(name)];
+                  return [`KES ${fmtPrice(v)}`, label];
                 }}
                 labelFormatter={(d) => formatTooltipDate(String(d))}
               />
@@ -1699,13 +1740,17 @@ const MainCanvas: FC<{
           </ResponsiveContainer>
         </div>
 
-        {/* Volume band — 15% */}
+        {/* Volume band — 15%. Axis is capped at the 98th percentile of the
+            visible window's volumes so a single outlier (e.g. an off-market
+            block trade ~500x median) can't crush every other bar to <1 px.
+            Bars above the cap render at the cap height as `volumeDisplay`;
+            the true value still lives on `volume` for the tooltip. */}
         <div
           style={{ flex: "1 1 15%", borderTop: `1px solid ${COLORS.border}` }}
         >
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
-              data={data}
+              data={cappedData}
               margin={{ top: 4, right: 68, bottom: 4, left: 0 }}
               syncId="ws-price-vol"
               barCategoryGap={1}
@@ -1723,7 +1768,7 @@ const MainCanvas: FC<{
                 tick={false}
                 axisLine={false}
                 tickLine={false}
-                domain={[0, "dataMax"]}
+                domain={[0, volumeAxisCap]}
                 width={62}
               />
               {/* Volume tooltip removed — the price LineChart's tooltip
@@ -1731,13 +1776,26 @@ const MainCanvas: FC<{
                   Tooltip inside the 15%-tall volume band was pinning to the
                   strip's top edge (reading as 'stuck bottom-left'). */}
               <Bar
-                dataKey="volume"
+                dataKey="volumeDisplay"
                 isAnimationActive={false}
                 maxBarSize={12}
               >
-                {data.map((d, i) => (
-                  <Cell key={i} fill={d.volume > 0 ? (d.up ? COLORS.volUp : COLORS.volDown) : "transparent"} />
-                ))}
+                {cappedData.map((d, i) => {
+                  const isCapped = volumeAxisCap > 0 && d.volume > volumeAxisCap;
+                  return (
+                    <Cell
+                      key={i}
+                      // Capped outliers get a lighter fill + white stroke so
+                      // the eye reads "value truncated, tooltip has the real
+                      // number" instead of "this is genuinely the tallest bar".
+                      fill={d.volume > 0 ? (d.up ? COLORS.volUp : COLORS.volDown) : "transparent"}
+                      fillOpacity={isCapped ? 0.55 : 1}
+                      stroke={isCapped ? "#FFFFFF" : "none"}
+                      strokeDasharray={isCapped ? "2 2" : undefined}
+                      strokeWidth={isCapped ? 1 : 0}
+                    />
+                  );
+                })}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
