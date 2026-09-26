@@ -54,7 +54,7 @@ The audit refers to minified bundle names; the source equivalents are:
 | 20 | P2 | deferred | Signal counts consistency — Home/Markets/Board/Screener should compute from one source; "No signal" bucket surfaces the 4 companies without a scored snapshot |
 | 21 | P2 | deferred | Screener Div Yield / EPS / P/E — needs ingest-side unit handling (UMME reports UGX; some tickers use cents vs shillings). Frontend can add a "check" badge for P/E outliers today |
 | 22 | P2 | deferred | Filings dedup + publish-date field — needs `useFilings(ticker)` hook merging announcements/actions/dividends with dedup by normalized title + period. Ingest should also start storing publish_date separately from ingest_date |
-| 23 | P2 | deferred | Company financials labelling (FY vs H1 vs Q3), PAT/EPS unit scaling, MA "vs price" column. Ingest + Valuation table wiring |
+| 23 | P2 | partial | Valuation table now distinguishes empty ("—", not in filing) from Not Meaningful ("N/M", divisor is zero/negative — loss-making period). Footer legend explains both. Ingest gaps for BVPS on some tickers require `pipeline/scripts/extract_financials_from_archive.py` retry with the specific ticker's balance sheet PDF; that's a Python-side task. Period-label typing (H1 vs FY) also still Python-side |
 | 24 | P2 | deferred | Company page Candles ignores selected range; multi-year axis labels missing year. Needs the same range-respecting slice + year-in-tick logic already applied to workstation (`dc135cb`) |
 | 25 | P2 | deferred | ABSA mid-Nov to late-Dec 2025 forward-fill gap. Data-quality script + backfill from NSE daily bulletin ingest |
 | 26 | P2 | deferred | Home heatmap tile text WCAG contrast |

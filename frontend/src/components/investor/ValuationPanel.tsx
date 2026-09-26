@@ -20,8 +20,21 @@ const SECTOR_MEDIAN_PE: Record<string, number | null> = {
   "Exchange Traded Funds": null,
 };
 
-const fmt = (v: number | null, suffix = "", decimals = 2) =>
+const fmt = (v: number | null | undefined, suffix = "", decimals = 2) =>
   v != null ? `${v.toFixed(decimals)}${suffix}` : "—";
+
+// Multiple-based ratios (P/E, P/Book) are only meaningful when the divisor
+// (EPS, BVPS) is strictly positive. A negative earnings company technically
+// has a "negative P/E" but no analyst uses it — every terminal renders N/M
+// (Not Meaningful) so the user knows the field is deliberately omitted,
+// not just missing data. Same for zero/negative BVPS on distressed names.
+function fmtMultiple(price: number, divisor: number | null | undefined, decimals = 1): { text: string; title?: string } {
+  if (divisor == null) return { text: "—", title: "Not in the latest published filing." };
+  if (divisor === 0) return { text: "N/M", title: "Zero denominator — ratio undefined." };
+  if (divisor < 0) return { text: "N/M", title: "Negative denominator — ratio not meaningful (loss-making period)." };
+  if (!(price > 0)) return { text: "—", title: "Awaiting live price." };
+  return { text: `${(price / divisor).toFixed(decimals)}×` };
+}
 
 const TabBtn: FC<{ label: string; active: boolean; onClick: () => void }> = ({ label, active, onClick }) => (
   <button
@@ -110,17 +123,29 @@ export const ValuationPanel: FC<Props> = ({ company, financials, fundamentals })
                   </tr>
                   <tr className="hover:bg-raised/20 transition-colors">
                     <td className="px-3 py-2.5 font-medium text-sub">P/E Ratio</td>
-                    {annuals.map((r) => <td key={r.period} className="px-3 py-2.5 text-right font-mono text-ink">{r.eps && r.eps > 0 ? `${(price / r.eps).toFixed(1)}×` : "—"}</td>)}
+                    {annuals.map((r) => {
+                      const cell = fmtMultiple(price, r.eps, 1);
+                      return <td key={r.period} className="px-3 py-2.5 text-right font-mono text-ink" title={cell.title}>{cell.text}</td>;
+                    })}
                     {forwardPeriod && <td className="px-3 py-2.5 text-right font-mono text-sky-500/80">{fmt(estimates[0]?.pe_forward ?? null, "×")} <span className="text-[10px] text-hint">est.</span></td>}
                   </tr>
                   <tr className="hover:bg-raised/20 transition-colors">
                     <td className="px-3 py-2.5 font-medium text-sub">BVPS (KES)</td>
-                    {annuals.map((r) => <td key={r.period} className="px-3 py-2.5 text-right font-mono text-ink">{fmt(r.bvps)}</td>)}
+                    {annuals.map((r) => (
+                      <td
+                        key={r.period}
+                        className="px-3 py-2.5 text-right font-mono text-ink"
+                        title={r.bvps == null ? "Not in the latest published filing — needs ingest to extract from the balance sheet." : undefined}
+                      >{fmt(r.bvps)}</td>
+                    ))}
                     {forwardPeriod && <td className="px-3 py-2.5 text-right font-mono text-hint">—</td>}
                   </tr>
                   <tr className="hover:bg-raised/20 transition-colors">
                     <td className="px-3 py-2.5 font-medium text-sub">P/Book</td>
-                    {annuals.map((r) => <td key={r.period} className="px-3 py-2.5 text-right font-mono text-ink">{r.bvps && r.bvps > 0 ? `${(price / r.bvps).toFixed(2)}×` : "—"}</td>)}
+                    {annuals.map((r) => {
+                      const cell = fmtMultiple(price, r.bvps, 2);
+                      return <td key={r.period} className="px-3 py-2.5 text-right font-mono text-ink" title={cell.title}>{cell.text}</td>;
+                    })}
                     {forwardPeriod && <td className="px-3 py-2.5 text-right font-mono text-hint">—</td>}
                   </tr>
                   <tr className="hover:bg-raised/20 transition-colors">
@@ -134,6 +159,16 @@ export const ValuationPanel: FC<Props> = ({ company, financials, fundamentals })
                 </tbody>
               </table>
             </div>
+
+            {/* Legend for empty cells so users can distinguish "no data
+                yet" from "not meaningful". Multiple UIs including
+                Bloomberg / TradingView split the two — we do too so a
+                gap doesn't read as a broken page. */}
+            <p className="mt-3 text-[10px] leading-relaxed text-hint">
+              <span className="font-mono">—</span> value not in the latest published filing for this ticker.
+              <span className="mx-2 opacity-50">·</span>
+              <span className="font-mono">N/M</span> not meaningful (loss-making period; ratio undefined for negative earnings/equity).
+            </p>
 
             {sectorMedianPE != null && currentPE != null && sectorDiff != null && (
               <div className="mt-4 rounded-lg border border-seam/60 bg-raised/30 px-4 py-2.5">
