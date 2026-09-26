@@ -1,35 +1,23 @@
 import { useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { useRecentTickers } from "../hooks/useRecentTickers";
-import {
-  useCompany,
-  useFinancials as useFinancialsDoc,
-  useFundamentals,
-  useLatestSnapshot,
-  useLatestTechnicals,
-  useNews,
-} from "../hooks/useCompany";
+import { useCompany } from "../hooks/useCompany";
 import { usePrices } from "../hooks/usePrices";
 import { resolveDisplayPrice } from "../lib/format";
-import { FilingsPanel } from "../components/investor/FilingsPanel";
-import { ReturnsCalculator } from "../components/investor/ReturnsCalculator";
 import { TradingWorkstation } from "../components/investor/TradingWorkstation";
 import { PriceMoveBanner } from "../components/investor/PriceMoveBanner";
-import { ValuationPanel } from "../components/investor/ValuationPanel";
-import { AIInsightsPanel } from "../components/investor/AIInsightsPanel";
-import { RadarScoreCard } from "../components/investor/RadarScoreCard";
-import { NewsPanel } from "../components/investor/NewsPanel";
-import { FinancialsPanel } from "../components/FinancialsPanel";
-import { FinancialNarrativeCard } from "../components/FinancialNarrativeCard";
-import { DeepAnalysisPanel } from "../components/DeepAnalysisPanel";
+import { CompanyDeepDive } from "./CompanyDeepDive";
 import { toBase } from "../lib/ticker";
 
 // Single canonical company page. The old /company/{ticker} route now
-// redirects here — the audit found users bounced between /company and
-// /chart with no clear reason for the two views. This page keeps the
-// TradingView-style workstation as the primary artefact and stacks the
-// analysis cards (returns calculator, valuation, financials,
-// AI insights, filings, news) below so nothing is lost in the merge.
+// redirects here. Layout order:
+//   1. Price-move banner (MSN-style ▲/▼ pill above the fold)
+//   2. TradingView-style workstation (chart, indicators, right sidebar)
+//   3. Full analysis stack — Returns Calculator, Valuation, Financials,
+//      Fundamental Radar, AI Signal, Forecast (1M/3M/6M/9M/12M),
+//      Model Accuracy, Signal Backtest, News & Filings, etc. — all
+//      rendered by <CompanyDeepDive embedded /> so nothing that used
+//      to live on /company/{ticker} is missing.
 export const InvestorChart = () => {
   const { ticker: rawTicker = "" } = useParams<{ ticker: string }>();
   const cleaned = toBase(rawTicker);
@@ -39,25 +27,18 @@ export const InvestorChart = () => {
     if (cleaned) pushRecent(cleaned);
   }, [cleaned, pushRecent]);
 
-  const { data: financials } = useFinancialsDoc(cleaned);
+  // Load just enough here to render the price-move banner above the
+  // workstation. CompanyDeepDive below re-reads its own hooks (company,
+  // snapshot, technicals, financials, fundamentals, news, macro) — the
+  // duplicate reads are cheap because react-query dedupes on the same
+  // query key.
   const { data: company } = useCompany(cleaned);
-  const { data: fundamentals } = useFundamentals(cleaned);
-  const { data: snapshot } = useLatestSnapshot(cleaned);
-  const { data: technicals } = useLatestTechnicals(cleaned);
-  const { data: newsItems = [] } = useNews(cleaned);
-
   const chartEnd = new Date().toISOString().slice(0, 10);
-  const { points, latest } = usePrices(cleaned, "2008-01-01", chartEnd);
+  const { latest } = usePrices(cleaned, "2008-01-01", chartEnd);
   const display = resolveDisplayPrice(company, latest);
-  const currentPrice = display.price;
 
   return (
     <div className="flex flex-col">
-      {/* Price-move banner above the workstation — full-width MSN-style
-          "▲ Price up +X% from previous close" bar so a reader knows the
-          direction/magnitude before parsing the chart. Component is
-          null-safe: renders nothing when either changePct or currentPrice
-          is missing. */}
       {display.price != null && display.changePct != null && (
         <div className="w-full px-4 pt-4 sm:px-6 lg:px-8">
           <PriceMoveBanner
@@ -71,47 +52,16 @@ export const InvestorChart = () => {
 
       <TradingWorkstation key={cleaned} short={cleaned} />
 
-      {/* Analysis stack, edge-to-edge (matches the workstation's rule).
-          Order: returns calculator (interactive) → valuation table →
-          fundamental radar → financials → AI narrative → deep analysis
-          → news → filings. Sections that need a data feed we don't have
-          for this ticker render as their own empty state — none of them
-          block the workstation. */}
-      <div className="w-full space-y-4 py-6">
-        {points.length > 0 && (
-          <ReturnsCalculator
-            ticker={cleaned}
-            history={points}
-            financials={financials}
-            currentPrice={currentPrice}
-          />
-        )}
-        {company && (
-          <ValuationPanel
-            company={company}
-            financials={financials ?? null}
-            fundamentals={fundamentals ?? null}
-          />
-        )}
-        {company && (
-          <RadarScoreCard
-            company={company}
-            financials={financials}
-            currentPrice={currentPrice}
-          />
-        )}
-        <FinancialsPanel ticker={cleaned} />
-        <FinancialNarrativeCard ticker={cleaned} />
-        <DeepAnalysisPanel ticker={cleaned} />
-        {(technicals || snapshot) && (
-          <AIInsightsPanel
-            technicals={technicals}
-            snapshot={snapshot}
-            currentPrice={currentPrice}
-          />
-        )}
-        {financials && <NewsPanel financials={financials} newsItems={newsItems} />}
-        {financials && <FilingsPanel financials={financials} />}
+      {/* Full analysis stack. `embedded` suppresses CompanyDeepDive's
+          own copy of the workstation + price banner so nothing renders
+          twice, but every other section (ForecastPanel with 1M/3M/6M/
+          9M/12M horizons, SnapshotCard AI signal, ValuationPanel,
+          FinancialsPanel, RadarScoreCard, ModelAccuracyCard,
+          SignalBacktestChart, ReturnsCalculator, PriceExplainer, the
+          combined News & Filings tab, ChartSection technical chart,
+          sidebar sliders) still ships. */}
+      <div className="w-full px-4 py-6 sm:px-6 lg:px-8">
+        <CompanyDeepDive tickerOverride={cleaned} embedded />
       </div>
     </div>
   );

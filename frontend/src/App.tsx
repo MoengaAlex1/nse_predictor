@@ -4,7 +4,6 @@ import { initAuthListener } from "./lib/auth";
 import { AppShell } from "./components/layout/AppShell";
 import { Home } from "./pages/Home";
 import { Companies } from "./pages/Companies";
-import { CompanyDeepDive } from "./pages/CompanyDeepDive";
 import { InvestorDashboard } from "./pages/InvestorDashboard";
 import { InvestorChart } from "./pages/InvestorChart";
 import { Screener } from "./pages/Screener";
@@ -46,10 +45,9 @@ function CompanyToChartRedirect() {
   return <Navigate to={canonical ? `/chart/${canonical}` : "/companies"} replace />;
 }
 void TickerRedirect;
-// CompanyDeepDive is retained in the codebase as a component library
-// even though its route now redirects — InvestorChart re-uses several
-// of its cards (Financials, Valuation, etc.) inline below the chart.
-void CompanyDeepDive;
+// CompanyDeepDive is imported through InvestorChart (rendered
+// `embedded` under the workstation), so the import is a live reference
+// now and doesn't need the `void` guard the previous merge added.
 
 export default function App() {
   useEffect(() => {

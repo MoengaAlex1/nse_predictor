@@ -19,6 +19,8 @@ import { CompanyProfileCard } from "../components/investor/CompanyProfileCard";
 import { QuoteSummaryPanel } from "../components/investor/QuoteSummaryPanel";
 import { ValuationPanel } from "../components/investor/ValuationPanel";
 import { NewsPanel } from "../components/investor/NewsPanel";
+import { NewsAndFilingsPanel } from "../components/investor/NewsAndFilingsPanel";
+void NewsPanel;   // Referenced indirectly via NewsAndFilingsPanel.
 import { AIInsightsPanel } from "../components/investor/AIInsightsPanel";
 import { AnalystGaugeCard } from "../components/investor/AnalystGaugeCard";
 import { ModelTargetCard } from "../components/investor/ModelTargetCard";
@@ -1319,12 +1321,25 @@ const DataQualityBanner: FC<{ history: PricePoint[] }> = ({ history }) => {
 };
 
 // ── Main page ─────────────────────────────────────────────────────────────────
-export const CompanyDeepDive: FC = () => {
+// InvestorChart renders CompanyDeepDive as its analysis stack under the
+// workstation. When `embedded` is true, this page skips the widgets
+// InvestorChart already draws itself — TradingWorkstation, the price-
+// move banner, the price banner it renders inside a chart, etc. —
+// so nothing is duplicated. The outer /company/{ticker} route now
+// redirects to /chart/{ticker}, but the props keep the standalone
+// render path intact for future direct use.
+interface CompanyDeepDiveProps {
+  tickerOverride?: string;    // when embedded, use this instead of useParams
+  embedded?: boolean;         // suppress the workstation duplicate
+}
+export const CompanyDeepDive: FC<CompanyDeepDiveProps> = ({ tickerOverride, embedded = false }) => {
   const { ticker: rawTicker = "" } = useParams<{ ticker: string }>();
   // Canonical base form. Every hook below receives the base ticker so a
   // suffixed URL (/company/ABSA.NR) and a canonical URL (/company/ABSA)
-  // hit the same Firestore doc ids.
-  const ticker = toBase(rawTicker);
+  // hit the same Firestore doc ids. tickerOverride lets a parent
+  // (InvestorChart) hand us the already-normalised ticker without
+  // re-reading the URL.
+  const ticker = toBase(tickerOverride ?? rawTicker);
   const { data: company, isLoading, isError } = useCompany(ticker);
   const { data: snapshot, isLoading: snapLoading } = useLatestSnapshot(ticker);
   const { data: recentSnapshots } = useRecentSnapshots(ticker, 60);
@@ -1459,13 +1474,16 @@ export const CompanyDeepDive: FC = () => {
       <div className="space-y-4">
         {/* ── Price-move alert banner — MSN-style, first thing on the page ─
             All values come from the single `display` resolver so this banner
-            can never disagree with the header, chart, or OHLCV panel. */}
-        <PriceMoveBanner
-          currentPrice={display.price}
-          previousClose={display.previousClose}
-          changePct={display.changePct}
-          priceDate={display.asOf}
-        />
+            can never disagree with the header, chart, or OHLCV panel.
+            Suppressed in embedded mode (InvestorChart draws its own). */}
+        {!embedded && (
+          <PriceMoveBanner
+            currentPrice={display.price}
+            previousClose={display.previousClose}
+            changePct={display.changePct}
+            priceDate={display.asOf}
+          />
+        )}
 
         {/* ── Trading terminal header ────────────────────────────────────── */}
         <div className="overflow-hidden rounded-xl border border-rim bg-surface shadow-sm">
@@ -1554,7 +1572,9 @@ export const CompanyDeepDive: FC = () => {
               - right sidebar (watchlist + company details + key stats)
             Drawing tools are visual-only placeholders — a persisted
             drawing engine is a separate track. See TradingWorkstation.tsx. */}
-        <TradingWorkstation key={company.short} short={company.short} />
+        {!embedded && (
+          <TradingWorkstation key={company.short} short={company.short} />
+        )}
 
         {/* The licensed TradingView embed is no longer rendered but the
             import is kept so the component stays in the tree for a quick
@@ -1632,7 +1652,10 @@ export const CompanyDeepDive: FC = () => {
             <FinancialNarrativeCard ticker={ticker} />
             <DeepAnalysisPanel ticker={ticker} />
             <FilingsTimeline financials={financials ?? undefined} />
-            <NewsPanel financials={financials} newsItems={newsItems} />
+            {/* Combined News + Filings tabbed card — replaces the
+                previously-separate NewsPanel + FilingsPanel cards per
+                the user request "News & Filings should be 1 combined". */}
+            <NewsAndFilingsPanel financials={financials} newsItems={newsItems} />
             <NewsPriceChart news={newsItems} rtdbPrices={rtdbPrices} />
             <GatedContent
               snapshot={snapshot}
