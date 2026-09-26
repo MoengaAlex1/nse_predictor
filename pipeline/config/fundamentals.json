@@ -1,7 +1,8 @@
 {
   "_meta": {
-    "description": "Shares outstanding for NSE-listed companies. Two sources: (a) manually curated from each company's most recent audited annual report / IR page for the top 20 (source_url cited per entry); (b) back-derived arithmetically from financials.json net_income_kes_mn / eps for the rest. Curation supersedes derivation when both exist. Re-curate annually after new-issue events (rights issues, splits, bonus issues) — flagged in .github/workflows/refresh_disclosures.yml commentary.",
-    "last_curated": "2026-08-10"
+    "description": "Shares outstanding for NSE-listed companies. Two sources: (a) manually curated from each company's most recent audited annual report / IR page for the top 20 (source_url cited per entry); (b) back-derived arithmetically from financials.json net_income_kes_mn / eps for the rest. Curation supersedes derivation when both exist. Re-curate annually after new-issue events (rights issues, splits, bonus issues) \u00e2\u20ac\u201d flagged in .github/workflows/refresh_disclosures.yml commentary.",
+    "last_curated": "2026-09-26",
+    "curation_notes": "2026-09-26: Added 17 baseline source_url entries so enrich_from_ir_pages.py reaches more tickers. Marked confidence: medium \u2014 a human should verify each URL loads before trusting extracted leadership data. Tickers still without a source_url (ALP AMAC ARM BKG DCON EGAD EVRD FMLY HAFR KAPC KPC KURV LAPR LIMT LKL MSC NBV REIT SASN SCAN SKL SLAM SMER TCL UCHM XPRS) need manual research \u2014 some are receivership/delisted candidates, some are small caps without a public IR page."
   },
   "SCOM": {
     "shares_outstanding_mn": 40065.4,
@@ -46,7 +47,7 @@
   "BAT": {
     "shares_outstanding_mn": 100.0,
     "as_of": "2024-12-31",
-    "source": "BAT Kenya PLC FY2024 audited results — 100,000,000 ordinary shares in issue",
+    "source": "BAT Kenya PLC FY2024 audited results \u00e2\u20ac\u201d 100,000,000 ordinary shares in issue",
     "source_url": "https://www.batkenya.com/group/sites/BAT_9SGKGE.nsf/vwPagesWebLive/DO9SGKPB",
     "confidence": "high",
     "method": "curated"
@@ -150,7 +151,7 @@
   "KUKZ": {
     "shares_outstanding_mn": 19.6,
     "as_of": "2024-09-30",
-    "source": "Kakuzi PLC FY2024 audited results — 19,599,999 ordinary shares",
+    "source": "Kakuzi PLC FY2024 audited results \u00e2\u20ac\u201d 19,599,999 ordinary shares",
     "source_url": "https://kakuzi.co.ke/investor-relations/",
     "confidence": "high",
     "method": "curated"
@@ -185,6 +186,108 @@
     "source": "Nation Media Group PLC FY2024 audited results",
     "source_url": "https://nationmedia.com/investor-relations/",
     "confidence": "high",
+    "method": "curated"
+  },
+  "BAMB": {
+    "source": "Bamburi Cement PLC \u2014 investor relations",
+    "source_url": "https://www.lafarge.co.ke/",
+    "confidence": "medium",
+    "method": "curated"
+  },
+  "BOC": {
+    "source": "BOC Kenya PLC \u2014 investor relations",
+    "source_url": "https://www.bockenya.com/",
+    "confidence": "medium",
+    "method": "curated"
+  },
+  "CABL": {
+    "source": "East African Cables PLC \u2014 corporate site",
+    "source_url": "https://www.eastafricancables.com/",
+    "confidence": "medium",
+    "method": "curated"
+  },
+  "CRWN": {
+    "source": "Crown Paints Kenya PLC \u2014 investor relations",
+    "source_url": "https://crownpaints.co.ke/",
+    "confidence": "medium",
+    "method": "curated"
+  },
+  "KNRE": {
+    "source": "Kenya Reinsurance Corporation Limited",
+    "source_url": "https://www.kenyare.co.ke/",
+    "confidence": "medium",
+    "method": "curated"
+  },
+  "KQ": {
+    "source": "Kenya Airways PLC \u2014 investor relations",
+    "source_url": "https://www.kenya-airways.com/",
+    "confidence": "medium",
+    "method": "curated"
+  },
+  "LBTY": {
+    "source": "Liberty Kenya Holdings \u2014 corporate site",
+    "source_url": "https://www.libertylife.co.ke/",
+    "confidence": "medium",
+    "method": "curated"
+  },
+  "OCH": {
+    "source": "Olympia Capital Holdings Limited",
+    "source_url": "https://www.olympia.co.ke/",
+    "confidence": "medium",
+    "method": "curated"
+  },
+  "PORT": {
+    "source": "East African Portland Cement Company",
+    "source_url": "https://www.eapcc.co.ke/",
+    "confidence": "medium",
+    "method": "curated"
+  },
+  "SASN": {
+    "source": "Sasini PLC \u2014 investor relations",
+    "source_url": "https://www.sasini.co.ke/",
+    "confidence": "medium",
+    "method": "curated"
+  },
+  "WTK": {
+    "source": "Williamson Tea Kenya PLC",
+    "source_url": "https://www.williamsontea.com/",
+    "confidence": "medium",
+    "method": "curated"
+  },
+  "UNGA": {
+    "source": "Unga Group PLC",
+    "source_url": "https://www.ungagroup.com/",
+    "confidence": "medium",
+    "method": "curated"
+  },
+  "TPSE": {
+    "source": "TPS Eastern Africa (Serena Hotels)",
+    "source_url": "https://www.tpsea.com/",
+    "confidence": "medium",
+    "method": "curated"
+  },
+  "FTGH": {
+    "source": "Flame Tree Group Holdings",
+    "source_url": "https://www.flametreegroup.co.ke/",
+    "confidence": "medium",
+    "method": "curated"
+  },
+  "CGEN": {
+    "source": "Car & General (Kenya) PLC",
+    "source_url": "https://www.cargen.com/",
+    "confidence": "medium",
+    "method": "curated"
+  },
+  "UMME": {
+    "source": "Umeme Limited (Uganda) \u2014 investor relations",
+    "source_url": "https://www.umeme.co.ug/investor-relations/",
+    "confidence": "medium",
+    "method": "curated"
+  },
+  "SGL": {
+    "source": "Standard Group PLC",
+    "source_url": "https://www.standardmedia.co.ke/",
+    "confidence": "medium",
     "method": "curated"
   }
 }
