@@ -521,9 +521,16 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
     return Math.max(1, Math.round((b - a) / (24 * 3600 * 1000)));
   }, [visible]);
 
+  // Chart data. Indicators are computed over the FULL price series so
+  // SMA 200 has values from bar 200 onwards regardless of which range
+  // the user picked — a 1Y view no longer waits until July for SMA 200
+  // to start drawing. We compute on `rows` (all history), then slice to
+  // the visible window. Prior version computed on `visible`, which meant
+  // any moving average with period > 20% of the visible window rendered
+  // as mostly-blank line + a stub at the right edge.
   const chartData = useMemo<ChartPoint[]>(
     () => {
-      const base: ChartPoint[] = visible
+      const fullBase: ChartPoint[] = rows
         .filter((r) => r.c != null && (r.c as number) > 0)
         .map((r) => ({
           date: r.date,
@@ -531,9 +538,13 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
           volume: (r.v as number | null) ?? 0,
           up: r.pc != null ? (r.c as number) >= (r.pc as number) : true,
         }));
-      return decorateWithIndicators(base, indicators);
+      const fullDecorated = decorateWithIndicators(fullBase, indicators);
+      if (!visible.length) return fullDecorated;
+      const startDate = visible[0].date;
+      const endDate = visible[visible.length - 1].date;
+      return fullDecorated.filter(p => p.date >= startDate && p.date <= endDate);
     },
-    [visible, indicators],
+    [rows, visible, indicators],
   );
 
   // Container ref for fullscreen. Points at the outer workstation wrapper
