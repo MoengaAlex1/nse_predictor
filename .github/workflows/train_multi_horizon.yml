@@ -53,28 +53,20 @@ jobs:
           fi
           python pipeline/scripts/train_multi_horizon.py $ARGS
 
-      - name: Upload models to Firebase Storage
+      - name: Upload models to Firebase Storage (best-effort)
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
           FIREBASE_STORAGE_BUCKET:       ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        continue-on-error: true    # Storage 403 (billing / IAM) is non-fatal — inference step below runs against the same-workflow local files.
         run: |
-          # Push the per-horizon .pkl and _meta.json files to Storage so
-          # run_inference can download them at inference time. Reuses
-          # the same upload helper the LSTM/XGB models use.
           python -c "
           import sys
           from pathlib import Path
           sys.path.insert(0, 'pipeline')
           sys.path.insert(0, '.')
-          # Firebase app must be initialised BEFORE upload_model_to_storage
-          # calls fb_storage.bucket(). The training step above did this
-          # via get_firestore(), but the upload runs in a fresh python
-          # process so nothing has been init'd yet.
           from pipeline.scripts.firebase_client import get_firestore
           get_firestore()
           from pipeline.scripts.push_to_firestore import upload_model_to_storage
-          # MODELS_DIR from pipeline/config.py resolves to
-          # pipeline/models/saved — matches save_multi_horizon's target.
           n_ok = 0
           n_fail = 0
           for p in sorted(Path('pipeline/models/saved').glob('*_mhgbm_*')):
@@ -83,4 +75,19 @@ jobs:
               else:  n_fail += 1
               print(('ok' if ok else 'FAIL'), p.name)
           print(f'--- {n_ok} uploaded, {n_fail} failed ---')
+          "
+
+      - name: Regenerate snapshots with horizon_predictions
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL:             ${{ secrets.FIREBASE_RTDB_URL }}
+          FIREBASE_STORAGE_BUCKET:       ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          # run_inference.load_multi_horizon checks MODELS_TMP first,
+          # then MODELS_DIR (= pipeline/models/saved). The training step
+          # above just populated the latter, so this pass finds every
+          # horizon model on local disk and writes horizon_predictions
+          # into each snapshot. Firestore writes work even when Storage
+          # doesn't — Firebase Storage 403 doesn't block this path.
+          python pipeline/scripts/run_inference.py
           "
