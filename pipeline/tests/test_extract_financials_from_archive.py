@@ -98,6 +98,51 @@ def test_missing_text_returns_none_confidence() -> None:
     assert r["confidence"] == "none"
 
 
+def test_bvps_matches_ordinary_share_variant() -> None:
+    """The phrase "Book Value Per Ordinary Share" appears verbatim on
+    several NSE bank filings (KCB, Absa, DTB) and the earlier regex
+    missed it because it wouldn't accept "Ordinary" between "Per" and
+    "Share". The broader phrase list must catch it."""
+    text = """
+    Bank Plc — Full Year Results for the Year Ended 31 December 2024
+
+    Total Revenue                                    KES 12,345,678
+    Profit for the year                              KES 2,345,678
+    Earnings per share                                       8.72
+    Book Value Per Ordinary Share (KShs)                    45.60
+    """
+    r = extract_from_text(text)
+    assert r["bvps"] == 45.60
+
+
+def test_bvps_matches_shareholders_funds_variant() -> None:
+    """Insurers (Britam, CIC, Sanlam) commonly report "Shareholders'
+    Funds per Share" instead of book value. Must catch this too."""
+    text = """
+    Insurance Plc — FY2024 Results for the Year Ended 31 December 2024
+
+    Revenue                                          KES 5,000,000
+    Profit for the year                              KES 500,000
+    Earnings per share                                       2.10
+    Shareholders' Funds Per Share                            18.35
+    """
+    r = extract_from_text(text)
+    assert r["bvps"] == 18.35
+
+
+def test_bvps_matches_nav_per_share_variant() -> None:
+    """"Net Asset Value per Share" written out (previously only
+    matched the abbreviation "NAV per share")."""
+    text = """
+    Fund Plc — FY2024 Results for the Year Ended 31 December 2024
+
+    Net Asset Value per Share                                92.40
+    Earnings per share                                        6.10
+    """
+    r = extract_from_text(text)
+    assert r["bvps"] == 92.40
+
+
 def test_loss_makes_net_income_negative() -> None:
     text = """
     Loss for the year                              Kes (2,000,000)

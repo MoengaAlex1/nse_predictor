@@ -53,7 +53,24 @@ DPS_RE = re.compile(
     re.IGNORECASE,
 )
 BVPS_RE = re.compile(
-    r"(?:book\s+value\s+per\s+share|nav\s+per\s+share|net\s+assets?\s+per\s+share)[\s:]*" + _KES + r"([\d.,]+)",
+    # Handles every phrasing NSE issuers actually use for book value:
+    #   "Book Value Per Share", "Book Value per Ordinary Share",
+    #   "Net Asset Value per Share" / "NAV per share",
+    #   "Net Assets per Share", "Shareholders' Funds per Share",
+    #   "Shareholders' Equity per Share", "Equity per Share",
+    #   bare "BVPS" or "NAV" followed by a number.
+    # \([^)]{0,40}\)? lets an inline unit tag like "(KShs)" pass without
+    # breaking the phrase→number adjacency.
+    r"(?:"
+    r"book\s+value(?:\s+per(?:\s+(?:ordinary|basic))?\s+share)?"
+    r"|net\s+asset(?:\s*value)?[s]?\s+per\s+share"
+    r"|nav(?:\s*(?:/|per)\s*share)?"
+    r"|shareholders['’]?\s+(?:funds|equity)\s+per\s+share"
+    r"|equity\s+per\s+share"
+    r"|\bbvps\b"
+    r")"
+    r"\s*(?:\([^)]{0,40}\))?[\s:]*"
+    + _KES + r"([\d.,]+)",
     re.IGNORECASE,
 )
 PERIOD_RE = re.compile(
@@ -266,9 +283,33 @@ def search_tables_for_metrics(tables: list[list[list[str]]]) -> dict:
                         result["dps_raw"] = val
                         break
 
-            # BVPS
-            if ("book value per share" in row_lower or "nav per share" in row_lower
-                    or "net assets per share" in row_lower):
+            # BVPS — match every phrasing NSE issuers use for book/NAV per
+            # share. Prior list ("book value per share", "nav per share",
+            # "net assets per share") missed common variants like "book
+            # value per ordinary share", "shareholders' funds per share",
+            # "equity per share", bare "BVPS/NAV", or "net asset value per
+            # share" written out.
+            if any(kw in row_lower for kw in (
+                "book value per share",
+                "book value per ordinary share",
+                "book value per basic share",
+                "nav per share",
+                "nav/share",
+                "net asset value per share",
+                "net assets per share",
+                "net asset per share",
+                "shareholders' funds per share",
+                "shareholders funds per share",
+                "shareholders' equity per share",
+                "shareholders equity per share",
+                "equity per share",
+            )) or (
+                # Bare "BVPS" or "NAV" cell — only accept when it stands
+                # alone or is followed by a number on the same row, to
+                # avoid matching narrative sentences that happen to say
+                # "the group's NAV..."
+                (row_lower.strip().startswith("bvps") or row_lower.strip().startswith("nav "))
+            ):
                 for cell in row[1:]:
                     val = parse_kes_number(str(cell or ""))
                     if val is not None and val < 10000:
@@ -286,19 +327,46 @@ def infer_period_type(filename: str, text: str) -> str:
 
 
 def infer_period_label(period_end: Optional[str], filename: str) -> str:
+    """Human-readable period label. Kenyan FYs mostly end 31-Dec; a
+    handful of tickers use non-Dec fiscal years (banks with Mar/Sep
+    ends). Interim filings end at Jun (H1) or Sep (Q3). The label MUST
+    NOT call an H1 filing "FY" — the audit found the frontend
+    Valuation table rendered "FY2024 (Jun)" for interim results next
+    to real annuals, which misled users into comparing half-year
+    numbers with annual peers.
+
+    Distinguishes annual vs interim based on the filename hint first
+    (issuers tag their filings clearly), then falls back to month.
+    """
+    fn_lower = filename.lower()
+    is_interim_hint = any(kw in fn_lower for kw in (
+        "half year", "half-year", "halfyear", "six months",
+        "interim", "h1", "h2", "q1", "q2", "q3", "q4", "quarter",
+    ))
+    is_annual_hint = any(kw in fn_lower for kw in (
+        "full year", "full-year", "annual", "fy", "audited",
+    ))
+
     if period_end:
         year = period_end[:4]
         month = int(period_end[5:7])
-        if month in (12, 1):
+        # Dec end + no interim hint → annual. Every Kenyan FY that ends
+        # in December is an audited full-year result.
+        if month in (12, 1) and not is_interim_hint:
             return f"FY{year}"
-        elif month == 3:
+        # Jun end → H1 (half-year) unless the filename explicitly says
+        # "annual" (rare — a few tickers have a July-June fiscal year).
+        if month == 6:
+            return f"FY{year} (Jun)" if is_annual_hint else f"H1 {year}"
+        # Sep end → Q3 interim unless annual (Sep-fiscal-year issuers).
+        if month == 9:
+            return f"FY{year} (Sep)" if is_annual_hint else f"Q3 {year}"
+        # Mar end is almost always an annual with a March FY.
+        if month == 3:
             return f"FY{year} (Mar)"
-        elif month == 6:
-            return f"FY{year} (Jun)"
-        elif month == 9:
-            return f"FY{year} (Sep)"
-        else:
-            return f"FY{year}"
+        # Any other month → default to FY<year> with the month tag so
+        # readers can see the mid-year cutoff.
+        return f"FY{year}"
     # Fallback: find year in filename
     m = re.search(r"(20\d{2})", filename)
     return f"FY{m.group(1)}" if m else "Unknown"
