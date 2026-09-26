@@ -61,7 +61,7 @@ export const QuoteSummaryPanel: FC<Props> = ({ company, technicals, financials, 
   const high52 = yearPrices.length > 0 ? Math.max(...yearPrices) : null;
   const low52 = yearPrices.length > 0 ? Math.min(...yearPrices) : null;
   const rangePos =
-    high52 !== null && low52 !== null && high52 !== low52
+    high52 != null && low52 != null && high52 !== low52
       ? Math.round(((price - low52) / (high52 - low52)) * 100)
       : null;
 
@@ -108,7 +108,7 @@ export const QuoteSummaryPanel: FC<Props> = ({ company, technicals, financials, 
       </p>
 
       {/* 52W range slider */}
-      {high52 !== null && low52 !== null && (
+      {high52 != null && low52 != null && (
         <div className="space-y-1">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
             52-Week Range
@@ -117,7 +117,7 @@ export const QuoteSummaryPanel: FC<Props> = ({ company, technicals, financials, 
             <span className="font-mono text-xs text-sub">{fmtKES(low52)}</span>
             <div className="relative flex-1 h-1.5 rounded-full bg-raised">
               <div className="absolute inset-0 rounded-full bg-seam/40" />
-              {rangePos !== null && (
+              {rangePos != null && (
                 <div
                   className="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border-2 border-sky-400 bg-surface shadow"
                   style={{ left: `calc(${rangePos}% - 6px)` }}
@@ -126,7 +126,7 @@ export const QuoteSummaryPanel: FC<Props> = ({ company, technicals, financials, 
             </div>
             <span className="font-mono text-xs text-sub">{fmtKES(high52)}</span>
           </div>
-          {rangePos !== null && (
+          {rangePos != null && (
             <p className="text-right text-[10px] text-hint">{rangePos}% of 52W range</p>
           )}
         </div>
@@ -138,13 +138,13 @@ export const QuoteSummaryPanel: FC<Props> = ({ company, technicals, financials, 
         {technicals && (
           <MetricChip label="Avg Vol 30D" value={fmtVol(technicals.avg_volume_30d)} />
         )}
-        {mktCapBn !== null && (
+        {mktCapBn != null && (
           <MetricChip label="Mkt Cap" value={`KES ${mktCapBn.toFixed(1)}B`} />
         )}
-        {pe !== null && <MetricChip label="P/E" value={`${pe.toFixed(1)}×`} />}
-        {pb !== null && <MetricChip label="P/Book" value={`${pb.toFixed(2)}×`} />}
-        {eps !== null && <MetricChip label="EPS (TTM)" value={`KES ${eps.toFixed(2)}`} />}
-        {divYield !== null && (
+        {pe != null && <MetricChip label="P/E" value={`${pe.toFixed(1)}×`} />}
+        {pb != null && <MetricChip label="P/Book" value={`${pb.toFixed(2)}×`} />}
+        {eps != null && <MetricChip label="EPS (TTM)" value={`KES ${eps.toFixed(2)}`} />}
+        {divYield != null && (
           <MetricChip
             label="Div Yield"
             value={`${divYield.toFixed(1)}%`}
@@ -154,7 +154,7 @@ export const QuoteSummaryPanel: FC<Props> = ({ company, technicals, financials, 
         {nextDiv && nextDiv.amount_kes != null && (
           <MetricChip label="Next Div" value={`KES ${nextDiv.amount_kes.toFixed(2)}`} />
         )}
-        {sectorMedianPe !== null && pe !== null && (
+        {sectorMedianPe != null && pe != null && (
           <MetricChip
             label="Sector P/E"
             value={`${sectorMedianPe.toFixed(1)}×`}
@@ -187,7 +187,7 @@ export const QuoteSummaryPanel: FC<Props> = ({ company, technicals, financials, 
                 <span className="ml-2 text-red-400 font-semibold">SELL {sellCount}</span>
               )}
             </span>
-            {targetAvg !== null && upside !== null && (
+            {targetAvg != null && upside != null && (
               <span className="font-mono text-sub">
                 Target {fmtKES(targetAvg)}
                 <span className={upside >= 0 ? "text-emerald-400" : "text-red-400"}>

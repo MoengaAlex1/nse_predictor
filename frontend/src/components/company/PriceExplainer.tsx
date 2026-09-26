@@ -160,10 +160,10 @@ function buildTimeline(
       const date = r.announcement_date;
       if (date >= rangeStart && date <= rangeEnd) {
         const parts: string[] = [];
-        if (r.revenue_kes_mn !== null) parts.push(`Revenue KES ${(r.revenue_kes_mn / 1000).toFixed(1)}bn`);
-        if (r.net_income_kes_mn !== null) parts.push(`PAT KES ${(r.net_income_kes_mn / 1000).toFixed(1)}bn`);
-        if (r.eps !== null) parts.push(`EPS KES ${r.eps.toFixed(2)}`);
-        if (r.bvps !== null) parts.push(`BVPS KES ${r.bvps.toFixed(2)}`);
+        if (r.revenue_kes_mn != null) parts.push(`Revenue KES ${(r.revenue_kes_mn / 1000).toFixed(1)}bn`);
+        if (r.net_income_kes_mn != null) parts.push(`PAT KES ${(r.net_income_kes_mn / 1000).toFixed(1)}bn`);
+        if (r.eps != null) parts.push(`EPS KES ${r.eps.toFixed(2)}`);
+        if (r.bvps != null) parts.push(`BVPS KES ${r.bvps.toFixed(2)}`);
         items.push({
           date,
           category: "earnings",
@@ -362,7 +362,7 @@ function generateExplanation(
   );
 
   const macroSummaryParts: string[] = [];
-  if (cbkStart !== null && cbkEnd !== null) {
+  if (cbkStart != null && cbkEnd != null) {
     if (cbkStart !== cbkEnd) {
       macroSummaryParts.push(
         `CBK benchmark rate moved from **${cbkStart}%** to **${cbkEnd}%** over this period`
@@ -371,15 +371,15 @@ function generateExplanation(
       macroSummaryParts.push(`CBK benchmark rate was stable at **${cbkStart}%**`);
     }
   }
-  if (inflEnd !== null) {
+  if (inflEnd != null) {
     macroSummaryParts.push(`annual inflation was **${inflEnd}%** in ${endYear}`);
   }
-  if (kesStart !== null && kesEnd !== null && startYear !== endYear) {
+  if (kesStart != null && kesEnd != null && startYear !== endYear) {
     const kes_chg = ((kesEnd - kesStart) / kesStart) * 100;
     macroSummaryParts.push(
       `KES/USD moved from **${kesStart}** to **${kesEnd}** (${sign(kes_chg)}${kes_chg.toFixed(1)}% ${kes_chg > 0 ? "depreciation" : "appreciation"})`
     );
-  } else if (kesEnd !== null) {
+  } else if (kesEnd != null) {
     macroSummaryParts.push(`KES/USD closed ${endYear} at **${kesEnd}**`);
   }
   if (macroSummaryParts.length > 0) {
@@ -468,18 +468,18 @@ function generateExplanation(
     const smaStr = describeSMA(endP, technicals.sma_20, technicals.sma_50, technicals.sma_200);
     const histVal = technicals.macd_hist;
 
-    if (rsiStr || smaStr || histVal !== null) {
+    if (rsiStr || smaStr || histVal != null) {
       lines.push("");
       lines.push("**Technical read at period end (technical):**");
       if (rsiStr) lines.push(`- ${rsiStr}`);
       if (smaStr) lines.push(`- Current price is ${smaStr}.`);
-      if (histVal !== null) {
+      if (histVal != null) {
         const macdDir = histVal >= 0 ? "positive" : "negative";
         lines.push(
           `- MACD histogram is **${macdDir}** (${histVal.toFixed(3)}), indicating short-term ${histVal >= 0 ? "upward" : "downward"} momentum.`
         );
       }
-      if (technicals.volatility_30d !== null) {
+      if (technicals.volatility_30d != null) {
         const vol = technicals.volatility_30d;
         const level = vol > 3 ? "high" : vol > 1.5 ? "moderate" : "low";
         lines.push(
@@ -509,26 +509,26 @@ function generateExplanation(
       let cbkNarrative = "";
       if (hikes > cuts) {
         cbkNarrative = `CBK was in **tightening mode** during this period (${hikes} hike${hikes > 1 ? "s" : ""}, ${holds} hold${holds !== 1 ? "s" : ""}${cuts > 0 ? `, ${cuts} cut${cuts > 1 ? "s" : ""}` : ""})`;
-        if (startRate !== null && endRate !== null) cbkNarrative += `, with the rate rising from ${startRate}% to ${endRate}%`;
+        if (startRate != null && endRate != null) cbkNarrative += `, with the rate rising from ${startRate}% to ${endRate}%`;
       } else if (cuts > hikes) {
         cbkNarrative = `CBK was in **easing mode** (${cuts} cut${cuts > 1 ? "s" : ""}, ${holds} hold${holds !== 1 ? "s" : ""}${hikes > 0 ? `, ${hikes} hike${hikes > 1 ? "s" : ""}` : ""})`;
-        if (startRate !== null && endRate !== null) cbkNarrative += `, with the rate falling from ${startRate}% to ${endRate}%`;
+        if (startRate != null && endRate != null) cbkNarrative += `, with the rate falling from ${startRate}% to ${endRate}%`;
       } else {
         cbkNarrative = `CBK held rates steady at ${startRate ?? endRate ?? "?"}% through most of this period`;
       }
       macroLines.push(`- **Interest rates (macro):** ${cbkNarrative}. ${sectorSensitivity ? `For ${company.sector} stocks (${sectorSensitivity}), this typically implies ${hikes > cuts ? "margin expansion for lenders, higher borrowing costs for leveraged companies" : "cheaper credit, rising asset valuations, and potential re-rating for rate-sensitive sectors"}.` : ""}`);
-    } else if (cbkStart !== null) {
+    } else if (cbkStart != null) {
       macroLines.push(`- **Interest rates (macro):** CBK rate was **${cbkStart}%** at the start of this period — no policy changes recorded within the window.`);
     }
   }
 
-  if (inflStart !== null || inflEnd !== null) {
-    if (startYear === endYear && inflEnd !== null) {
+  if (inflStart != null || inflEnd != null) {
+    if (startYear === endYear && inflEnd != null) {
       const level = inflEnd > 7 ? "elevated" : inflEnd > 4 ? "moderate" : "contained";
       macroLines.push(
         `- **Inflation (macro):** Annual inflation was **${inflEnd}%** in ${endYear} — ${level}. ${inflEnd > 7 ? "High inflation erodes real returns and can pressure consumer stocks." : inflEnd < 4 ? "Low inflation supports real purchasing power and often accompanies accommodative monetary policy." : "Moderate inflation has mixed effects across sectors."}`
       );
-    } else if (inflStart !== null && inflEnd !== null) {
+    } else if (inflStart != null && inflEnd != null) {
       const dir = inflEnd > inflStart ? "rose" : "fell";
       macroLines.push(
         `- **Inflation (macro):** Annual inflation ${dir} from **${inflStart}%** (${startYear}) to **${inflEnd}%** (${endYear}).`
@@ -536,14 +536,14 @@ function generateExplanation(
     }
   }
 
-  if (kesStart !== null || kesEnd !== null) {
-    if (startYear !== endYear && kesStart !== null && kesEnd !== null) {
+  if (kesStart != null || kesEnd != null) {
+    if (startYear !== endYear && kesStart != null && kesEnd != null) {
       const change = ((kesEnd - kesStart) / kesStart) * 100;
       const dir = change > 0 ? "depreciated" : "appreciated";
       macroLines.push(
         `- **KES/USD (macro):** The Kenyan shilling ${dir} from **${kesStart}** to **${kesEnd}** (${sign(change)}${change.toFixed(1)}% over the period years). ${change > 5 ? "Significant shilling weakness raises import costs and can hurt import-dependent businesses." : change < -5 ? "KES appreciation reduces import costs and can boost consumer purchasing power." : "The exchange rate was broadly stable over this period."}`
       );
-    } else if (kesEnd !== null) {
+    } else if (kesEnd != null) {
       macroLines.push(`- **KES/USD (macro):** KES/USD closed ${endYear} at **${kesEnd}**.`);
     }
   }

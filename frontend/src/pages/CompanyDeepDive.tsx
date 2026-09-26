@@ -216,7 +216,7 @@ const StatsStrip: FC<{
               KES {priceFmt(periodStats.low)}
             </p>
           </div>
-          {periodPos !== null && (
+          {periodPos != null && (
             <div className="col-span-2 rounded-lg border border-seam bg-surface p-3">
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
                 {periodLabel} Range · {periodPos.toFixed(0)}% from low
@@ -1014,7 +1014,7 @@ const SnapshotCard: FC<{
 
 // ── Technicals card ────────────────────────────────────────────────────────────
 const TechnicalsCard: FC<{ technicals: TechnicalsDoc }> = ({ technicals }) => {
-  const fmt = (v: number | null, suffix = "") => (v !== null ? `${v.toFixed(2)}${suffix}` : "N/A");
+  const fmt = (v: number | null, suffix = "") => (v != null ? `${v.toFixed(2)}${suffix}` : "N/A");
 
   const maRows = [
     { label: "SMA 20",  value: technicals.sma_20,  color: "#f59e0b" },
@@ -1022,7 +1022,7 @@ const TechnicalsCard: FC<{ technicals: TechnicalsDoc }> = ({ technicals }) => {
     { label: "SMA 200", value: technicals.sma_200, color: "#a78bfa" },
     { label: "EMA 12",  value: technicals.ema_12,  color: "#34d399" },
     { label: "EMA 26",  value: technicals.ema_26,  color: "#fb923c" },
-  ].filter((r) => r.value !== null);
+  ].filter((r) => r.value != null);
 
   return (
     <Card className="space-y-6 border-rim bg-surface">
@@ -1033,24 +1033,24 @@ const TechnicalsCard: FC<{ technicals: TechnicalsDoc }> = ({ technicals }) => {
         <span className="font-mono text-xs text-muted">as of {fmtMedium(technicals.date)}</span>
       </div>
 
-      {technicals.rsi_14 !== null && <RSIGauge rsi={technicals.rsi_14} />}
+      {technicals.rsi_14 != null && <RSIGauge rsi={technicals.rsi_14} />}
 
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
         <MetricChip label="Daily Return"   value={fmt(technicals.daily_return, "%")}
-          accent={technicals.daily_return !== null ? (technicals.daily_return >= 0 ? "text-emerald-500" : "text-red-500") : undefined} />
+          accent={technicals.daily_return != null ? (technicals.daily_return >= 0 ? "text-emerald-500" : "text-red-500") : undefined} />
         <MetricChip label="Volatility 30d" value={fmt(technicals.volatility_30d, "%")} />
         <MetricChip label="Volume Today"   value={technicals.volume.toLocaleString()} />
         <MetricChip label="Avg Vol 30d"    value={technicals.avg_volume_30d.toLocaleString()} />
-        {technicals.macd !== null && (
+        {technicals.macd != null && (
           <MetricChip label="MACD" value={fmt(technicals.macd)}
             accent={technicals.macd >= 0 ? "text-emerald-500" : "text-red-500"} />
         )}
-        {technicals.macd_hist !== null && (
+        {technicals.macd_hist != null && (
           <MetricChip label="MACD Hist" value={fmt(technicals.macd_hist)}
             accent={technicals.macd_hist >= 0 ? "text-emerald-500" : "text-red-500"} />
         )}
-        {technicals.bb_upper !== null && <MetricChip label="BB Upper" value={`KES ${fmt(technicals.bb_upper)}`} />}
-        {technicals.bb_lower !== null && <MetricChip label="BB Lower" value={`KES ${fmt(technicals.bb_lower)}`} />}
+        {technicals.bb_upper != null && <MetricChip label="BB Upper" value={`KES ${fmt(technicals.bb_upper)}`} />}
+        {technicals.bb_lower != null && <MetricChip label="BB Lower" value={`KES ${fmt(technicals.bb_lower)}`} />}
         {/* Expanded indicators (pipeline 2026-09-19). Each chip renders only
             when the field is populated so older Firestore docs keep working. */}
         {technicals.atr_14 != null && (
@@ -1181,7 +1181,7 @@ const DataQualityBanner: FC<{ history: PricePoint[] }> = ({ history }) => {
     : null;
 
   const hasNoData  = history.length === 0;
-  const hasDataGap = !hasNoData && daysSinceLast !== null && daysSinceLast > 60;
+  const hasDataGap = !hasNoData && daysSinceLast != null && daysSinceLast > 60;
 
   // Detect the first internal gap > 90 days within the last 3 years.
   // This catches cases where the most-recent data point is today but there is
@@ -1408,12 +1408,12 @@ export const CompanyDeepDive: FC = () => {
 
             <div className="flex items-start gap-5">
               <div className="text-right">
-                {display.price !== null ? (
+                {display.price != null ? (
                   <>
                     <p className="font-mono text-4xl font-black tracking-tight text-ink">
                       KES {display.price.toFixed(2)}
                     </p>
-                    {change !== null && (
+                    {change != null && (
                       <div
                         className={`mt-1 inline-flex items-center gap-1 rounded px-2 py-0.5 font-mono text-sm font-bold ${
                           change >= 0

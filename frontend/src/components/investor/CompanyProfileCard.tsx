@@ -22,7 +22,7 @@ function ProfileRow({ label, value }: { label: string; value: string | number | 
 
 // Prefer Firestore data (fresh from IR pipeline) → fundamentals → static fallback.
 function pick<T>(...vals: (T | null | undefined)[]): T | null {
-  for (const v of vals) if (v !== null && v !== undefined && v !== "") return v as T;
+  for (const v of vals) if (v != null && v !== undefined && v !== "") return v as T;
   return null;
 }
 

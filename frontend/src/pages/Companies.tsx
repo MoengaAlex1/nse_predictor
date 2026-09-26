@@ -50,7 +50,7 @@ const MarketSummary: FC<SummaryProps> = ({ companies }) => {
   const byChange = useMemo(
     () =>
       [...companies]
-        .filter((c) => c.change_pct_today !== null)
+        .filter((c) => c.change_pct_today != null)
         .sort((a, b) => (b.change_pct_today ?? 0) - (a.change_pct_today ?? 0)),
     [companies]
   );

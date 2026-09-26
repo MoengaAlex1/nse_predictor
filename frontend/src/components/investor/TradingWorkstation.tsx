@@ -544,12 +544,18 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
   const chartData = useMemo<ChartPoint[]>(
     () => {
       if (range === "1D" && intradayPoints.length > 0) {
-        return intradayPoints.map((p) => ({
-          date: p.time,
-          price: p.price,
-          volume: 0,
-          up: true,
-        }));
+        // Defensive filter — legacy intraday_today entries have shown
+        // up with missing time or price on a handful of tickers. Any
+        // downstream .toFixed / axis formatter would crash the whole
+        // chart, so drop malformed points before mapping.
+        return intradayPoints
+          .filter((p) => p && typeof p.price === "number" && !!p.time)
+          .map((p) => ({
+            date: p.time,
+            price: p.price,
+            volume: 0,
+            up: true,
+          }));
       }
       const fullBase: ChartPoint[] = rows
         .filter((r) => r.c != null && (r.c as number) > 0)
@@ -574,7 +580,7 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   useEffect(() => {
-    const onChange = () => setIsFullscreen(document.fullscreenElement !== null);
+    const onChange = () => setIsFullscreen(document.fullscreenElement != null);
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);

@@ -21,7 +21,7 @@ const SECTOR_MEDIAN_PE: Record<string, number | null> = {
 };
 
 const fmt = (v: number | null, suffix = "", decimals = 2) =>
-  v !== null ? `${v.toFixed(decimals)}${suffix}` : "—";
+  v != null ? `${v.toFixed(decimals)}${suffix}` : "—";
 
 const TabBtn: FC<{ label: string; active: boolean; onClick: () => void }> = ({ label, active, onClick }) => (
   <button
@@ -135,7 +135,7 @@ export const ValuationPanel: FC<Props> = ({ company, financials, fundamentals })
               </table>
             </div>
 
-            {sectorMedianPE !== null && currentPE !== null && sectorDiff !== null && (
+            {sectorMedianPE != null && currentPE != null && sectorDiff != null && (
               <div className="mt-4 rounded-lg border border-seam/60 bg-raised/30 px-4 py-2.5">
                 <p className="text-xs text-sub">
                   <span className="font-semibold text-muted uppercase tracking-wider text-[10px]">Sector Peer Snapshot · </span>
