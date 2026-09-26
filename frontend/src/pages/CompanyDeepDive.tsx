@@ -159,7 +159,6 @@ const MonthlyHeatmap: FC<{ heatmap: Record<string, number> }> = ({ heatmap }) =>
       </p>
       <div className="flex flex-wrap gap-1.5">
         {entries.map(([month, ret]) => {
-          month.split("-");
           const mo = new Date(`${month}-01T00:00:00`).toLocaleDateString("en-KE", { month: "short", year: "2-digit" });
           return (
             <div
@@ -546,7 +545,7 @@ const FilingsTimeline: FC<{ financials: FinancialsDoc | undefined }> = ({ financ
       </div>
 
       <div className="mt-3 space-y-1.5 max-h-[480px] overflow-y-auto pr-1">
-        {filtered.map((entry, i) => {
+        {filtered.map((entry) => {
           const cfg = FILING_TYPE[entry.type];
           const body = (
             <>
@@ -566,9 +565,10 @@ const FilingsTimeline: FC<{ financials: FinancialsDoc | undefined }> = ({ financ
               )}
             </>
           );
+          const rowKey = `${entry.date}-${entry.type}-${entry.url ?? entry.title.slice(0, 30)}`;
           return entry.url ? (
             <a
-              key={i}
+              key={rowKey}
               href={entry.url}
               target="_blank"
               rel="noopener noreferrer"
@@ -578,7 +578,7 @@ const FilingsTimeline: FC<{ financials: FinancialsDoc | undefined }> = ({ financ
             </a>
           ) : (
             <div
-              key={i}
+              key={rowKey}
               className="group flex items-start gap-3 rounded-lg px-3 py-2.5"
             >
               {body}
@@ -604,7 +604,6 @@ const ChartSection: FC<{
   rtdbData: import("../hooks/useHistoricalPrices").RtdbPricePoint[];
   fullHistory: PricePoint[];
   announcements: NSEAnnouncement[];
-  intradayDate?: string;
   intradayDay: string;
   setIntradayDay: (d: string) => void;
   todayEAT: string;
@@ -1490,7 +1489,6 @@ export const CompanyDeepDive: FC = () => {
                 rtdbData={rtdbVisible}
                 fullHistory={history}
                 announcements={financials?.announcements ?? []}
-                intradayDate={company.intraday_date}
                 intradayDay={intradayDay}
                 setIntradayDay={setIntradayDay}
                 todayEAT={todayEAT}
