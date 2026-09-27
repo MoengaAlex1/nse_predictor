@@ -1,7 +1,31 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FC } from "react";
 import type { Holding, UniverseTicker } from "../../lib/portfolio";
 import { fmtKes } from "../../lib/format";
+
+// Local weight input — controlled so external Reset/Load actually
+// refreshes the displayed value, but commits on blur or Enter so a
+// user can type intermediate strings ("2", "25", "25.") without
+// triggering a full metrics recompute per keystroke.
+const WeightInput: FC<{ weight: number; onCommit: (pct: number) => void }> = ({ weight, onCommit }) => {
+  const [draft, setDraft] = useState<string>((weight * 100).toFixed(1));
+  useEffect(() => {
+    setDraft((weight * 100).toFixed(1));
+  }, [weight]);
+  return (
+    <input
+      type="number"
+      step={1}
+      min={0}
+      max={100}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => onCommit(Number(draft) || 0)}
+      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+      className="w-20 rounded border border-seam bg-canvas px-2 py-1 text-right font-mono text-sm tabular-nums text-ink outline-none focus:border-accent"
+    />
+  );
+};
 
 // Phase 3 — user editing surface for a recommended portfolio. Every
 // mutation calls onChange(newHoldings) so the parent recomputes metrics
@@ -26,9 +50,10 @@ interface Props {
   universe: UniverseTicker[];
   onChange: (holdings: Holding[]) => void;
   onReset: () => void;                     // restore recommendation
+  onClose: () => void;                     // hide the panel entirely
 }
 
-export const CustomizePanel: FC<Props> = ({ amountKes, holdings, universe, onChange, onReset }) => {
+export const CustomizePanel: FC<Props> = ({ amountKes, holdings, universe, onChange, onReset, onClose }) => {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
 
@@ -113,15 +138,31 @@ export const CustomizePanel: FC<Props> = ({ amountKes, holdings, universe, onCha
   return (
     <div className="rounded-xl border border-rim bg-surface p-4">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold text-ink">Customize your portfolio</h2>
-        <button
-          type="button"
-          onClick={onReset}
-          className="rounded border border-seam bg-raised/40 px-2 py-1 text-[11px] font-semibold text-sub hover:text-ink"
-          title="Discard edits and go back to the system recommendation"
-        >
-          Reset to recommendation
-        </button>
+        <div>
+          <h2 className="text-sm font-semibold text-ink">Customize your portfolio</h2>
+          <p className="mt-0.5 text-[11px] text-hint">
+            Edit weights, remove holdings, or add other NSE stocks. The metrics
+            below update as you type — compare against the recommendation.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={onReset}
+            className="rounded border border-seam bg-raised/40 px-2 py-1 text-[11px] font-semibold text-sub hover:text-ink"
+            title="Discard edits and go back to the system recommendation"
+          >
+            Reset to recommendation
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded border border-seam bg-raised/40 px-2 py-1 text-[11px] font-semibold text-sub hover:text-ink"
+            title="Close the editor"
+          >
+            Close editor
+          </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -143,14 +184,9 @@ export const CustomizePanel: FC<Props> = ({ amountKes, holdings, universe, onCha
                   <span className="ml-2 text-[11px] text-hint">{h.sector}</span>
                 </td>
                 <td className="py-2 pr-3 text-right">
-                  <input
-                    type="number"
-                    step={1}
-                    min={0}
-                    max={100}
-                    defaultValue={(h.weight * 100).toFixed(1)}
-                    onBlur={(e) => setWeight(h.ticker, Number(e.target.value) || 0)}
-                    className="w-20 rounded border border-seam bg-canvas px-2 py-1 text-right font-mono text-sm tabular-nums text-ink outline-none focus:border-accent"
+                  <WeightInput
+                    weight={h.weight}
+                    onCommit={(pct) => setWeight(h.ticker, pct)}
                   />
                 </td>
                 <td className="py-2 pr-3 text-right font-mono tabular-nums text-ink">

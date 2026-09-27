@@ -198,9 +198,47 @@ export const Planner: FC = () => {
             horizon={horizon}
             risk={risk}
             onSave={() => { setSaveName(defaultSaveName(horizon, risk)); setSaveModalOpen(true); }}
-            onCustomize={() => setCustomHoldings(build.holdings)}
+            onCustomize={() => {
+              // Toggle: second click closes the panel; first click opens it
+              // AND scrolls it into view — clicking a button and seeing
+              // nothing happen (because the panel is below the fold) is
+              // the whole reason this handler exists.
+              if (customHoldings !== null) {
+                setCustomHoldings(null);
+                return;
+              }
+              setCustomHoldings(build.holdings);
+              // Defer the scroll one frame so the panel is in the DOM.
+              requestAnimationFrame(() => {
+                document.getElementById("customize-panel")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              });
+            }}
             canSave={isSignedIn}
+            isCustomizing={customHoldings !== null}
           />
+
+          {/* Customize + compare mount right under the recommendation so
+              the button's effect is visible without scrolling past three
+              other cards. */}
+          {customHoldings !== null && (
+            <div id="customize-panel" className="space-y-6 scroll-mt-4">
+              <CustomizePanel
+                amountKes={amount}
+                holdings={customHoldings}
+                universe={universe}
+                onChange={setCustomHoldings}
+                onReset={() => setCustomHoldings(build.holdings)}
+                onClose={() => setCustomHoldings(null)}
+              />
+              <RecommendedVsCustom
+                amountKes={amount}
+                recommended={recommendedMetrics}
+                custom={customMetrics}
+              />
+            </div>
+          )}
+
           <ProjectionCard metrics={recommendedMetrics} amount={amount} horizon={horizon} />
           <RiskCard
             metrics={recommendedMetrics}
@@ -208,25 +246,6 @@ export const Planner: FC = () => {
             correlationAvailable={!!correlation}
           />
           <WhyCard holdings={build.holdings} excluded={build.excluded} />
-
-          {/* Phase 3 — customize & compare. Only mounts once the user
-              clicks "Customize" on the recommendation card. */}
-          {customHoldings !== null && (
-            <>
-              <CustomizePanel
-                amountKes={amount}
-                holdings={customHoldings}
-                universe={universe}
-                onChange={setCustomHoldings}
-                onReset={() => setCustomHoldings(build.holdings)}
-              />
-              <RecommendedVsCustom
-                amountKes={amount}
-                recommended={recommendedMetrics}
-                custom={customMetrics}
-              />
-            </>
-          )}
         </>
       )}
 
@@ -367,7 +386,8 @@ const RecommendationCard: FC<{
   onSave: () => void;
   onCustomize: () => void;
   canSave: boolean;
-}> = ({ holdings, amount, horizon, risk, onSave, onCustomize, canSave }) => (
+  isCustomizing: boolean;
+}> = ({ holdings, amount, horizon, risk, onSave, onCustomize, canSave, isCustomizing }) => (
   <Card className="border-rim bg-surface">
     <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
       <h2 className="text-sm font-semibold text-ink">Recommended portfolio</h2>
@@ -378,9 +398,14 @@ const RecommendationCard: FC<{
         <button
           type="button"
           onClick={onCustomize}
-          className="rounded border border-accent bg-accent/10 px-2 py-1 text-[11px] font-semibold text-accent hover:bg-accent/20"
+          aria-pressed={isCustomizing}
+          className={
+            isCustomizing
+              ? "rounded border border-accent bg-accent px-2 py-1 text-[11px] font-semibold text-white hover:bg-accent/90"
+              : "rounded border border-accent bg-accent/10 px-2 py-1 text-[11px] font-semibold text-accent hover:bg-accent/20"
+          }
         >
-          Customize
+          {isCustomizing ? "Close editor" : "Customize"}
         </button>
         <button
           type="button"
