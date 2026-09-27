@@ -1,19 +1,22 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FC } from "react";
 import { Link } from "react-router-dom";
 import { usePortfolioUniverse } from "../hooks/usePortfolioUniverse";
+import { useUserPortfolios, type SavedPortfolio } from "../hooks/useUserPortfolios";
 import { buildPortfolio, computeMetrics } from "../lib/portfolio";
 import type { HorizonKey, RiskProfile, Holding, PortfolioMetrics } from "../lib/portfolio";
 import { fmtKes, fmtCompactKes, fmtPct } from "../lib/format";
 import { Card } from "../components/ui/Card";
+import { CustomizePanel } from "../components/planner/CustomizePanel";
+import { RecommendedVsCustom } from "../components/planner/RecommendedVsCustom";
+import { SavedPortfoliosDrawer } from "../components/planner/SavedPortfoliosDrawer";
 
-// Investment Planner / Portfolio Builder.
-// User enters amount + horizon + risk profile; the page reads the
-// full 62-ticker universe from Firestore (via usePortfolioUniverse),
-// runs the deterministic score-ranked optimiser (lib/portfolio.ts),
-// and lays out the recommendation with projection bands and per-stock
-// rationale. Read-only in this first cut — customisation + save land
-// in Phase 3/4.
+// Investment Planner / Portfolio Builder — orchestrator.
+// - Reads the universe + correlation matrix (usePortfolioUniverse)
+// - Runs the deterministic optimiser (lib/portfolio.buildPortfolio)
+// - Renders inputs → recommendation → projection → risk → why
+// - Phase 3: Customize + live recalc + Recommended-vs-Custom compare
+// - Phase 4: Save/Load user portfolios via users/{uid}/portfolios/{id}
 
 const HORIZONS: { key: HorizonKey; label: string }[] = [
   { key: "1M", label: "1 Month" },
@@ -32,31 +35,94 @@ const RISK_OPTIONS: { key: RiskProfile; label: string; sub: string }[] = [
 const AMOUNT_PRESETS = [10_000, 50_000, 100_000, 500_000, 1_000_000];
 
 export const Planner: FC = () => {
+  // ── Inputs ────────────────────────────────────────────────────────────
   const [amount, setAmount] = useState<number>(100_000);
   const [horizon, setHorizon] = useState<HorizonKey>("3M");
   const [risk, setRisk] = useState<RiskProfile>("balanced");
   const [submitted, setSubmitted] = useState(false);
 
+  // ── Data ──────────────────────────────────────────────────────────────
   const { isLoading, universe, correlation, correlationUpdatedAt } = usePortfolioUniverse();
+  const { isSignedIn, portfolios, isLoading: portfoliosLoading, save, remove, saving } = useUserPortfolios();
 
+  // ── Recommendation (pure derivation) ──────────────────────────────────
   const build = useMemo(() => {
     if (!submitted || !universe.length) return null;
     return buildPortfolio({ amountKes: amount, horizon, risk, universe, correlation });
   }, [submitted, universe, correlation, amount, horizon, risk]);
 
-  const metrics = useMemo<PortfolioMetrics | null>(() => {
+  const recommendedMetrics = useMemo<PortfolioMetrics | null>(() => {
     if (!build || build.holdings.length === 0) return null;
     return computeMetrics(build.holdings, horizon, universe, amount, correlation);
   }, [build, horizon, universe, amount, correlation]);
 
+  // ── Custom portfolio state (Phase 3) ──────────────────────────────────
+  // Starts as null → "no edits yet". Once the user touches Customize, it
+  // becomes a Holding[] and drives the Custom side of the compare table.
+  // Reset button sets it back to null (which also collapses the compare).
+  const [customHoldings, setCustomHoldings] = useState<Holding[] | null>(null);
+
+  // Every time the recommendation changes (new inputs), reset custom edits
+  // to avoid a stale comparison against a different recommendation.
+  useEffect(() => {
+    setCustomHoldings(null);
+    setLastSaveId(null);
+  }, [amount, horizon, risk, universe.length]);
+
+  const customMetrics = useMemo<PortfolioMetrics | null>(() => {
+    if (!customHoldings || customHoldings.length === 0) return null;
+    return computeMetrics(customHoldings, horizon, universe, amount, correlation);
+  }, [customHoldings, horizon, universe, amount, correlation]);
+
+  // ── Save/Load (Phase 4) ───────────────────────────────────────────────
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [lastSaveId, setLastSaveId] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  async function handleSave(): Promise<void> {
+    if (!build || !recommendedMetrics) return;
+    setSaveError(null);
+    try {
+      const id = await save({
+        id: lastSaveId ?? undefined,
+        name: saveName.trim() || `${horizon} ${risk} · ${new Date().toLocaleDateString("en-GB")}`,
+        inputs: { amountKes: amount, horizon, risk },
+        recommended: { holdings: build.holdings, metrics: recommendedMetrics },
+        custom: customHoldings && customMetrics
+          ? { holdings: customHoldings, metrics: customMetrics }
+          : null,
+      });
+      setLastSaveId(id);
+      setSaveModalOpen(false);
+      setSaveName("");
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Save failed.");
+    }
+  }
+
+  function handleLoad(p: SavedPortfolio): void {
+    setAmount(p.inputs.amountKes);
+    setHorizon(p.inputs.horizon);
+    setRisk(p.inputs.risk);
+    setSubmitted(true);
+    // Custom edits carry over if the saved portfolio has any.
+    setCustomHoldings(p.custom?.holdings ?? null);
+    setLastSaveId(p.id);
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-3xl font-bold text-ink">Investment Planner</h1>
-        <p className="mt-1 text-sub">
-          Enter your amount, horizon and risk profile. The system builds a portfolio
-          from the NSE stocks the platform is already tracking.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h1 className="text-3xl font-bold text-ink">Investment Planner</h1>
+          <p className="mt-1 text-sub">
+            Enter your amount, horizon and risk profile. The system builds a portfolio
+            from the NSE stocks the platform is already tracking. Edit it in place, save
+            it, and compare your version to the recommendation.
+          </p>
+        </div>
       </header>
 
       <InputsCard
@@ -67,18 +133,25 @@ export const Planner: FC = () => {
         universeReady={universe.length > 0}
       />
 
+      <SavedPortfoliosDrawer
+        isSignedIn={isSignedIn}
+        portfolios={portfolios}
+        isLoading={portfoliosLoading}
+        onLoad={handleLoad}
+        onDelete={remove}
+      />
+
       {submitted && isLoading && (
         <Card className="border-rim bg-surface">
-          <p className="text-sm text-sub">Loading universe from Firestore… ~62 tickers, one-shot batched read.</p>
+          <p className="text-sm text-sub">Loading universe from Firestore…</p>
         </Card>
       )}
 
       {submitted && !isLoading && build && build.holdings.length === 0 && (
         <Card className="border-amber-400 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40">
           <p className="text-sm text-amber-900 dark:text-amber-300">
-            No eligible tickers matched the filter for your inputs.
-            Try relaxing the risk profile, choosing a longer horizon,
-            or lowering the liquidity floor.
+            No eligible tickers matched the filter for your inputs. Try relaxing risk
+            or extending the horizon.
           </p>
           {build.excluded.slice(0, 6).map(e => (
             <p key={e.ticker} className="mt-1 text-[11px] text-amber-800 dark:text-amber-400">
@@ -88,22 +161,64 @@ export const Planner: FC = () => {
         </Card>
       )}
 
-      {submitted && !isLoading && build && build.holdings.length > 0 && metrics && (
+      {submitted && !isLoading && build && build.holdings.length > 0 && recommendedMetrics && (
         <>
-          <RecommendationCard holdings={build.holdings} amount={amount} horizon={horizon} risk={risk} />
-          <ProjectionCard metrics={metrics} amount={amount} horizon={horizon} />
-          <RiskCard metrics={metrics} correlationUpdatedAt={correlationUpdatedAt} correlationAvailable={!!correlation} />
+          <RecommendationCard
+            holdings={build.holdings}
+            amount={amount}
+            horizon={horizon}
+            risk={risk}
+            onSave={() => { setSaveName(defaultSaveName(horizon, risk)); setSaveModalOpen(true); }}
+            onCustomize={() => setCustomHoldings(build.holdings)}
+            canSave={isSignedIn}
+          />
+          <ProjectionCard metrics={recommendedMetrics} amount={amount} horizon={horizon} />
+          <RiskCard
+            metrics={recommendedMetrics}
+            correlationUpdatedAt={correlationUpdatedAt}
+            correlationAvailable={!!correlation}
+          />
           <WhyCard holdings={build.holdings} excluded={build.excluded} />
+
+          {/* Phase 3 — customize & compare. Only mounts once the user
+              clicks "Customize" on the recommendation card. */}
+          {customHoldings !== null && (
+            <>
+              <CustomizePanel
+                amountKes={amount}
+                holdings={customHoldings}
+                universe={universe}
+                onChange={setCustomHoldings}
+                onReset={() => setCustomHoldings(build.holdings)}
+              />
+              <RecommendedVsCustom
+                amountKes={amount}
+                recommended={recommendedMetrics}
+                custom={customMetrics}
+              />
+            </>
+          )}
         </>
+      )}
+
+      {saveModalOpen && (
+        <SaveModal
+          name={saveName}
+          setName={setSaveName}
+          onConfirm={handleSave}
+          onCancel={() => { setSaveModalOpen(false); setSaveError(null); }}
+          saving={saving}
+          error={saveError}
+        />
       )}
 
       {submitted && !isLoading && (
         <Card className="border-rim bg-surface">
           <p className="text-[11px] leading-relaxed text-hint">
-            <strong>Not investment advice.</strong> Projections are derived from the platform's model
-            outputs (LightGBM multi-horizon target × walk-forward direction hit) and ±1.5σ bands built
-            from 30-day realised volatility scaled to the horizon. Actual returns will differ.
-            The model's own backtest error (MAPE) is shown next to each stock. Historical performance
+            <strong>Not investment advice.</strong> Projections are derived from the
+            platform's model outputs (LightGBM multi-horizon target × walk-forward
+            direction hit) and ±1.5σ bands built from 30-day realised volatility
+            scaled to the horizon. Actual returns will differ. Historical performance
             is not a guarantee of future results.
           </p>
         </Card>
@@ -111,6 +226,10 @@ export const Planner: FC = () => {
     </div>
   );
 };
+
+function defaultSaveName(horizon: HorizonKey, risk: RiskProfile): string {
+  return `${horizon} ${risk.charAt(0).toUpperCase() + risk.slice(1)} · ${new Date().toLocaleDateString("en-GB")}`;
+}
 
 // ─── Inputs ─────────────────────────────────────────────────────────────────
 
@@ -209,17 +328,41 @@ const InputsCard: FC<{
   </Card>
 );
 
-// ─── Recommendation ─────────────────────────────────────────────────────────
+// ─── Recommendation card ────────────────────────────────────────────────────
 
 const RecommendationCard: FC<{
-  holdings: Holding[]; amount: number; horizon: HorizonKey; risk: RiskProfile;
-}> = ({ holdings, amount, horizon, risk }) => (
+  holdings: Holding[];
+  amount: number;
+  horizon: HorizonKey;
+  risk: RiskProfile;
+  onSave: () => void;
+  onCustomize: () => void;
+  canSave: boolean;
+}> = ({ holdings, amount, horizon, risk, onSave, onCustomize, canSave }) => (
   <Card className="border-rim bg-surface">
     <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
       <h2 className="text-sm font-semibold text-ink">Recommended portfolio</h2>
-      <p className="text-[11px] text-hint">
-        {fmtKes(amount)} · {HORIZONS.find(h => h.key === horizon)?.label} · {risk.charAt(0).toUpperCase() + risk.slice(1)}
-      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-[11px] text-hint">
+          {fmtKes(amount)} · {HORIZONS.find(h => h.key === horizon)?.label} · {risk.charAt(0).toUpperCase() + risk.slice(1)}
+        </p>
+        <button
+          type="button"
+          onClick={onCustomize}
+          className="rounded border border-accent bg-accent/10 px-2 py-1 text-[11px] font-semibold text-accent hover:bg-accent/20"
+        >
+          Customize
+        </button>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={!canSave}
+          className="rounded border border-seam bg-raised/40 px-2 py-1 text-[11px] font-semibold text-sub hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+          title={canSave ? "Save this plan to your account" : "Sign in to save portfolios"}
+        >
+          Save
+        </button>
+      </div>
     </div>
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -238,10 +381,7 @@ const RecommendationCard: FC<{
           {holdings.map(h => (
             <tr key={h.ticker} className="hover:bg-raised/40">
               <td className="py-2.5 pr-3">
-                <Link
-                  to={`/chart/${h.ticker}`}
-                  className="font-semibold text-ink hover:text-accent"
-                >
+                <Link to={`/chart/${h.ticker}`} className="font-semibold text-ink hover:text-accent">
                   {h.ticker}
                 </Link>
                 <div className="text-[11px] text-hint">{h.name}</div>
@@ -250,18 +390,10 @@ const RecommendationCard: FC<{
               <td className="py-2.5 pr-3 text-right font-mono font-semibold tabular-nums text-ink">
                 {(h.weight * 100).toFixed(1)}%
               </td>
-              <td className="py-2.5 pr-3 text-right font-mono tabular-nums text-ink">
-                {fmtKes(h.allocationKes)}
-              </td>
-              <td className="py-2.5 pr-3 text-right font-mono tabular-nums text-sub">
-                {fmtKes(h.currentPrice)}
-              </td>
-              <td className="py-2.5 pr-3 text-right font-mono tabular-nums text-sub">
-                {h.shares.toLocaleString("en-KE")}
-              </td>
-              <td className="py-2.5 pl-3 text-right font-mono tabular-nums text-hint">
-                {fmtKes(h.cashResidueKes)}
-              </td>
+              <td className="py-2.5 pr-3 text-right font-mono tabular-nums text-ink">{fmtKes(h.allocationKes)}</td>
+              <td className="py-2.5 pr-3 text-right font-mono tabular-nums text-sub">{fmtKes(h.currentPrice)}</td>
+              <td className="py-2.5 pr-3 text-right font-mono tabular-nums text-sub">{h.shares.toLocaleString("en-KE")}</td>
+              <td className="py-2.5 pl-3 text-right font-mono tabular-nums text-hint">{fmtKes(h.cashResidueKes)}</td>
             </tr>
           ))}
         </tbody>
@@ -286,27 +418,9 @@ const ProjectionCard: FC<{
         Not a guarantee.
       </p>
       <div className="grid gap-3 md:grid-cols-3">
-        <ScenarioTile
-          label="Conservative"
-          value={metrics.conservativeValueKes}
-          amount={amount}
-          tone="down"
-          note="Lower band — ~7th percentile"
-        />
-        <ScenarioTile
-          label="Expected"
-          value={metrics.expectedValueKes}
-          amount={amount}
-          tone={gain >= 0 ? "up" : "down"}
-          note={`${gain >= 0 ? "+" : ""}${fmtPct(gainPct)} weighted horizon return`}
-        />
-        <ScenarioTile
-          label="Optimistic"
-          value={metrics.optimisticValueKes}
-          amount={amount}
-          tone="up"
-          note="Upper band — ~93rd percentile"
-        />
+        <ScenarioTile label="Conservative" value={metrics.conservativeValueKes} amount={amount} tone="down" note="Lower band — ~7th percentile" />
+        <ScenarioTile label="Expected" value={metrics.expectedValueKes} amount={amount} tone={gain >= 0 ? "up" : "down"} note={`${gain >= 0 ? "+" : ""}${fmtPct(gainPct)} weighted horizon return`} />
+        <ScenarioTile label="Optimistic" value={metrics.optimisticValueKes} amount={amount} tone="up" note="Upper band — ~93rd percentile" />
       </div>
     </Card>
   );
@@ -389,10 +503,7 @@ const WhyCard: FC<{
       {holdings.map(h => (
         <div key={h.ticker} className="rounded-md border border-seam bg-raised/30 p-3">
           <div className="mb-1.5 flex items-baseline justify-between">
-            <Link
-              to={`/chart/${h.ticker}`}
-              className="text-sm font-semibold text-ink hover:text-accent"
-            >
+            <Link to={`/chart/${h.ticker}`} className="text-sm font-semibold text-ink hover:text-accent">
               {h.ticker} · {h.name}
             </Link>
             <span className="font-mono text-xs text-hint">
@@ -418,4 +529,62 @@ const WhyCard: FC<{
       </details>
     )}
   </Card>
+);
+
+// ─── Save modal ─────────────────────────────────────────────────────────────
+
+const SaveModal: FC<{
+  name: string;
+  setName: (v: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+  saving: boolean;
+  error: string | null;
+}> = ({ name, setName, onConfirm, onCancel, saving, error }) => (
+  <div
+    className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/40 p-4"
+    onClick={onCancel}
+  >
+    <div
+      className="w-full max-w-md rounded-xl border border-rim bg-surface p-5"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <h3 className="mb-2 text-sm font-semibold text-ink">Save portfolio</h3>
+      <p className="mb-3 text-[11px] text-hint">
+        Saved plans include your inputs, the recommendation snapshot, and your custom
+        edits (if any). Owner-only — visible only to your account.
+      </p>
+      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-hint">
+        Name
+      </label>
+      <input
+        type="text"
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="e.g. My growth plan · Nov 2026"
+        className="w-full rounded-md border border-seam bg-canvas px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+      />
+      {error && (
+        <p className="mt-2 text-[11px] text-red-600 dark:text-red-400">{error}</p>
+      )}
+      <div className="mt-4 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded border border-seam bg-raised/40 px-3 py-1.5 text-xs font-semibold text-sub hover:text-ink"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={saving}
+          className="rounded bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save portfolio"}
+        </button>
+      </div>
+    </div>
+  </div>
 );

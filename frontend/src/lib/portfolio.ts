@@ -22,6 +22,18 @@
 export type RiskProfile = "conservative" | "balanced" | "growth";
 export type HorizonKey = "1M" | "3M" | "6M" | "9M" | "12M";
 
+// Phase 5 scaffolding — non-equity asset classes.
+// Everything downstream treats a Holding as a positive-weight equity
+// position, but the shape is deliberately generic. When we add ETFs
+// (fund_of_funds), bonds (yield-plus-duration), or money-market funds
+// (fixed-yield), each new type declares its own AssetClass tag and
+// provides its own expected-return + volatility helper. The optimiser
+// stays generic — score = expectedReturn * confidence - λ * volatility
+// — so adding a class is: (1) add a case here, (2) add its data source
+// to UniverseTicker, (3) plug in a per-class return/vol function.
+// See docs/PORTFOLIO_BUILDER_ROADMAP.md for the sequenced plan.
+export type AssetClass = "equity" | "etf" | "bond" | "mmf";
+
 export interface UniverseTicker {
   ticker: string;
   name: string;
@@ -36,6 +48,11 @@ export interface UniverseTicker {
   // Per-horizon prediction from the multi-horizon LightGBM model.
   // Null when the model hasn't trained on this ticker (fresh listing).
   horizonPredictions: Partial<Record<HorizonKey, HorizonPrediction>>;
+  // Phase 5 — defaults to "equity" so existing callers keep working
+  // without a required update. ETFs / bonds / MMFs will flip this and
+  // pull their return/vol from a different source (bond yield curves,
+  // fund NAVs). See docs/PORTFOLIO_BUILDER_ROADMAP.md.
+  assetClass?: AssetClass;
 }
 
 export interface HorizonPrediction {
