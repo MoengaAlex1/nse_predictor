@@ -3,7 +3,7 @@ import type { FC } from "react";
 import { Link } from "react-router-dom";
 import { usePortfolioUniverse } from "../hooks/usePortfolioUniverse";
 import { useUserPortfolios, type SavedPortfolio } from "../hooks/useUserPortfolios";
-import { buildPortfolio, computeMetrics } from "../lib/portfolio";
+import { buildPortfolio, computeMetrics, mmfProjection } from "../lib/portfolio";
 import type { HorizonKey, RiskProfile, Holding, PortfolioMetrics } from "../lib/portfolio";
 import { fmtKes, fmtCompactKes, fmtPct } from "../lib/format";
 import { Card } from "../components/ui/Card";
@@ -148,17 +148,26 @@ export const Planner: FC = () => {
       )}
 
       {submitted && !isLoading && build && build.holdings.length === 0 && (
-        <Card className="border-amber-400 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40">
-          <p className="text-sm text-amber-900 dark:text-amber-300">
-            No eligible tickers matched the filter for your inputs. Try relaxing risk
-            or extending the horizon.
-          </p>
-          {build.excluded.slice(0, 6).map(e => (
-            <p key={e.ticker} className="mt-1 text-[11px] text-amber-800 dark:text-amber-400">
-              {e.ticker}: {e.reason}
-            </p>
-          ))}
-        </Card>
+        <MmfFallbackCard
+          amount={amount}
+          horizon={horizon}
+          excluded={build.excluded}
+          reason="none-eligible"
+        />
+      )}
+
+      {/* Model bearish: picks were made but the weighted expected return
+          is still negative. Show the honest "consider cash" alternative
+          alongside the equity recommendation so the user isn't pushed
+          into a projected loss. */}
+      {submitted && !isLoading && build && build.holdings.length > 0 && recommendedMetrics && recommendedMetrics.expectedReturnPct < 0 && (
+        <MmfFallbackCard
+          amount={amount}
+          horizon={horizon}
+          excluded={build.excluded}
+          reason="negative-equity-view"
+          equityReturnPct={recommendedMetrics.expectedReturnPct}
+        />
       )}
 
       {submitted && !isLoading && build && build.holdings.length > 0 && recommendedMetrics && (
@@ -558,6 +567,100 @@ const WhyCard: FC<{
 );
 
 // ─── Save modal ─────────────────────────────────────────────────────────────
+
+// ─── Money-Market Fund fallback card ────────────────────────────────────────
+// Shown when either:
+//   1. No positively-expected NSE tickers survived the filter, OR
+//   2. Picks were made but weighted expected return is still negative.
+// Presents the ~10%/yr MMF benchmark as an honest alternative — Kenya
+// retail investors have Sanlam / CIC / Zimele MMFs paying similar
+// rates. Not a recommendation of a specific product, just the
+// benchmark so the user can see the "sit out" option.
+
+const HORIZON_DAYS_MAP: Record<HorizonKey, number> = {
+  "1M": 21, "3M": 63, "6M": 126, "9M": 189, "12M": 252,
+};
+
+const MmfFallbackCard: FC<{
+  amount: number;
+  horizon: HorizonKey;
+  excluded: Array<{ ticker: string; reason: string }>;
+  reason: "none-eligible" | "negative-equity-view";
+  equityReturnPct?: number;
+}> = ({ amount, horizon, excluded, reason, equityReturnPct }) => {
+  const mmf = mmfProjection(amount, HORIZON_DAYS_MAP[horizon]);
+  const label = HORIZONS.find(h => h.key === horizon)?.label ?? horizon;
+  return (
+    <Card className="border-amber-400 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40">
+      <h2 className="mb-1 text-sm font-semibold text-amber-900 dark:text-amber-300">
+        Consider a Money Market Fund at {label}
+      </h2>
+      <p className="text-[12px] leading-relaxed text-amber-900 dark:text-amber-300">
+        {reason === "none-eligible" && (
+          <>
+            The model sees no NSE positions with a positive expected return at
+            {" "}{label} given today's data. That's a genuine market view — not
+            a bug in the Planner.
+          </>
+        )}
+        {reason === "negative-equity-view" && (
+          <>
+            The equity portfolio below currently projects a
+            {" "}{fmtPct(equityReturnPct ?? 0)} return over {label}. A Kenya
+            money-market fund at ~10%/yr would return ~{fmtPct(mmf.pctReturn)}
+            {" "}over the same period without equity drawdown risk.
+          </>
+        )}
+      </p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <div className="rounded border border-amber-300 dark:border-amber-700 bg-white/40 dark:bg-black/20 p-2">
+          <div className="text-[10px] uppercase tracking-wider text-amber-800 dark:text-amber-400">
+            MMF projected value
+          </div>
+          <div className="mt-0.5 font-mono text-lg font-bold text-amber-900 dark:text-amber-200">
+            {fmtKes(mmf.expectedValueKes)}
+          </div>
+          <div className="mt-0.5 text-[10px] text-amber-800 dark:text-amber-400">
+            {fmtPct(mmf.pctReturn)} at {label} ({(10).toFixed(1)}%/yr, ~zero drawdown)
+          </div>
+        </div>
+        <div className="rounded border border-amber-300 dark:border-amber-700 bg-white/40 dark:bg-black/20 p-2">
+          <div className="text-[10px] uppercase tracking-wider text-amber-800 dark:text-amber-400">
+            Providers (Kenya)
+          </div>
+          <div className="mt-0.5 text-[11px] text-amber-900 dark:text-amber-200">
+            Sanlam · CIC · Zimele · Britam
+          </div>
+          <div className="mt-0.5 text-[10px] text-amber-800 dark:text-amber-400">
+            Rates vary; ~10%/yr is representative, not a specific product recommendation.
+          </div>
+        </div>
+        <div className="rounded border border-amber-300 dark:border-amber-700 bg-white/40 dark:bg-black/20 p-2">
+          <div className="text-[10px] uppercase tracking-wider text-amber-800 dark:text-amber-400">
+            What to try next
+          </div>
+          <ul className="mt-0.5 space-y-0.5 text-[11px] text-amber-900 dark:text-amber-200">
+            <li>· Longer horizon (6M / 12M) — model has more signal at those windows</li>
+            <li>· Growth risk profile — accepts more volatility for upside</li>
+            <li>· Cash equivalent above until the market view improves</li>
+          </ul>
+        </div>
+      </div>
+      {excluded.length > 0 && (
+        <details className="mt-3 rounded border border-amber-300/60 dark:border-amber-800/60 bg-white/30 dark:bg-black/10 p-2">
+          <summary className="cursor-pointer text-[11px] font-semibold text-amber-900 dark:text-amber-300">
+            Why the model rejected {excluded.length} candidates
+          </summary>
+          <ul className="mt-2 space-y-0.5 text-[11px] text-amber-800 dark:text-amber-400">
+            {excluded.slice(0, 15).map(e => (
+              <li key={e.ticker}>{e.ticker}: {e.reason}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </Card>
+  );
+};
 
 const SaveModal: FC<{
   name: string;

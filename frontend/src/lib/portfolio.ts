@@ -127,6 +127,21 @@ export interface BuildInputs {
   targetHoldings?: number;
 }
 
+// Kenya money-market fund proxy — used when the equity model has no
+// positively-expected picks at the chosen horizon. Rate is a rough
+// 10%/yr benchmark for money-market funds; scaled to the horizon.
+export function mmfProjection(amountKes: number, horizonDays: number): {
+  expectedValueKes: number;
+  pctReturn: number;
+} {
+  const annualRate = 0.10;
+  const pctReturn = annualRate * (horizonDays / 252) * 100;
+  return {
+    expectedValueKes: amountKes * (1 + pctReturn / 100),
+    pctReturn,
+  };
+}
+
 // Diagnostic view of how a single ticker's fitness score was assembled.
 // Attached to each Holding so the "why" explanation can cite the
 // factors that actually drove selection (not hand-written text).
@@ -247,6 +262,22 @@ export function buildPortfolio(inputs: BuildInputs): { holdings: Holding[]; excl
     const dailyValue = (t.avgVolume30d ?? 0) * t.currentPrice;
     if (dailyValue < MIN_LIQUIDITY_KES) {
       excluded.push({ ticker: t.ticker, reason: `illiquid (KES ${Math.round(dailyValue / 1000)}k/day)` });
+      continue;
+    }
+    // Refuse to include a ticker the model expects to lose money at
+    // the chosen horizon UNLESS the model's own backtest hit rate on
+    // that horizon is poor (<55%), in which case we can't trust the
+    // negative call either. Rationale: users open the Planner to
+    // MAKE money; a portfolio the model projects to lose fails the
+    // basic contract regardless of the fitness score composition.
+    // A high-dividend / low-vol ticker can still land here — but only
+    // if its model-predicted return is non-negative.
+    const dirHitForFilter = pred.directionHit ?? 0.5;
+    if (pred.pctReturn <= 0 && dirHitForFilter >= 0.55) {
+      excluded.push({
+        ticker: t.ticker,
+        reason: `model projects ${pred.pctReturn.toFixed(1)}% at ${horizon} with ${(dirHitForFilter * 100).toFixed(0)}% backtest hit rate`,
+      });
       continue;
     }
 
