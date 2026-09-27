@@ -5,9 +5,9 @@ import { PredictionChart, HORIZON_OPTIONS } from "../charts/PredictionChart";
 
 // Extracted from CompanyDeepDive so InvestorChart (the canonical
 // company page after the /company → /chart merge) can render it.
-// User feedback: "the prediction model cannot see it" — root cause was
-// this panel being defined inline in CompanyDeepDive and never
-// imported by the merged InvestorChart page.
+// Theme-adaptive: uses design-system tokens (border-rim, bg-surface,
+// text-muted, text-ink) instead of dark-only slate-800 / #0d1117
+// classes so the card reads on both light and dark themes.
 export const ForecastPanel: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => {
   const [horizonKey, setHorizonKey] = useState<string>("1M");
   const active = HORIZON_OPTIONS.find(o => o.key === horizonKey) ?? HORIZON_OPTIONS[0];
@@ -15,13 +15,13 @@ export const ForecastPanel: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => {
   const mhPred = snapshot.horizon_predictions?.[horizonKey] ?? null;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-800 bg-[#0d1117]">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 px-4 py-3">
+    <div className="overflow-hidden rounded-xl border border-rim bg-surface">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-seam px-4 py-3">
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
             Actual vs Model · Forecast
           </h2>
-          <p className="mt-0.5 text-[10px] text-slate-600">
+          <p className="mt-0.5 text-[10px] text-hint">
             Dashed line = today · Green zone = forward projection
             {hasLong && active.days > 30 && (
               <span> · Past day 30 uses ARIMA-only (LSTM accuracy degrades past ~10 bars)</span>
@@ -37,8 +37,8 @@ export const ForecastPanel: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => {
             const activeCls = opt.key === horizonKey
               ? "bg-emerald-600 text-white"
               : enabled
-                ? "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-                : "text-slate-700 cursor-not-allowed";
+                ? "text-sub hover:bg-raised hover:text-ink"
+                : "text-hint cursor-not-allowed";
             return (
               <button
                 key={opt.key}
@@ -56,27 +56,27 @@ export const ForecastPanel: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => {
       </div>
 
       {mhPred && (
-        <div className="flex flex-wrap items-baseline gap-4 border-b border-slate-800 px-4 py-2.5 text-[11px]">
-          <span className="uppercase tracking-wider text-slate-500">
+        <div className="flex flex-wrap items-baseline gap-4 border-b border-seam px-4 py-2.5 text-[11px]">
+          <span className="uppercase tracking-wider text-muted">
             {horizonKey} target
           </span>
-          <span className="font-mono text-base font-semibold text-slate-100">
+          <span className="font-mono text-base font-semibold text-ink">
             KES {mhPred.target_price.toFixed(2)}
           </span>
           <span
             className={`font-mono font-semibold ${
-              mhPred.pct_return >= 0 ? "text-emerald-400" : "text-red-400"
+              mhPred.pct_return >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
             }`}
           >
             {mhPred.pct_return >= 0 ? "+" : ""}
             {mhPred.pct_return.toFixed(2)}%
           </span>
-          <span className="text-slate-500">
+          <span className="text-muted">
             over {mhPred.horizon_days} trading days
           </span>
           {mhPred.mape != null && (
             <span
-              className="ml-auto rounded border border-slate-700 bg-slate-800/60 px-1.5 py-0.5 font-mono text-[10px] text-slate-400"
+              className="ml-auto rounded border border-rim bg-raised px-1.5 py-0.5 font-mono text-[10px] text-sub"
               title={`Walk-forward backtest on unseen recent history. Avg error ${mhPred.mape.toFixed(1)}pp on horizon return${mhPred.direction_hit != null ? `; ${(mhPred.direction_hit * 100).toFixed(0)}% direction hit rate (up/down correct)` : ""}.`}
             >
               ±{mhPred.mape.toFixed(1)}pp

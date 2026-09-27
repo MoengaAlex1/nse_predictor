@@ -146,13 +146,17 @@ const MonthlyHeatmap: FC<{ heatmap: Record<string, number> }> = ({ heatmap }) =>
   const entries = Object.entries(heatmap).sort(([a], [b]) => a.localeCompare(b)).slice(-24);
   if (!entries.length) return null;
 
+  // Theme-adaptive heatmap. Light theme uses pastel tints with dark
+  // text for WCAG AA contrast; dark theme keeps the deeper tints for
+  // the same visual density on a dark canvas. Follows the audit's
+  // "heatmap tile text must meet 4.5:1 contrast" note (issue 26).
   const color = (ret: number) => {
-    if (ret >= 5)  return "bg-emerald-600/80 text-emerald-100";
-    if (ret >= 2)  return "bg-emerald-700/50 text-emerald-300";
-    if (ret >= 0)  return "bg-emerald-900/40 text-emerald-400";
-    if (ret >= -2) return "bg-red-900/40 text-red-400";
-    if (ret >= -5) return "bg-red-700/50 text-red-300";
-    return "bg-red-600/80 text-red-100";
+    if (ret >= 5)  return "bg-emerald-600 text-white dark:bg-emerald-600/80 dark:text-emerald-100";
+    if (ret >= 2)  return "bg-emerald-300 text-emerald-900 dark:bg-emerald-700/50 dark:text-emerald-300";
+    if (ret >= 0)  return "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-400";
+    if (ret >= -2) return "bg-red-100 text-red-900 dark:bg-red-900/40 dark:text-red-400";
+    if (ret >= -5) return "bg-red-300 text-red-900 dark:bg-red-700/50 dark:text-red-300";
+    return "bg-red-600 text-white dark:bg-red-600/80 dark:text-red-100";
   };
 
   return (
@@ -198,13 +202,13 @@ const ForecastPanel: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => {
   const mhPred = snapshot.horizon_predictions?.[horizonKey] ?? null;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-800 bg-[#0d1117]">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 px-4 py-3">
+    <div className="overflow-hidden rounded-xl border border-rim bg-surface">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-seam px-4 py-3">
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
             Actual vs Model · Forecast
           </h2>
-          <p className="mt-0.5 text-[10px] text-slate-600">
+          <p className="mt-0.5 text-[10px] text-hint">
             Dashed line = today · Green zone = forward projection
             {hasLong && active.days > 30 && (
               <span> · Past day 30 uses ARIMA-only (LSTM accuracy degrades past ~10 bars)</span>
@@ -220,8 +224,8 @@ const ForecastPanel: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => {
             const activeCls = opt.key === horizonKey
               ? "bg-emerald-600 text-white"
               : enabled
-                ? "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-                : "text-slate-700 cursor-not-allowed";
+                ? "text-sub hover:bg-raised hover:text-ink"
+                : "text-hint cursor-not-allowed";
             return (
               <button
                 key={opt.key}
@@ -243,27 +247,27 @@ const ForecastPanel: FC<{ snapshot: SnapshotDoc }> = ({ snapshot }) => {
           otherwise, so a ticker without enough history / a fresh listing
           doesn't get a misleading placeholder. */}
       {mhPred && (
-        <div className="flex flex-wrap items-baseline gap-4 border-b border-slate-800 px-4 py-2.5 text-[11px]">
-          <span className="uppercase tracking-wider text-slate-500">
+        <div className="flex flex-wrap items-baseline gap-4 border-b border-seam px-4 py-2.5 text-[11px]">
+          <span className="uppercase tracking-wider text-muted">
             {horizonKey} target
           </span>
-          <span className="font-mono text-base font-semibold text-slate-100">
+          <span className="font-mono text-base font-semibold text-ink">
             KES {mhPred.target_price.toFixed(2)}
           </span>
           <span
             className={`font-mono font-semibold ${
-              mhPred.pct_return >= 0 ? "text-emerald-400" : "text-red-400"
+              mhPred.pct_return >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
             }`}
           >
             {mhPred.pct_return >= 0 ? "+" : ""}
             {mhPred.pct_return.toFixed(2)}%
           </span>
-          <span className="text-slate-500">
+          <span className="text-muted">
             over {mhPred.horizon_days} trading days
           </span>
           {mhPred.mape != null && (
             <span
-              className="ml-auto rounded border border-slate-700 bg-slate-800/60 px-1.5 py-0.5 font-mono text-[10px] text-slate-400"
+              className="ml-auto rounded border border-rim bg-raised px-1.5 py-0.5 font-mono text-[10px] text-sub"
               title={`Walk-forward backtest on unseen recent history. Avg error ${mhPred.mape.toFixed(1)}pp on horizon return${mhPred.direction_hit != null ? `; ${(mhPred.direction_hit * 100).toFixed(0)}% direction hit rate (up/down correct)` : ""}.`}
             >
               ±{mhPred.mape.toFixed(1)}pp
@@ -944,10 +948,32 @@ const ChartSection: FC<{
 };
 
 // ── Signal card ────────────────────────────────────────────────────────────────
+// Theme-adaptive signal styling. Prior styles were dark-only
+// (`bg-red-950/40`, `text-red-400`) which stacked a heavy dark tint
+// over light-theme text and made the whole card unreadable — user
+// reported "cannot see well" on the SnapshotCard when viewing in
+// light mode. Light-tinted background + darker foreground for
+// light mode, deep-tinted background + brighter foreground for
+// dark mode. Borders match the theme.
 const SIGNAL_STYLES = {
-  BUY:  { border: "border-emerald-800", bg: "bg-emerald-950/40", text: "text-emerald-400", glow: "#10b981" },
-  HOLD: { border: "border-amber-800",   bg: "bg-amber-950/40",   text: "text-amber-400",   glow: "#f59e0b" },
-  SELL: { border: "border-red-800",     bg: "bg-red-950/40",     text: "text-red-400",     glow: "#ef4444" },
+  BUY: {
+    border: "border-emerald-300 dark:border-emerald-800",
+    bg:     "bg-emerald-50 dark:bg-emerald-950/40",
+    text:   "text-emerald-700 dark:text-emerald-400",
+    glow:   "#10b981",
+  },
+  HOLD: {
+    border: "border-amber-300 dark:border-amber-800",
+    bg:     "bg-amber-50 dark:bg-amber-950/40",
+    text:   "text-amber-700 dark:text-amber-400",
+    glow:   "#f59e0b",
+  },
+  SELL: {
+    border: "border-red-300 dark:border-red-800",
+    bg:     "bg-red-50 dark:bg-red-950/40",
+    text:   "text-red-700 dark:text-red-400",
+    glow:   "#ef4444",
+  },
 };
 
 const SnapshotCard: FC<{
@@ -1004,7 +1030,7 @@ const SnapshotCard: FC<{
           <p className="mt-1 font-mono text-2xl font-bold text-ink">
             KES {snapshot.predicted_price_KES.toFixed(2)}
           </p>
-          <p className={`font-mono text-lg font-bold ${displayedChangePct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+          <p className={`font-mono text-lg font-bold ${displayedChangePct >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
             {displayedChangePct >= 0 ? "+" : ""}
             {displayedChangePct.toFixed(2)}%
           </p>
@@ -1085,7 +1111,7 @@ const SnapshotCard: FC<{
                   <tr key={model} className="hover:bg-raised/30 transition-colors">
                     <td className="px-3 py-2.5 font-medium text-sub">{model}</td>
                     <td className="px-3 py-2.5 text-right font-mono text-sub">KES {d.price.toFixed(2)}</td>
-                    <td className={`px-3 py-2.5 text-right font-mono font-semibold ${d.pct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                    <td className={`px-3 py-2.5 text-right font-mono font-semibold ${d.pct >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
                       {d.pct >= 0 ? "+" : ""}{d.pct.toFixed(2)}%
                     </td>
                     <td className="px-3 py-2.5 text-center">
