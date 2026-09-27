@@ -414,13 +414,39 @@ const ProjectionCard: FC<{
     <Card className="border-rim bg-surface">
       <h2 className="mb-1 text-sm font-semibold text-ink">Projection · {label}</h2>
       <p className="mb-4 text-[11px] text-hint">
-        Bands are ±1.5σ around the expected value. σ = weighted portfolio volatility scaled to the horizon.
-        Not a guarantee.
+        Bands combine ±1.5σ price volatility (correlation-adjusted) and ±1.5 × the model's
+        walk-forward MAPE. Not a guarantee.
       </p>
       <div className="grid gap-3 md:grid-cols-3">
         <ScenarioTile label="Conservative" value={metrics.conservativeValueKes} amount={amount} tone="down" note="Lower band — ~7th percentile" />
         <ScenarioTile label="Expected" value={metrics.expectedValueKes} amount={amount} tone={gain >= 0 ? "up" : "down"} note={`${gain >= 0 ? "+" : ""}${fmtPct(gainPct)} weighted horizon return`} />
         <ScenarioTile label="Optimistic" value={metrics.optimisticValueKes} amount={amount} tone="up" note="Upper band — ~93rd percentile" />
+      </div>
+      {/* Second row — the "quality" metadata that lets the user judge
+          the projection itself, not just the numbers. Sharpe = return
+          per unit of risk; MAPE = the model's own error track record. */}
+      <div className="mt-3 grid gap-2 sm:grid-cols-3 text-[11px]">
+        <div className="rounded border border-seam bg-raised/30 p-2">
+          <div className="text-hint uppercase tracking-wider">Sharpe ratio (horizon)</div>
+          <div className="mt-0.5 font-mono text-sm text-ink">
+            {metrics.sharpeRatio == null ? "—" : metrics.sharpeRatio.toFixed(2)}
+          </div>
+          <div className="mt-0.5 text-hint">Return per unit of σ vs 10%/yr MMF proxy. &gt;0 = beats MMF risk-adjusted.</div>
+        </div>
+        <div className="rounded border border-seam bg-raised/30 p-2">
+          <div className="text-hint uppercase tracking-wider">Model backtest error</div>
+          <div className="mt-0.5 font-mono text-sm text-ink">
+            ±{metrics.weightedMapePP.toFixed(1)}pp
+          </div>
+          <div className="mt-0.5 text-hint">Weighted MAPE at {horizon} — LightGBM's own walk-forward accuracy.</div>
+        </div>
+        <div className="rounded border border-seam bg-raised/30 p-2">
+          <div className="text-hint uppercase tracking-wider">Portfolio σ (horizon)</div>
+          <div className="mt-0.5 font-mono text-sm text-ink">
+            ±{metrics.portfolioSigmaPct.toFixed(1)}%
+          </div>
+          <div className="mt-0.5 text-hint">Price-based, correlation-adjusted. Independent of model error.</div>
+        </div>
       </div>
     </Card>
   );

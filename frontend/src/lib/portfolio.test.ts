@@ -16,6 +16,11 @@ function mkUniverse(): UniverseTicker[] {
     ticker: "X", name: "X", sector: "S", signal: "BUY",
     currentPrice: 100, volatility30d: 1.5, avgVolume30d: 10_000,
     radarScore: 18, radarDenominator: 30, dividendYield: 3,
+    // Multi-factor fields — neutral defaults keep the pre-existing
+    // tests deterministic. Individual tests override to probe specific
+    // paths.
+    momentum1m: 0, momentum3m: 0, momentum6m: 0,
+    rsi14: 50, macdSignal: 0, adx14: 20, peRatio: null,
     horizonPredictions: {
       "1M": { horizonDays: 21, pctReturn: 2, targetPrice: 102, mape: 3, directionHit: 0.55 },
       "3M": { horizonDays: 63, pctReturn: 6, targetPrice: 106, mape: 6, directionHit: 0.6 },
@@ -80,26 +85,42 @@ describe("buildPortfolio", () => {
     const uni: UniverseTicker[] = [
       { ticker: "STAR", name: "Star", sector: "A", signal: "BUY", currentPrice: 100,
         volatility30d: 5, avgVolume30d: 10_000, radarScore: 30, radarDenominator: 30,
-        dividendYield: 0, horizonPredictions: {
+        dividendYield: 0,
+        momentum1m: 0, momentum3m: 0, momentum6m: 0,
+        rsi14: 50, macdSignal: 0, adx14: 20, peRatio: null,
+        horizonPredictions: {
           "3M": { horizonDays: 63, pctReturn: 50, targetPrice: 150, mape: 5, directionHit: 0.9 } } },
       { ticker: "MED1", name: "M1", sector: "B", signal: "BUY", currentPrice: 100,
         volatility30d: 15, avgVolume30d: 10_000, radarScore: 15, radarDenominator: 30,
-        dividendYield: 0, horizonPredictions: {
+        dividendYield: 0,
+        momentum1m: 0, momentum3m: 0, momentum6m: 0,
+        rsi14: 50, macdSignal: 0, adx14: 20, peRatio: null,
+        horizonPredictions: {
           "3M": { horizonDays: 63, pctReturn: 4, targetPrice: 104, mape: 5, directionHit: 0.5 } } },
       { ticker: "MED2", name: "M2", sector: "C", signal: "BUY", currentPrice: 100,
         volatility30d: 15, avgVolume30d: 10_000, radarScore: 15, radarDenominator: 30,
-        dividendYield: 0, horizonPredictions: {
+        dividendYield: 0,
+        momentum1m: 0, momentum3m: 0, momentum6m: 0,
+        rsi14: 50, macdSignal: 0, adx14: 20, peRatio: null,
+        horizonPredictions: {
           "3M": { horizonDays: 63, pctReturn: 4, targetPrice: 104, mape: 5, directionHit: 0.5 } } },
       { ticker: "MED3", name: "M3", sector: "D", signal: "BUY", currentPrice: 100,
         volatility30d: 15, avgVolume30d: 10_000, radarScore: 15, radarDenominator: 30,
-        dividendYield: 0, horizonPredictions: {
+        dividendYield: 0,
+        momentum1m: 0, momentum3m: 0, momentum6m: 0,
+        rsi14: 50, macdSignal: 0, adx14: 20, peRatio: null,
+        horizonPredictions: {
           "3M": { horizonDays: 63, pctReturn: 4, targetPrice: 104, mape: 5, directionHit: 0.5 } } },
     ];
     const { holdings } = buildPortfolio({
       amountKes: AMOUNT, horizon: HORIZON, risk: "conservative", universe: uni,
     });
     const star = holdings.find(h => h.ticker === "STAR")!;
-    expect(star.weight).toBeLessThanOrEqual(0.25 + 1e-6);
+    // Conservative base cap = 0.25. Actual cap widens adaptively so
+    // N × cap ≥ 1.05; with 4 picks that's max(0.25, 0.2625) = 0.2625.
+    // Assertion tolerates the adaptive widening but confirms STAR
+    // still doesn't dominate the portfolio.
+    expect(star.weight).toBeLessThanOrEqual(0.27);
   });
 
   it("computes real share counts, not fractional", () => {
@@ -148,6 +169,60 @@ describe("computeMetrics", () => {
     const mHi  = computeMetrics(bHi,  HORIZON, hiVol,  AMOUNT);
     expect(mLow.riskBand).toBe("Low");
     expect(["Moderate", "High"]).toContain(mHi.riskBand);
+  });
+
+  it("horizon change reorders recommendations meaningfully", () => {
+    // Build two universes that share tickers but bake in a horizon-
+    // divergent story: one ticker (SHORT) has strong 1M momentum + high
+    // 1M model return but weak long-run; another (LONG) is the reverse.
+    // The optimiser must weight them differently for 1M vs 12M.
+    const mkT = (o: Partial<UniverseTicker>): UniverseTicker => ({
+      ticker: "X", name: "X", sector: "Banking", signal: "BUY",
+      currentPrice: 100, volatility30d: 1.5, avgVolume30d: 10_000,
+      radarScore: 18, radarDenominator: 30, dividendYield: 3,
+      momentum1m: 0, momentum3m: 0, momentum6m: 0,
+      rsi14: 50, macdSignal: 0, adx14: 20, peRatio: null,
+      horizonPredictions: {},
+      ...o,
+    });
+    const universe: UniverseTicker[] = [
+      mkT({ ticker: "SHORT", sector: "Telecom", momentum1m: 8, adx14: 35, macdSignal: 1,
+        horizonPredictions: {
+          "1M": { horizonDays: 21, pctReturn: 4, targetPrice: 104, mape: 4, directionHit: 0.6 },
+          "12M": { horizonDays: 252, pctReturn: 2, targetPrice: 102, mape: 25, directionHit: 0.45 },
+        } }),
+      mkT({ ticker: "LONG", sector: "Manufacturing and Allied", radarScore: 28, dividendYield: 6, peRatio: 8,
+        momentum1m: -1, momentum6m: 1,
+        horizonPredictions: {
+          "1M": { horizonDays: 21, pctReturn: 0.5, targetPrice: 100.5, mape: 4, directionHit: 0.5 },
+          "12M": { horizonDays: 252, pctReturn: 18, targetPrice: 118, mape: 8, directionHit: 0.7 },
+        } }),
+      mkT({ ticker: "MID", sector: "Energy and Petroleum", momentum3m: 3,
+        horizonPredictions: {
+          "1M": { horizonDays: 21, pctReturn: 1.5, targetPrice: 101.5, mape: 4, directionHit: 0.55 },
+          "12M": { horizonDays: 252, pctReturn: 6, targetPrice: 106, mape: 12, directionHit: 0.55 },
+        } }),
+    ];
+    const b1M = buildPortfolio({ amountKes: 100_000, horizon: "1M", risk: "balanced", universe });
+    const b12M = buildPortfolio({ amountKes: 100_000, horizon: "12M", risk: "balanced", universe });
+    const shortWeight1M  = b1M.holdings.find(h => h.ticker === "SHORT")?.weight ?? 0;
+    const shortWeight12M = b12M.holdings.find(h => h.ticker === "SHORT")?.weight ?? 0;
+    const longWeight1M   = b1M.holdings.find(h => h.ticker === "LONG")?.weight ?? 0;
+    const longWeight12M  = b12M.holdings.find(h => h.ticker === "LONG")?.weight ?? 0;
+    // SHORT should carry more weight at 1M than at 12M.
+    expect(shortWeight1M).toBeGreaterThan(shortWeight12M);
+    // LONG should carry more weight at 12M than at 1M.
+    expect(longWeight12M).toBeGreaterThan(longWeight1M);
+  });
+
+  it("computeMetrics returns weightedMapePP and sharpeRatio", () => {
+    const universe = mkUniverse();
+    const { holdings } = buildPortfolio({
+      amountKes: AMOUNT, horizon: HORIZON, risk: "balanced", universe,
+    });
+    const m = computeMetrics(holdings, HORIZON, universe, AMOUNT);
+    expect(m.weightedMapePP).toBeGreaterThan(0);
+    expect(m.sharpeRatio).not.toBeNull();
   });
 
   it("HHI < 0.3 for a diversified 5-holding portfolio", () => {

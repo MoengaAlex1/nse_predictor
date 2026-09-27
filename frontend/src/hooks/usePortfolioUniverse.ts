@@ -23,6 +23,32 @@ import type { CompanyDoc, SnapshotDoc, TechnicalsDoc, FinancialsDoc } from "../t
 
 const HORIZONS: HorizonKey[] = ["1M", "3M", "6M", "9M", "12M"];
 
+// Trailing return % from a price_history array. Windows are in trading
+// days (~21/63/126). Falls back to null when the history is too short
+// or the anchor price is missing/zero.
+function trailingReturn(history: { date: string; price: number }[] | undefined | null, tradingDays: number): number | null {
+  if (!history || history.length < tradingDays + 1) return null;
+  const now = history[history.length - 1]?.price;
+  const then = history[history.length - 1 - tradingDays]?.price;
+  if (!now || !then || then <= 0) return null;
+  return ((now / then) - 1) * 100;
+}
+
+function macdSignSafe(macdHist: number | null | undefined): -1 | 0 | 1 | null {
+  if (macdHist == null || !Number.isFinite(macdHist)) return null;
+  if (macdHist > 0.01) return 1;
+  if (macdHist < -0.01) return -1;
+  return 0;
+}
+
+function latestPositiveEps(fin: FinancialsDoc | null | undefined): number | null {
+  if (!fin?.annual?.length) return null;
+  for (const r of fin.annual) {
+    if (r.eps != null && r.eps > 0) return r.eps;
+  }
+  return null;
+}
+
 interface CorrelationDoc {
   updated_at: string;
   window_days: number;
@@ -141,6 +167,12 @@ export function usePortfolioUniverse(): PortfolioUniverseResult {
 
     const radar = radarScoreCoarse(fin ?? null);
 
+    // Multi-factor signals — sourced from data the platform already
+    // computes. Every field is null-safe; the fitness function drops
+    // missing factors from the weighted sum instead of penalising.
+    const priceHistory = c.price_history ?? [];
+    const eps = latestPositiveEps(fin);
+
     return {
       ticker:            c.short,
       name:              c.name ?? c.short,
@@ -153,6 +185,15 @@ export function usePortfolioUniverse(): PortfolioUniverseResult {
       radarDenominator:  radar.denom,
       dividendYield:     trailingDividendYield(fin ?? null, price),
       horizonPredictions,
+
+      // Multi-factor fields
+      momentum1m: trailingReturn(priceHistory, 21),
+      momentum3m: trailingReturn(priceHistory, 63),
+      momentum6m: trailingReturn(priceHistory, 126),
+      rsi14:       tech?.rsi_14 ?? null,
+      macdSignal:  macdSignSafe(tech?.macd_hist),
+      adx14:       tech?.adx_14 ?? null,
+      peRatio:     (price && eps && eps > 0) ? price / eps : null,
     };
   });
 

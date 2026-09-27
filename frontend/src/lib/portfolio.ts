@@ -40,7 +40,7 @@ export interface UniverseTicker {
   sector: string;
   signal: "BUY" | "HOLD" | "SELL" | null;
   currentPrice: number | null;
-  volatility30d: number | null;    // percent, annualised is separate
+  volatility30d: number | null;    // daily stdev × 100 (matches technicals doc)
   avgVolume30d: number | null;
   radarScore: number | null;       // 0..30 total from RadarScoreCard (5 axes × 6)
   radarDenominator: number;        // out of what — usually 30, less if some axes are n/a
@@ -48,6 +48,24 @@ export interface UniverseTicker {
   // Per-horizon prediction from the multi-horizon LightGBM model.
   // Null when the model hasn't trained on this ticker (fresh listing).
   horizonPredictions: Partial<Record<HorizonKey, HorizonPrediction>>;
+
+  // Multi-factor signals used by the enhanced fitness function. Every
+  // field is null-safe — a missing factor simply drops out of the
+  // weighted sum rather than penalising the ticker. All values are
+  // sourced from data the platform already computes:
+  //  momentum:  trailing return % over the given window from price_history
+  //  rsi14:     technicals doc
+  //  macdSignal: sign of macd_hist (+1 bullish / -1 bearish / 0 flat)
+  //  adx14:     trend strength from technicals
+  //  peRatio:   currentPrice / latest_positive_eps (annual)
+  momentum1m: number | null;
+  momentum3m: number | null;
+  momentum6m: number | null;
+  rsi14: number | null;
+  macdSignal: -1 | 0 | 1 | null;
+  adx14: number | null;
+  peRatio: number | null;
+
   // Phase 5 — defaults to "equity" so existing callers keep working
   // without a required update. ETFs / bonds / MMFs will flip this and
   // pull their return/vol from a different source (bond yield curves,
@@ -73,6 +91,11 @@ export interface Holding {
   cashResidueKes: number;         // amount that couldn't buy a whole share
   currentPrice: number;
   reasons: string[];              // built from real metrics — see explainHolding
+  breakdown?: FitnessBreakdown;   // internal — surfaced in "Why?" cards
+  /** Position size as a fraction of the ticker's average daily traded
+   *  value. Above ~5% suggests execution would move the price against
+   *  the buyer — surfaced in the risk drivers when it kicks in. */
+  liquidityLoad?: number;
 }
 
 export interface PortfolioMetrics {
@@ -80,7 +103,9 @@ export interface PortfolioMetrics {
   expectedValueKes: number;
   conservativeValueKes: number;
   optimisticValueKes: number;
-  portfolioSigmaPct: number;               // annualised-scale portfolio σ
+  portfolioSigmaPct: number;               // horizon-scaled portfolio σ (percent)
+  weightedMapePP: number;                  // weighted per-horizon MAPE (pp) — model's own uncertainty
+  sharpeRatio: number | null;              // (expectedReturn - riskFree) / σ, both horizon-scaled
   riskBand: "Low" | "Moderate" | "High";
   diversification: {
     hhi: number;                           // 0..1, lower = more diverse
@@ -100,6 +125,20 @@ export interface BuildInputs {
   /** Number of holdings target (default 5). Caller can override for
    *  concentrated / diversified sub-modes later. */
   targetHoldings?: number;
+}
+
+// Diagnostic view of how a single ticker's fitness score was assembled.
+// Attached to each Holding so the "why" explanation can cite the
+// factors that actually drove selection (not hand-written text).
+export interface FitnessBreakdown {
+  returnFactor: number;
+  momentumFactor: number;
+  trendFactor: number;
+  qualityFactor: number;
+  valueFactor: number;
+  yieldFactor: number;
+  volPenalty: number;
+  rawFitness: number;   // pre-vol-penalty
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -128,6 +167,55 @@ const HORIZON_TRADING_DAYS: Record<HorizonKey, number> = {
   "1M": 21, "3M": 63, "6M": 126, "9M": 189, "12M": 252,
 };
 
+// Per-horizon factor weights. Rationale:
+//  - Short horizons (1M, 3M): momentum + model return dominate; earnings
+//    haven't cycled yet, so fundamental quality/value have less time to
+//    matter than the current technical setup.
+//  - Long horizons (6M+): fundamentals (quality, value, yield) get the
+//    weight back because a full earnings cycle happens; momentum decays
+//    to near-zero because 6-12 month reversion is well-documented in the
+//    academic literature (Jegadeesh 1990, Fama-French).
+//  - `return` is the LightGBM point estimate — the direct model output.
+//    Confidence scale (1 - MAPE/30) discounts noisy horizons.
+//  - `trend` = RSI/MACD/ADX composite; short-term momentum quality.
+// Weights sum to 1 per horizon so the linear combination stays on the
+// same scale as any single factor.
+const HORIZON_WEIGHTS: Record<HorizonKey, {
+  return: number; momentum: number; trend: number; quality: number; value: number; yield: number;
+}> = {
+  "1M":  { return: 0.30, momentum: 0.30, trend: 0.20, quality: 0.10, value: 0.05, yield: 0.05 },
+  "3M":  { return: 0.35, momentum: 0.20, trend: 0.15, quality: 0.15, value: 0.10, yield: 0.05 },
+  "6M":  { return: 0.30, momentum: 0.10, trend: 0.10, quality: 0.25, value: 0.15, yield: 0.10 },
+  "9M":  { return: 0.25, momentum: 0.05, trend: 0.05, quality: 0.30, value: 0.20, yield: 0.15 },
+  "12M": { return: 0.20, momentum: 0.05, trend: 0.05, quality: 0.30, value: 0.20, yield: 0.20 },
+};
+
+// Sector-median trailing P/E used for the value factor. Source: audit
+// section 4 — same table already in RadarScoreCard, extracted here to
+// avoid depending on the UI component. Missing sector → value factor
+// simply drops out.
+const SECTOR_MEDIAN_PE: Record<string, number> = {
+  Banking: 7.8,
+  Insurance: 6.2,
+  "Manufacturing and Allied": 11.4,
+  "Telecommunication and Technology": 18.5,
+  "Energy and Petroleum": 9.1,
+  "Commercial and Services": 13.2,
+  Agricultural: 14.1,
+  Investment: 8.9,
+  "Real Estate Investment Trust": 22.0,
+  "Automobiles and Accessories": 10.5,
+  "Construction and Allied": 9.8,
+};
+
+// Position-size penalty: if the intended allocation is > this fraction of
+// a name's typical daily traded value, the trade will move the price
+// against you. Standard trading assumption; well-known impact-cost model
+// families (Almgren–Chriss) show cost grows super-linearly past ~10-15%
+// of ADV. We use 5% as the "no penalty" band since NSE liquidity is
+// generally thin. Penalty grows quadratically past that.
+const LIQUIDITY_IMPACT_CAP = 0.05;
+
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 /**
@@ -140,10 +228,14 @@ const HORIZON_TRADING_DAYS: Record<HorizonKey, number> = {
 export function buildPortfolio(inputs: BuildInputs): { holdings: Holding[]; excluded: Array<{ ticker: string; reason: string }> } {
   const { amountKes, horizon, risk, universe, correlation, targetHoldings = 5 } = inputs;
   const lambda = RISK_LAMBDA[risk];
-  const perStockCap = RISK_HOLDING_CAP[risk];
+  // Base cap; adaptive widening happens AFTER we know how many
+  // candidates actually pass the filter (see near enforceCap call).
+  const baseCap = RISK_HOLDING_CAP[risk];
 
   const excluded: Array<{ ticker: string; reason: string }> = [];
-  const eligible: Array<{ t: UniverseTicker; pred: HorizonPrediction; fitness: number }> = [];
+  const eligible: Array<{ t: UniverseTicker; pred: HorizonPrediction; fitness: number; breakdown: FitnessBreakdown }> = [];
+  const horizonWeights = HORIZON_WEIGHTS[horizon];
+  const horizonDays = HORIZON_TRADING_DAYS[horizon];
 
   for (const t of universe) {
     if (t.signal === "SELL") { excluded.push({ ticker: t.ticker, reason: "SELL signal" }); continue; }
@@ -158,13 +250,72 @@ export function buildPortfolio(inputs: BuildInputs): { holdings: Holding[]; excl
       continue;
     }
 
-    // Fitness = expected return × how often the model gets direction right
-    // - volatility penalty. Direction hit is treated as a discount factor
-    // (0..1) so a 5% predicted return with 60% direction hit beats a 10%
-    // predicted return with 20% direction hit.
-    const dirHit = pred.directionHit ?? 0.5;      // no backtest → neutral
-    const fitness = pred.pctReturn * dirHit - lambda * t.volatility30d;
-    eligible.push({ t, pred, fitness });
+    // ── Multi-factor fitness ─────────────────────────────────────────────
+    // Every factor is normalised to a roughly comparable 0-15 scale (a
+    // 15% signal is the "big" case). Horizon weights then linearly combine.
+    // Any factor whose input is null contributes 0 (not penalised).
+
+    // Factor 1: Model return, discounted by walk-forward confidence.
+    // Confidence = 1 - min(1, mape / 30). MAPE ≥ 30pp → 0 confidence.
+    // Direction hit adds a tie-breaker: a horizon where the model gets
+    // sign right often is worth more than one where it flips.
+    const confidence = 1 - Math.min(1, (pred.mape ?? 30) / 30);
+    const dirHit = pred.directionHit ?? 0.5;
+    const returnFactor = pred.pctReturn * confidence * (0.5 + dirHit);   // scaled so 0.5 hit ≈ neutral
+
+    // Factor 2: Price momentum aligned with the horizon.
+    // Short horizons care about 1M momentum; long horizons about 6M.
+    // (Cross-sectional momentum literature: Jegadeesh & Titman 1993,
+    // Fama & French 1996. Kenyan-market equivalent hasn't been peer-
+    // reviewed but the same 3-12 month persistence shows in local data.)
+    const momentumInput =
+      horizonDays <= 30  ? (t.momentum1m ?? 0) :
+      horizonDays <= 90  ? (t.momentum3m ?? t.momentum1m ?? 0) :
+                            (t.momentum6m ?? t.momentum3m ?? 0);
+    const momentumFactor = momentumInput;
+
+    // Factor 3: Technical trend quality. ADX > 25 = strong trend; MACD
+    // sign gives direction. Product gives a signed "trend strength" 0-2.
+    const trendMag = Math.min(1, (t.adx14 ?? 0) / 50);
+    const trendFactor = (t.macdSignal ?? 0) * trendMag * 15;   // scale to 0-15
+
+    // Factor 4: Fundamental quality — Radar score normalised 0-1 × 15.
+    const qualityFactor = t.radarScore != null && t.radarDenominator > 0
+      ? (t.radarScore / t.radarDenominator) * 15
+      : 0;
+
+    // Factor 5: Value — sector-median-relative P/E. If PE is 30% below
+    // the sector median → +4.5. If 30% above → −4.5. Cap at ±10.
+    const sectorPe = SECTOR_MEDIAN_PE[t.sector];
+    const valueFactor = (t.peRatio && sectorPe && t.peRatio > 0)
+      ? Math.max(-10, Math.min(10, (1 - t.peRatio / sectorPe) * 15))
+      : 0;
+
+    // Factor 6: Dividend yield income contribution. Only matters at
+    // longer horizons per the weights table.
+    const yieldFactor = (t.dividendYield ?? 0);
+
+    const rawFitness =
+        horizonWeights.return   * returnFactor
+      + horizonWeights.momentum * momentumFactor
+      + horizonWeights.trend    * trendFactor
+      + horizonWeights.quality  * qualityFactor
+      + horizonWeights.value    * valueFactor
+      + horizonWeights.yield    * yieldFactor;
+
+    // Volatility penalty scaled to the horizon (variance grows linearly
+    // with time; std with sqrt). Longer horizons "absorb" volatility
+    // better, so the penalty per-day is horizon-invariant but the
+    // effective σ over the horizon isn't. λ tightens for
+    // conservative profiles.
+    const volPenalty = lambda * (t.volatility30d ?? 0) * Math.sqrt(21 / Math.max(21, horizonDays));
+
+    const fitness = rawFitness - volPenalty;
+
+    eligible.push({
+      t, pred, fitness,
+      breakdown: { returnFactor, momentumFactor, trendFactor, qualityFactor, valueFactor, yieldFactor, volPenalty, rawFitness },
+    });
   }
 
   // Sort by fitness desc, then greedy-pick with sector caps.
@@ -194,6 +345,14 @@ export function buildPortfolio(inputs: BuildInputs): { holdings: Holding[]; excl
   const rawWeights = picked.map(p => p.fitness + shift);
   let weights = normalise(rawWeights);
 
+  // Adaptive per-stock cap. When the eligible pool is small the base
+  // cap can become a straitjacket — 3 picks × 30% = 90%, and the
+  // follow-on normalisation would then flatten all weights to 33.3%
+  // each, masking real fitness differences. Widen the cap enough that
+  // N × cap ≥ 1.05, keeping the base cap as the lower bound for large
+  // pools. This is what makes the recommendation stay differentiated
+  // even when only a handful of tickers survive the filter.
+  const perStockCap = Math.max(baseCap, 1.05 / picked.length);
   // Enforce per-stock cap. Clip and re-normalise until stable.
   weights = enforceCap(weights, perStockCap);
   // Enforce sector-total cap. Same clip-and-normalise idea, grouped.
@@ -208,12 +367,23 @@ export function buildPortfolio(inputs: BuildInputs): { holdings: Holding[]; excl
     weights = correlationReweight(weights, picked.map(p => p.t), correlation);
   }
 
+  // Amount-sensitive re-weighting. For each candidate, compute how much
+  // of one day's traded value the intended position would consume. If
+  // it's over LIQUIDITY_IMPACT_CAP (5%), penalise proportionally and
+  // shift the excess weight to whichever candidate has the most
+  // liquidity headroom. This is what makes the recommendation react to
+  // the user's KES amount — a KES 100k portfolio has no liquidity
+  // pressure; a KES 10M one does.
+  weights = liquidityAdjust(weights, picked.map(p => p.t), amountKes);
+
   // Zip into Holding[] with real share counts + KES amounts.
   const holdings: Holding[] = picked
     .map((p, i) => {
       const alloc = weights[i] * amountKes;
       const shares = Math.floor(alloc / p.t.currentPrice!);
       const actualCost = shares * p.t.currentPrice!;
+      const dailyValue = (p.t.avgVolume30d ?? 0) * (p.t.currentPrice ?? 0);
+      const liquidityLoad = dailyValue > 0 ? alloc / dailyValue : 0;
       return {
         ticker: p.t.ticker,
         name: p.t.name,
@@ -223,12 +393,55 @@ export function buildPortfolio(inputs: BuildInputs): { holdings: Holding[]; excl
         shares,
         cashResidueKes: alloc - actualCost,
         currentPrice: p.t.currentPrice!,
-        reasons: explainHolding(p.t, p.pred, p.fitness, weights[i], risk),
+        reasons: explainHolding(p.t, p.pred, p.fitness, weights[i], risk, p.breakdown, horizon, liquidityLoad),
+        breakdown: p.breakdown,
+        liquidityLoad,
       };
     })
     .filter(h => h.weight > 0);
 
   return { holdings, excluded };
+}
+
+function liquidityAdjust(
+  weights: number[],
+  tickers: UniverseTicker[],
+  amountKes: number,
+): number[] {
+  // Positions that consume > cap of one day's traded value get scaled
+  // down; the shortfall is redistributed to the candidate with the
+  // most headroom. Iterate once — cascading edge cases (all candidates
+  // over cap) are rare at Kenyan-market thin liquidity and would leave
+  // an unfilled residue that manifests as < 100% invested.
+  const dailyValue = tickers.map(t => (t.avgVolume30d ?? 0) * (t.currentPrice ?? 0));
+  if (dailyValue.every(dv => dv <= 0)) return weights;
+  const positionKes = weights.map(w => w * amountKes);
+  const load = positionKes.map((p, i) => dailyValue[i] > 0 ? p / dailyValue[i] : 0);
+  const overs = load.map(l => Math.max(0, l - LIQUIDITY_IMPACT_CAP));
+  if (overs.every(o => o === 0)) return weights;
+
+  const out = weights.slice();
+  // Cap each over-weight position at LIQUIDITY_IMPACT_CAP × dailyValue.
+  let excess = 0;
+  for (let i = 0; i < out.length; i += 1) {
+    if (load[i] > LIQUIDITY_IMPACT_CAP && dailyValue[i] > 0) {
+      const cappedKes = LIQUIDITY_IMPACT_CAP * dailyValue[i];
+      excess += out[i] * amountKes - cappedKes;
+      out[i] = cappedKes / amountKes;
+    }
+  }
+  // Redistribute to candidates with headroom, proportional to remaining
+  // headroom (biggest daily-value gets most of it).
+  const headroom = tickers.map((_, i) =>
+    Math.max(0, LIQUIDITY_IMPACT_CAP * dailyValue[i] - out[i] * amountKes),
+  );
+  const headroomTotal = headroom.reduce((a, b) => a + b, 0);
+  if (headroomTotal > 0 && excess > 0) {
+    for (let i = 0; i < out.length; i += 1) {
+      out[i] += (excess * headroom[i] / headroomTotal) / amountKes;
+    }
+  }
+  return normalise(out);
 }
 
 /**
@@ -274,9 +487,41 @@ export function computeMetrics(
   );
 
   const expectedValueKes = amountKes * (1 + expectedReturnPct / 100);
-  const bandKes = amountKes * (portfolioSigma / 100) * 1.5;
+
+  // Bands driven by the model's OWN uncertainty per horizon. MAPE is
+  // the mean absolute error in percentage points on the horizon return,
+  // measured on unseen recent history via walk-forward validation. This
+  // is more honest than pure ±1.5σ from price volatility because a
+  // ticker can be low-vol AND have a wildly-off model (or the reverse).
+  // We combine:
+  //   modelBand      = weighted MAPE × 1.5  (per-holding model error,
+  //                     assumed independent across holdings so it's
+  //                     already partially diversified — hence weighted
+  //                     avg not sqrt sum)
+  //   priceBand      = portfolio σ × 1.5    (co-movement from price vol
+  //                     + correlation matrix — reflects real-world
+  //                     diversification benefit).
+  //   Combined       = sqrt(modelBand² + priceBand²)   (independent
+  //                     sources of uncertainty).
+  let weightedMape = 0;
+  for (const h of holdings) {
+    const pred = byTicker.get(h.ticker)?.horizonPredictions[horizon];
+    if (pred?.mape != null) weightedMape += h.weight * pred.mape;
+  }
+  const modelBand = weightedMape * 1.5;
+  const priceBand = portfolioSigma * 1.5;
+  const combinedBandPct = Math.sqrt(modelBand * modelBand + priceBand * priceBand);
+  const bandKes = amountKes * combinedBandPct / 100;
   const conservativeValueKes = Math.max(0, expectedValueKes - bandKes);
   const optimisticValueKes = expectedValueKes + bandKes;
+
+  // Sharpe ratio using Kenya money-market rate (~10%/yr = ~0.04%/day)
+  // as the risk-free proxy. Scaled to the horizon so it's directly
+  // comparable to the horizon expected return.
+  const riskFreeHorizon = 10 * (HORIZON_TRADING_DAYS[horizon] / 252);
+  const sharpeRatio = portfolioSigma > 0
+    ? (expectedReturnPct - riskFreeHorizon) / portfolioSigma
+    : null;
 
   // Risk band from annualised portfolio σ. Cut-offs from Section 18.
   // portfolioSigma is already horizon-scaled; convert to annualised
@@ -317,6 +562,15 @@ export function computeMetrics(
   if (HORIZON_TRADING_DAYS[horizon] <= 21 && holdings.some(h => (byTicker.get(h.ticker)?.horizonPredictions[horizon]?.directionHit ?? 0.5) < 0.55)) {
     drivers.push("Short horizon (1M) — model direction hit rate is near coin-flip; treat the target as low-confidence");
   }
+  // Liquidity load — surfaced when any holding is above the 5% ADV cap.
+  const heavyLoad = holdings.find(h => (h.liquidityLoad ?? 0) > LIQUIDITY_IMPACT_CAP);
+  if (heavyLoad) {
+    drivers.push(`${heavyLoad.ticker} allocation is ${((heavyLoad.liquidityLoad ?? 0) * 100).toFixed(1)}% of one day's traded value — execution slippage risk`);
+  }
+  // Weighted MAPE — flag when the model itself is uncertain at this horizon.
+  if (weightedMape > 15) {
+    drivers.push(`Model uncertainty at ${horizon} is ${weightedMape.toFixed(0)}pp on average — projections are wide by design`);
+  }
 
   return {
     expectedReturnPct,
@@ -324,6 +578,8 @@ export function computeMetrics(
     conservativeValueKes,
     optimisticValueKes,
     portfolioSigmaPct: portfolioSigma,
+    weightedMapePP: weightedMape,
+    sharpeRatio,
     riskBand,
     diversification: {
       hhi,
@@ -485,19 +741,54 @@ function explainHolding(
   fitness: number,
   weight: number,
   risk: RiskProfile,
+  breakdown: FitnessBreakdown | undefined,
+  horizon: HorizonKey,
+  liquidityLoad: number,
 ): string[] {
   const parts: string[] = [];
-  parts.push(
-    `${(weight * 100).toFixed(0)}% allocated — ${t.ticker} shows a ${pred.pctReturn >= 0 ? "+" : ""}${pred.pctReturn.toFixed(1)}% model target${pred.directionHit != null ? ` with ${(pred.directionHit * 100).toFixed(0)}% direction-hit accuracy on the backtest` : ""}.`,
-  );
-  if (t.signal) parts.push(`Current AI signal: ${t.signal}.`);
+  const returnPart = pred.mape != null
+    ? `${(weight * 100).toFixed(0)}% — model projects ${pred.pctReturn >= 0 ? "+" : ""}${pred.pctReturn.toFixed(1)}% at ${horizon} (backtest MAPE ±${pred.mape.toFixed(1)}pp${pred.directionHit != null ? `, direction hit ${(pred.directionHit * 100).toFixed(0)}%` : ""}).`
+    : `${(weight * 100).toFixed(0)}% — model projects ${pred.pctReturn >= 0 ? "+" : ""}${pred.pctReturn.toFixed(1)}% at ${horizon}.`;
+  parts.push(returnPart);
+
+  // Cite the top-two factor contributions from the breakdown so the
+  // "why" is grounded in the actual math (no LLM narration). Weighted
+  // contribution = factor × horizon_weight.
+  if (breakdown) {
+    const w = HORIZON_WEIGHTS[horizon];
+    const contributions: Array<{ label: string; value: number }> = [
+      { label: "model return",       value: breakdown.returnFactor   * w.return },
+      { label: `${horizon} momentum`, value: breakdown.momentumFactor * w.momentum },
+      { label: "trend (MACD/ADX)",   value: breakdown.trendFactor    * w.trend },
+      { label: "fundamental quality", value: breakdown.qualityFactor  * w.quality },
+      { label: "value vs sector P/E", value: breakdown.valueFactor    * w.value },
+      { label: "dividend yield",     value: breakdown.yieldFactor    * w.yield },
+    ]
+    .filter(c => Math.abs(c.value) > 0.05)
+    .sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+    if (contributions.length > 0) {
+      const top = contributions.slice(0, 2).map(c =>
+        `${c.label} ${c.value >= 0 ? "+" : ""}${c.value.toFixed(2)}`
+      ).join(", ");
+      parts.push(`Top factors: ${top}.`);
+    }
+  }
+
+  if (t.signal) parts.push(`AI signal: ${t.signal}.`);
   if (t.volatility30d != null) {
     const isCalm = t.volatility30d < 1.5;
-    parts.push(`30-day daily volatility ${t.volatility30d.toFixed(1)}% — ${isCalm ? `low for the ${risk} bucket` : "on the higher end; sized accordingly"}.`);
+    parts.push(`Daily volatility ${t.volatility30d.toFixed(1)}% — ${isCalm ? `low for the ${risk} bucket` : "sized accordingly"}.`);
   }
-  if (t.radarScore != null && t.radarDenominator > 0) parts.push(`Fundamental score ${t.radarScore.toFixed(0)}/${t.radarDenominator}.`);
-  if (t.dividendYield != null && t.dividendYield > 0.5) parts.push(`Trailing dividend yield ${t.dividendYield.toFixed(1)}% adds income.`);
-  parts.push(`Adds ${t.sector} sector exposure. Overall fitness ${fitness.toFixed(2)}.`);
+  if (t.peRatio != null && SECTOR_MEDIAN_PE[t.sector] != null) {
+    const rel = t.peRatio / SECTOR_MEDIAN_PE[t.sector];
+    if (rel < 0.85) parts.push(`P/E ${t.peRatio.toFixed(1)}× is ${((1 - rel) * 100).toFixed(0)}% below sector median — value tilt.`);
+    else if (rel > 1.15) parts.push(`P/E ${t.peRatio.toFixed(1)}× is ${((rel - 1) * 100).toFixed(0)}% above sector median — priced for growth.`);
+  }
+  if (t.dividendYield != null && t.dividendYield > 3) parts.push(`Trailing dividend yield ${t.dividendYield.toFixed(1)}% adds income.`);
+  if (liquidityLoad > LIQUIDITY_IMPACT_CAP) {
+    parts.push(`Position is ${(liquidityLoad * 100).toFixed(1)}% of one day's traded value — execution may move price.`);
+  }
+  parts.push(`Adds ${t.sector} exposure. Fitness ${fitness.toFixed(2)}.`);
   return parts;
 }
 
@@ -508,6 +799,8 @@ function emptyMetrics(amountKes: number): PortfolioMetrics {
     conservativeValueKes: amountKes,
     optimisticValueKes: amountKes,
     portfolioSigmaPct: 0,
+    weightedMapePP: 0,
+    sharpeRatio: null,
     riskBand: "Low",
     diversification: { hhi: 0, sectorCount: 0, avgPairwiseCorr: null, score: "Poor" },
     riskDrivers: ["No eligible tickers matched the filter — try relaxing risk or extending the horizon."],
