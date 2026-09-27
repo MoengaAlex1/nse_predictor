@@ -7,6 +7,7 @@ import { Companies } from "./pages/Companies";
 import { InvestorDashboard } from "./pages/InvestorDashboard";
 import { InvestorChart } from "./pages/InvestorChart";
 import { Screener } from "./pages/Screener";
+import { Planner } from "./pages/Planner";
 import { toBase } from "./lib/ticker";
 
 // Redirect suffixed URLs (/company/ABSA.NR, /chart/ABSA_NR) to the canonical
@@ -79,6 +80,12 @@ export default function App() {
           element={<CompanyToChartRedirect />}
         />
         <Route path="/screener" element={<Screener />} />
+        {/* Investment Planner / Portfolio Builder — deterministic
+            score-ranked optimiser + ±1.5σ projection bands sourced
+            from the same LightGBM horizon predictions the /chart page
+            already shows. Route lives under the default AppShell so
+            the ticker tape + full nav stay visible. */}
+        <Route path="/planner" element={<Planner />} />
       </Route>
 
       <Route

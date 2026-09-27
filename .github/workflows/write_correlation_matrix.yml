@@ -1,0 +1,54 @@
+name: Write cross-stock correlation matrix
+
+# Computes the 60-day rolling correlation across every NSE ticker with
+# clean price history and writes one Firestore doc
+# (market_overview/correlation_60d). Consumed by the Portfolio Builder
+# to penalise highly-correlated pairs — matches the "correlation-aware"
+# design of the score-ranked optimizer.
+#
+# Runs weekly (correlation moves slowly enough that daily runs would
+# waste compute + Firestore writes) with a manual dispatch handle for
+# ad-hoc refresh after a schema change.
+
+on:
+  schedule:
+    - cron: "0 4 * * 0"    # Sunday 04:00 UTC = 07:00 EAT
+  workflow_dispatch:
+    inputs:
+      window:
+        description: "Trailing trading-day window"
+        required: false
+        default: "60"
+      min_days:
+        description: "Skip tickers with fewer clean rows"
+        required: false
+        default: "90"
+
+concurrency:
+  group: write-correlation-matrix
+  cancel-in-progress: false
+
+jobs:
+  correlate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - run: pip install -r pipeline/requirements.txt
+
+      - name: Run write_correlation_matrix.py
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_RTDB_URL:             ${{ secrets.FIREBASE_RTDB_URL }}
+          FIREBASE_STORAGE_BUCKET:       ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        run: |
+          python pipeline/scripts/write_correlation_matrix.py \
+            --window ${{ github.event.inputs.window || '60' }} \
+            --min-days ${{ github.event.inputs.min_days || '90' }}

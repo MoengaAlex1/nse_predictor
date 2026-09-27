@@ -13,6 +13,7 @@ import { RecentTickersStrip } from "./RecentTickersStrip";
 const NAV_LINKS = [
   { label: "Markets",  to: "/companies", disabled: false },
   { label: "Screener", to: "/screener",  disabled: false },
+  { label: "Planner",  to: "/planner",   disabled: false },
   // News + Calendar pages don't ship yet — link them to /companies so
   // clicks go somewhere sensible instead of dead links. Marked disabled
   // in the DEFAULT variant (grey-out), but shown as regular links in
