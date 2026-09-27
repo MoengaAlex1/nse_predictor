@@ -225,6 +225,7 @@ export const Planner: FC = () => {
             <div id="customize-panel" className="space-y-6 scroll-mt-4">
               <CustomizePanel
                 amountKes={amount}
+                horizon={horizon}
                 holdings={customHoldings}
                 universe={universe}
                 onChange={setCustomHoldings}
@@ -421,36 +422,95 @@ const RecommendationCard: FC<{
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
+          {/* Horizon banner row — makes it unambiguous that the last two
+              columns depend on the selected period. Switching 1M → 12M
+              rewrites every value under "Expected @ {horizon}". */}
+          <tr className="border-b border-seam text-[10px] uppercase tracking-wider text-muted">
+            <th className="py-2 pr-3 text-left" colSpan={5}></th>
+            <th className="py-2 pr-3 text-right font-semibold text-accent" colSpan={2}>
+              Expected @ {HORIZONS.find(h => h.key === horizon)?.label}
+            </th>
+          </tr>
           <tr className="border-b border-seam text-[10px] uppercase tracking-wider text-muted">
             <th className="py-2 pr-3 text-left">Stock</th>
             <th className="py-2 pr-3 text-right">Sector</th>
             <th className="py-2 pr-3 text-right">Weight</th>
             <th className="py-2 pr-3 text-right">Allocation</th>
-            <th className="py-2 pr-3 text-right">Price</th>
             <th className="py-2 pr-3 text-right">Shares</th>
-            <th className="py-2 pl-3 text-right">Cash residue</th>
+            <th className="py-2 pr-3 text-right">Return</th>
+            <th className="py-2 pl-3 text-right">Value at horizon</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-seam/50">
-          {holdings.map(h => (
-            <tr key={h.ticker} className="hover:bg-raised/40">
-              <td className="py-2.5 pr-3">
-                <Link to={`/chart/${h.ticker}`} className="font-semibold text-ink hover:text-accent">
-                  {h.ticker}
-                </Link>
-                <div className="text-[11px] text-hint">{h.name}</div>
-              </td>
-              <td className="py-2.5 pr-3 text-right text-[11px] text-sub">{h.sector}</td>
-              <td className="py-2.5 pr-3 text-right font-mono font-semibold tabular-nums text-ink">
-                {(h.weight * 100).toFixed(1)}%
-              </td>
-              <td className="py-2.5 pr-3 text-right font-mono tabular-nums text-ink">{fmtKes(h.allocationKes)}</td>
-              <td className="py-2.5 pr-3 text-right font-mono tabular-nums text-sub">{fmtKes(h.currentPrice)}</td>
-              <td className="py-2.5 pr-3 text-right font-mono tabular-nums text-sub">{h.shares.toLocaleString("en-KE")}</td>
-              <td className="py-2.5 pl-3 text-right font-mono tabular-nums text-hint">{fmtKes(h.cashResidueKes)}</td>
-            </tr>
-          ))}
+          {holdings.map(h => {
+            const ret = h.expectedReturnPct ?? 0;
+            const val = h.expectedValueKes ?? h.allocationKes;
+            const gain = val - h.allocationKes;
+            const retTone = ret >= 0
+              ? "text-emerald-700 dark:text-emerald-400"
+              : "text-red-700 dark:text-red-400";
+            return (
+              <tr key={h.ticker} className="hover:bg-raised/40">
+                <td className="py-2.5 pr-3">
+                  <Link to={`/chart/${h.ticker}`} className="font-semibold text-ink hover:text-accent">
+                    {h.ticker}
+                  </Link>
+                  <div className="text-[11px] text-hint">
+                    {h.name} · @ {fmtKes(h.currentPrice)}
+                  </div>
+                </td>
+                <td className="py-2.5 pr-3 text-right text-[11px] text-sub">{h.sector}</td>
+                <td className="py-2.5 pr-3 text-right font-mono font-semibold tabular-nums text-ink">
+                  {(h.weight * 100).toFixed(1)}%
+                </td>
+                <td className="py-2.5 pr-3 text-right font-mono tabular-nums text-ink">{fmtKes(h.allocationKes)}</td>
+                <td className="py-2.5 pr-3 text-right font-mono tabular-nums text-sub">{h.shares.toLocaleString("en-KE")}</td>
+                <td className={`py-2.5 pr-3 text-right font-mono font-semibold tabular-nums ${retTone}`}>
+                  {ret >= 0 ? "+" : ""}{ret.toFixed(1)}%
+                  {h.mapePP != null && (
+                    <div className="text-[10px] font-normal text-hint">±{h.mapePP.toFixed(1)}pp</div>
+                  )}
+                </td>
+                <td className="py-2.5 pl-3 text-right font-mono tabular-nums text-ink">
+                  {fmtKes(val)}
+                  <div className={`text-[10px] font-normal ${retTone}`}>
+                    {gain >= 0 ? "+" : ""}{fmtKes(gain)}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
+        {/* Portfolio-total row. Sum of per-holding projected values
+            is the portfolio's expected value at horizon end — same
+            number ProjectionCard shows in the "Expected" tile. */}
+        <tfoot>
+          {(() => {
+            const totalAlloc = holdings.reduce((s, h) => s + h.allocationKes, 0);
+            const totalVal   = holdings.reduce((s, h) => s + (h.expectedValueKes ?? h.allocationKes), 0);
+            const totalGain  = totalVal - totalAlloc;
+            const totalPct   = totalAlloc > 0 ? (totalGain / totalAlloc) * 100 : 0;
+            const tone = totalGain >= 0
+              ? "text-emerald-700 dark:text-emerald-400"
+              : "text-red-700 dark:text-red-400";
+            return (
+              <tr className="border-t-2 border-seam text-[11px] font-semibold text-ink">
+                <td className="py-2.5 pr-3 uppercase tracking-wider text-muted" colSpan={3}>Portfolio total</td>
+                <td className="py-2.5 pr-3 text-right font-mono tabular-nums">{fmtKes(totalAlloc)}</td>
+                <td className="py-2.5 pr-3" />
+                <td className={`py-2.5 pr-3 text-right font-mono tabular-nums ${tone}`}>
+                  {totalPct >= 0 ? "+" : ""}{totalPct.toFixed(2)}%
+                </td>
+                <td className="py-2.5 pl-3 text-right font-mono tabular-nums">
+                  {fmtKes(totalVal)}
+                  <div className={`text-[10px] font-normal ${tone}`}>
+                    {totalGain >= 0 ? "+" : ""}{fmtKes(totalGain)}
+                  </div>
+                </td>
+              </tr>
+            );
+          })()}
+        </tfoot>
       </table>
     </div>
   </Card>

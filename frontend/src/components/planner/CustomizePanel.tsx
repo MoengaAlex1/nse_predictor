@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FC } from "react";
-import type { Holding, UniverseTicker } from "../../lib/portfolio";
+import type { Holding, UniverseTicker, HorizonKey } from "../../lib/portfolio";
 import { fmtKes } from "../../lib/format";
+
+const HORIZON_LABEL: Record<HorizonKey, string> = {
+  "1M": "1 Month", "3M": "3 Months", "6M": "6 Months", "9M": "9 Months", "12M": "1 Year",
+};
 
 // Local weight input — controlled so external Reset/Load actually
 // refreshes the displayed value, but commits on blur or Enter so a
@@ -46,6 +50,7 @@ const WeightInput: FC<{ weight: number; onCommit: (pct: number) => void }> = ({ 
 
 interface Props {
   amountKes: number;
+  horizon: HorizonKey;
   holdings: Holding[];
   universe: UniverseTicker[];
   onChange: (holdings: Holding[]) => void;
@@ -53,7 +58,18 @@ interface Props {
   onClose: () => void;                     // hide the panel entirely
 }
 
-export const CustomizePanel: FC<Props> = ({ amountKes, holdings, universe, onChange, onReset, onClose }) => {
+export const CustomizePanel: FC<Props> = ({ amountKes, horizon, holdings, universe, onChange, onReset, onClose }) => {
+  // Per-ticker horizon prediction lookup — used to render an
+  // Expected Return column that stays current as the user changes
+  // horizon or edits weights.
+  const predByTicker = useMemo(() => {
+    const m: Record<string, { pctReturn: number; mape: number } | null> = {};
+    for (const u of universe) {
+      const p = u.horizonPredictions?.[horizon];
+      m[u.ticker] = p ? { pctReturn: p.pctReturn, mape: p.mape } : null;
+    }
+    return m;
+  }, [universe, horizon]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
 
@@ -169,15 +185,31 @@ export const CustomizePanel: FC<Props> = ({ amountKes, holdings, universe, onCha
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-seam text-[10px] uppercase tracking-wider text-muted">
+              <th className="py-2 pr-3 text-left" colSpan={4} />
+              <th className="py-2 pr-3 text-right font-semibold text-accent" colSpan={2}>
+                Expected @ {HORIZON_LABEL[horizon]}
+              </th>
+              <th className="py-2 pl-3" />
+            </tr>
+            <tr className="border-b border-seam text-[10px] uppercase tracking-wider text-muted">
               <th className="py-2 pr-3 text-left">Stock</th>
               <th className="py-2 pr-3 text-right">Weight (%)</th>
               <th className="py-2 pr-3 text-right">Allocation</th>
               <th className="py-2 pr-3 text-right">Shares</th>
+              <th className="py-2 pr-3 text-right">Return</th>
+              <th className="py-2 pr-3 text-right">Value at horizon</th>
               <th className="py-2 pl-3" />
             </tr>
           </thead>
           <tbody className="divide-y divide-seam/50">
-            {holdings.map(h => (
+            {holdings.map(h => {
+              const pred = predByTicker[h.ticker];
+              const ret = pred?.pctReturn;
+              const val = ret != null ? h.allocationKes * (1 + ret / 100) : h.allocationKes;
+              const tone = ret == null ? "text-hint"
+                : ret >= 0 ? "text-emerald-700 dark:text-emerald-400"
+                : "text-red-700 dark:text-red-400";
+              return (
               <tr key={h.ticker} className="hover:bg-raised/40">
                 <td className="py-2 pr-3">
                   <span className="font-semibold text-ink">{h.ticker}</span>
@@ -195,6 +227,15 @@ export const CustomizePanel: FC<Props> = ({ amountKes, holdings, universe, onCha
                 <td className="py-2 pr-3 text-right font-mono tabular-nums text-sub">
                   {h.shares.toLocaleString("en-KE")}
                 </td>
+                <td className={`py-2 pr-3 text-right font-mono font-semibold tabular-nums ${tone}`}>
+                  {ret == null ? "—" : `${ret >= 0 ? "+" : ""}${ret.toFixed(1)}%`}
+                  {pred?.mape != null && (
+                    <div className="text-[10px] font-normal text-hint">±{pred.mape.toFixed(1)}pp</div>
+                  )}
+                </td>
+                <td className="py-2 pr-3 text-right font-mono tabular-nums text-ink">
+                  {fmtKes(val)}
+                </td>
                 <td className="py-2 pl-3 text-right">
                   <button
                     type="button"
@@ -205,37 +246,61 @@ export const CustomizePanel: FC<Props> = ({ amountKes, holdings, universe, onCha
                   </button>
                 </td>
               </tr>
-            ))}
+            );})}
             {holdings.length === 0 && (
               <tr>
-                <td colSpan={5} className="py-4 text-center text-sm text-hint">
+                <td colSpan={7} className="py-4 text-center text-sm text-hint">
                   All holdings removed. Add stocks below or reset to the recommendation.
                 </td>
               </tr>
             )}
           </tbody>
           <tfoot>
-            <tr className={`border-t border-seam text-[11px] ${overOrUnder ? "text-amber-600 dark:text-amber-400" : "text-muted"}`}>
-              <td className="py-2 pr-3 uppercase tracking-wider font-semibold">Total</td>
-              <td className="py-2 pr-3 text-right font-mono tabular-nums">
-                {(totalWeight * 100).toFixed(1)}%
-              </td>
-              <td className="py-2 pr-3 text-right font-mono tabular-nums">
-                {fmtKes(totalAllocation)}
-              </td>
-              <td colSpan={2} className="py-2 pl-3 text-right">
-                {overOrUnder && (
-                  <button
-                    type="button"
-                    onClick={normalise}
-                    className="rounded border border-amber-400 dark:border-amber-700 bg-amber-100 dark:bg-amber-900/40 px-2 py-1 text-[11px] font-semibold text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/70"
-                    title="Rescale all weights so they sum to 100% — preserves relative proportions"
-                  >
-                    Normalise to 100%
-                  </button>
-                )}
-              </td>
-            </tr>
+            {(() => {
+              const totalValue = holdings.reduce((s, h) => {
+                const pred = predByTicker[h.ticker];
+                const ret = pred?.pctReturn ?? 0;
+                return s + h.allocationKes * (1 + ret / 100);
+              }, 0);
+              const totalGain = totalValue - totalAllocation;
+              const totalPct = totalAllocation > 0 ? (totalGain / totalAllocation) * 100 : 0;
+              const gainTone = totalGain >= 0
+                ? "text-emerald-700 dark:text-emerald-400"
+                : "text-red-700 dark:text-red-400";
+              return (
+                <tr className={`border-t-2 border-seam text-[11px] ${overOrUnder ? "text-amber-600 dark:text-amber-400" : "text-ink font-semibold"}`}>
+                  <td className="py-2 pr-3 uppercase tracking-wider font-semibold">Total</td>
+                  <td className="py-2 pr-3 text-right font-mono tabular-nums">
+                    {(totalWeight * 100).toFixed(1)}%
+                  </td>
+                  <td className="py-2 pr-3 text-right font-mono tabular-nums">
+                    {fmtKes(totalAllocation)}
+                  </td>
+                  <td className="py-2 pr-3" />
+                  <td className={`py-2 pr-3 text-right font-mono font-semibold tabular-nums ${gainTone}`}>
+                    {totalPct >= 0 ? "+" : ""}{totalPct.toFixed(2)}%
+                  </td>
+                  <td className="py-2 pr-3 text-right font-mono font-semibold tabular-nums text-ink">
+                    {fmtKes(totalValue)}
+                    <div className={`text-[10px] font-normal ${gainTone}`}>
+                      {totalGain >= 0 ? "+" : ""}{fmtKes(totalGain)}
+                    </div>
+                  </td>
+                  <td className="py-2 pl-3 text-right">
+                    {overOrUnder && (
+                      <button
+                        type="button"
+                        onClick={normalise}
+                        className="rounded border border-amber-400 dark:border-amber-700 bg-amber-100 dark:bg-amber-900/40 px-2 py-1 text-[11px] font-semibold text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/70"
+                        title="Rescale all weights so they sum to 100% — preserves relative proportions"
+                      >
+                        Normalise
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })()}
           </tfoot>
         </table>
       </div>

@@ -96,6 +96,16 @@ export interface Holding {
    *  value. Above ~5% suggests execution would move the price against
    *  the buyer — surfaced in the risk drivers when it kicks in. */
   liquidityLoad?: number;
+  /** LightGBM per-horizon prediction for the selected horizon (%).
+   *  Surfaced in the recommendation table so users can see WHAT the
+   *  model is projecting for each pick over the period they picked. */
+  expectedReturnPct?: number;
+  /** allocationKes * (1 + expectedReturnPct/100) — the projected
+   *  value of this position at the end of the horizon. */
+  expectedValueKes?: number;
+  /** Walk-forward MAPE in percentage points for this horizon — the
+   *  model's own ± uncertainty band on the per-stock return. */
+  mapePP?: number;
 }
 
 export interface PortfolioMetrics {
@@ -435,6 +445,9 @@ export function buildPortfolio(inputs: BuildInputs): { holdings: Holding[]; excl
         reasons: explainHolding(p.t, p.pred, p.fitness, weights[i], risk, p.breakdown, horizon, liquidityLoad),
         breakdown: p.breakdown,
         liquidityLoad,
+        expectedReturnPct: p.pred.pctReturn,
+        expectedValueKes: alloc * (1 + p.pred.pctReturn / 100),
+        mapePP: p.pred.mape,
       };
     })
     .filter(h => h.weight > 0);
