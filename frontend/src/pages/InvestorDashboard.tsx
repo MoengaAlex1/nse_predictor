@@ -46,7 +46,10 @@ export const InvestorDashboard = () => {
   const ticker = cleaned;
   const pushRecent = useRecentTickers((s) => s.push);
 
-  const [timeframe, setTimeframe] = useState<TimeframeKey>("3M");
+  // Default 1M — matches the workstation + CompanyDeepDive chart
+  // defaults so switching between pages doesn't reshuffle the visible
+  // window under the user.
+  const [timeframe, setTimeframe] = useState<TimeframeKey>("1M");
 
   useEffect(() => {
     if (cleaned) pushRecent(cleaned);

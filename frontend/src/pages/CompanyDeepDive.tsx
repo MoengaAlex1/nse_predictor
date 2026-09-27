@@ -1382,8 +1382,11 @@ export const CompanyDeepDive: FC<CompanyDeepDiveProps> = ({ tickerOverride, embe
     [],
   );
 
-  // Range state lives here so both StatsStrip and ChartSection share it
-  const [range, setRange]             = useState<RangeKey>("3M");
+  // Range state lives here so both StatsStrip and ChartSection share it.
+  // Default 1M matches the workstation chart's default so both charts
+  // land on the same window on first paint. Users flip up to 3M/6M/1Y
+  // via the timeframe chips when they want more history.
+  const [range, setRange]             = useState<RangeKey>("1M");
   const [from, setFrom]               = useState("");
   const [to, setTo]                   = useState("");
   const [intradayDay, setIntradayDay] = useState(todayEAT);
@@ -1418,16 +1421,19 @@ export const CompanyDeepDive: FC<CompanyDeepDiveProps> = ({ tickerOverride, embe
     );
   }, [rtdbPrices, from, to]);
 
-  // Auto-widen range to ALL when the default 3M view has fewer than 20 data points.
-  // Fires once per ticker load so the user's manual range selection is not overridden.
+  // Auto-widen range to ALL when the default 1M view has fewer than 8
+  // data points (thin ticker, new listing, or a long trading halt).
+  // Fires once per ticker load so a user's manual range selection is
+  // not overridden. Threshold tightened to 8 (from 20) because the
+  // default window shrank from 3M to 1M.
   const autoRangedRef = useRef(false);
   useEffect(() => {
     if (autoRangedRef.current || rtdbHistory.length === 0) return;
     const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 90);
+    cutoff.setDate(cutoff.getDate() - 30);
     const cutoffStr = cutoff.toISOString().slice(0, 10);
-    const in3M = rtdbHistory.filter((p) => p.date >= cutoffStr);
-    if (in3M.length < 20) {
+    const in1M = rtdbHistory.filter((p) => p.date >= cutoffStr);
+    if (in1M.length < 8) {
       setRange("ALL");
     }
     autoRangedRef.current = true;

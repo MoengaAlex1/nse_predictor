@@ -335,7 +335,11 @@ export const TradingWorkstation: FC<Props> = ({ short }) => {
   const chartStart = "2008-01-01";
   const { rows, latest } = usePrices(short, chartStart, chartEnd);
 
-  const [range, setRange] = useState<RangeKey>("1Y");
+  // Default to 1M — user request: land on the most-common retail
+  // decision window; longer periods are one chip-click away in the
+  // bottom timeframe strip. Prior 1Y default made recent price
+  // action hard to read on landing.
+  const [range, setRange] = useState<RangeKey>("1M");
   // Intraday for the 1D range. Prefer company.intraday_today (already on
   // the loaded company doc — no extra read) and fall back to reading
   // companies/{t}/intraday/{today} directly. The audit found /chart 1D
