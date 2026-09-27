@@ -55,7 +55,9 @@ describe("buildPortfolio", () => {
     expect(kept).not.toContain("GGG");                        // illiquid
     expect(kept).not.toContain("HHH");                        // no prediction
     // Excluded diagnostic tells the caller why:
-    expect(excluded.find(e => e.ticker === "FFF")?.reason).toContain("SELL");
+    // Planner reframes the SELL signal into forecast-language for
+    // fresh investors (see explainHolding change).
+    expect(excluded.find(e => e.ticker === "FFF")?.reason).toContain("bearish");
     expect(excluded.find(e => e.ticker === "GGG")?.reason).toContain("illiquid");
     expect(excluded.find(e => e.ticker === "HHH")?.reason).toContain("no 3M prediction");
   });

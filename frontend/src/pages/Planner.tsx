@@ -125,6 +125,26 @@ export const Planner: FC = () => {
         </div>
       </header>
 
+      {/* Explainer for first-time users. The rest of the platform uses
+          BUY/HOLD/SELL signals that are written for existing holders;
+          in the Planner we translate everything to a forward-looking
+          allocation view so a fresh investor isn't reading holder-
+          management language when deciding where to put new money. */}
+      <Card className="border-sky-300 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/30">
+        <p className="text-xs font-semibold text-sky-800 dark:text-sky-300">How this works</p>
+        <p className="mt-1 text-[12px] leading-relaxed text-sky-900 dark:text-sky-200">
+          This tool is for <strong>allocating new money</strong> — not for managing
+          positions you already hold. It ranks NSE stocks by the model's per-horizon
+          forecast (LightGBM target × walk-forward accuracy), current momentum and
+          technicals, fundamental quality, sector-relative valuation, and dividend yield.
+          The tickers you see are combinations the model expects to earn a positive
+          return over your chosen period. If the model sees no attractive setups, the
+          page will surface a money-market alternative instead of forcing a bad
+          recommendation. The BUY/HOLD/SELL badges you'll see elsewhere on the platform
+          are written for existing shareholders and aren't used here.
+        </p>
+      </Card>
+
       <InputsCard
         amount={amount} setAmount={setAmount}
         horizon={horizon} setHorizon={setHorizon}

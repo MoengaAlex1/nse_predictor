@@ -253,7 +253,15 @@ export function buildPortfolio(inputs: BuildInputs): { holdings: Holding[]; excl
   const horizonDays = HORIZON_TRADING_DAYS[horizon];
 
   for (const t of universe) {
-    if (t.signal === "SELL") { excluded.push({ ticker: t.ticker, reason: "SELL signal" }); continue; }
+    // The BUY/HOLD/SELL signal is meant for existing holders. In the
+    // Planner context (new-money allocation), we translate it to
+    // "model outlook is bearish → skip" and phrase it that way in the
+    // excluded list so first-time investors aren't reading holder-
+    // management language.
+    if (t.signal === "SELL") {
+      excluded.push({ ticker: t.ticker, reason: "model outlook bearish (near-term downside expected)" });
+      continue;
+    }
     const pred = t.horizonPredictions[horizon];
     if (!pred) { excluded.push({ ticker: t.ticker, reason: `no ${horizon} prediction` }); continue; }
     if (t.volatility30d == null || t.currentPrice == null) {
@@ -805,7 +813,9 @@ function explainHolding(
     }
   }
 
-  if (t.signal) parts.push(`AI signal: ${t.signal}.`);
+  // Signal is holder-oriented; skip it in Planner context. The model
+  // return + factor breakdown above are the decision-relevant numbers
+  // for a fresh allocation.
   if (t.volatility30d != null) {
     const isCalm = t.volatility30d < 1.5;
     parts.push(`Daily volatility ${t.volatility30d.toFixed(1)}% — ${isCalm ? `low for the ${risk} bucket` : "sized accordingly"}.`);
