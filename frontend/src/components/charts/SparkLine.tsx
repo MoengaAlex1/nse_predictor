@@ -10,6 +10,7 @@ import {
 } from "recharts";
 import type { PricePoint } from "../../types";
 import { fmtShort as fmtLabel, fmtLabel as fmtFull } from "../../lib/dateUtils";
+import { fmtPriceTick } from "../../lib/format";
 
 interface Props {
   data: PricePoint[];
@@ -42,9 +43,7 @@ export const SparkLine: FC<Props> = ({ data, color }) => {
           interval={step - 1}
         />
         <YAxis
-          tickFormatter={(v: number) =>
-            v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(2)
-          }
+          tickFormatter={fmtPriceTick}
           tick={{ fill: "#64748b", fontSize: 11 }}
           tickLine={false}
           axisLine={false}

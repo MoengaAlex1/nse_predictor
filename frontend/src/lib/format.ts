@@ -31,6 +31,28 @@ export function fmtPrice(v: number | null | undefined): string {
   return compactNf.format(v);
 }
 
+// Magnitude-adaptive price tick — chart Y-axes for NSE stocks span
+// KES 0.4 (deep penny) → KES 400+ (blue-chip). Fixed decimals waste
+// precision at one end and collapse ticks to the same string at the
+// other. This helper picks the precision from the *tick value*, not
+// from a hardcoded stock assumption, so the axis is legible for any
+// company.
+//
+//   >= 1000  → K-scaled with 1 decimal   ("1.2K")
+//   >= 100   → 0 decimals                ("403")
+//   >= 10    → 1 decimal                 ("43.5")
+//   >= 1     → 2 decimals                ("1.44")
+//   < 1      → 3 decimals                ("0.145")
+export function fmtPriceTick(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "";
+  const abs = Math.abs(v);
+  if (abs >= 1000) return `${(v / 1000).toFixed(1)}K`;
+  if (abs >= 100)  return v.toFixed(0);
+  if (abs >= 10)   return v.toFixed(1);
+  if (abs >= 1)    return v.toFixed(2);
+  return v.toFixed(3);
+}
+
 // +3.04% / −1.21% — always signed, always 2 decimals.
 export function fmtPct(v: number | null | undefined): string {
   if (v == null || !Number.isFinite(v)) return emDash;

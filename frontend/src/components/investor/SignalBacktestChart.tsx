@@ -5,6 +5,7 @@ import {
   Scatter, ComposedChart, ReferenceLine,
 } from "recharts";
 import type { SnapshotDoc, PricePoint } from "../../types";
+import { fmtPriceTick } from "../../lib/format";
 
 interface Props {
   snapshots: SnapshotDoc[] | undefined;
@@ -119,14 +120,7 @@ export const SignalBacktestChart: FC<Props> = ({ snapshots, history, windowDays 
                 (min: number) => min * 0.98,
                 (max: number) => max * 1.02,
               ]}
-              tickFormatter={(v: number) => {
-                // Adapt precision to the price magnitude so penny stocks
-                // (KES ~1.44) don't collapse to "1, 1, 1" and blue-chips
-                // (KES ~400) don't render "403.50, 403.52, 403.54".
-                if (v >= 100) return v.toFixed(0);
-                if (v >= 10)  return v.toFixed(1);
-                return v.toFixed(2);
-              }}
+              tickFormatter={fmtPriceTick}
               width={56}
             />
             <Tooltip

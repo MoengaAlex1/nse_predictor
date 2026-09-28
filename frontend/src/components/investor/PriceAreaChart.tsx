@@ -1,6 +1,7 @@
 import type { FC } from "react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import type { PricePoint } from "../../types";
+import { fmtPriceTick } from "../../lib/format";
 
 type PriceAreaChartProps = {
   data: PricePoint[];
@@ -68,7 +69,7 @@ export const PriceAreaChart: FC<PriceAreaChartProps> = ({
             width={44}
             orientation="right"
             domain={["auto", "auto"]}
-            tickFormatter={(v: number) => v.toFixed(2)}
+            tickFormatter={fmtPriceTick}
           />
           <Tooltip content={<CustomTooltip />} cursor={{ stroke: color, strokeWidth: 1, strokeDasharray: "3 3" }} />
           <Area

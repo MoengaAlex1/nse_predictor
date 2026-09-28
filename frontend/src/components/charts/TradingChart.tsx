@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import type { PricePoint, NSEAnnouncement } from "../../types";
 import { useTheme } from "../../context/ThemeContext";
+import { fmtPriceTick } from "../../lib/format";
 
 interface ComputedFib {
   pct: number;
@@ -76,8 +77,7 @@ const FIB_LEVELS = [
   { pct: 100,  label: "100%",  color: "#ef4444" },
 ];
 
-const priceFmt = (v: number) =>
-  v >= 1000 ? `${(v / 1000).toFixed(2)}k` : v.toFixed(2);
+const priceFmt = fmtPriceTick;
 
 const FibLabel: FC<{
   viewBox?: { x: number; y: number; width: number };

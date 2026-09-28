@@ -12,6 +12,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { RtdbPricePoint } from "../../hooks/useHistoricalPrices";
+import { fmtPriceTick } from "../../lib/format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -260,8 +261,7 @@ export const TechnicalChart: FC<Props> = ({ data, height = 480, chartType = "can
       : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
   };
 
-  const fmtPrice = (v: number) =>
-    v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(2);
+  const fmtPrice = fmtPriceTick;
 
   const fmtVol = (v: number) =>
     v >= 1_000_000

@@ -10,7 +10,7 @@ import { useMarketStatus, marketStatusLabel } from "../../hooks/useMarketStatus"
 import { useCompanies } from "../../hooks/useCompanies";
 import { useMarketOverview } from "../../hooks/useMarket";
 import { usePrices } from "../../hooks/usePrices";
-import { fmtCompact, fmtPct, fmtPrice } from "../../lib/format";
+import { fmtCompact, fmtPct, fmtPrice, fmtPriceTick } from "../../lib/format";
 
 // Human labels for chart tooltip. Keeps raw data keys ("bb_lower", "sma20")
 // out of the crosshair hover box — the audit flagged the old tooltip for
@@ -1626,7 +1626,7 @@ const MainCanvas: FC<{
               <YAxis
                 orientation="right"
                 tick={{ fontSize: 11, fill: COLORS.muted }}
-                tickFormatter={(v: number) => v.toFixed(2)}
+                tickFormatter={fmtPriceTick}
                 domain={["dataMin - 0.3", "dataMax + 0.3"]}
                 stroke={COLORS.border}
                 width={62}

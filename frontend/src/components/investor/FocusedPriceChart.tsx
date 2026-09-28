@@ -11,6 +11,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import type { RtdbPricePoint } from "../../hooks/useHistoricalPrices";
+import { fmtPriceTick } from "../../lib/format";
 
 type FocusedPricePoint = {
   date: string;
@@ -133,7 +134,7 @@ export const FocusedPriceChart: FC<FocusedPriceChartProps> = ({
             tick={{ fill: "rgb(var(--hint))", fontSize: 10 }}
             width={44}
             domain={["auto", "auto"]}
-            tickFormatter={(v: number) => (v >= 1000 ? `${(v / 1000).toFixed(2)}K` : v.toFixed(2))}
+            tickFormatter={fmtPriceTick}
           />
 
           <YAxis

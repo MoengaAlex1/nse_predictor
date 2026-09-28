@@ -1,5 +1,6 @@
 import type { FC } from "react";
 import { fmtShort, fmtMedium, tradingDaysFrom } from "../../lib/dateUtils";
+import { fmtPriceTick } from "../../lib/format";
 import {
   ComposedChart,
   Line,
@@ -102,9 +103,7 @@ export const PredictionChart: FC<Props> = ({
           interval={step - 1}
         />
         <YAxis
-          tickFormatter={(v: number) =>
-            v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(2)
-          }
+          tickFormatter={fmtPriceTick}
           tick={{ fill: "#64748b", fontSize: 11 }}
           tickLine={false}
           axisLine={false}
