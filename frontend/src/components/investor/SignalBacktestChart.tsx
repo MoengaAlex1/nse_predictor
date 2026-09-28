@@ -106,7 +106,7 @@ export const SignalBacktestChart: FC<Props> = ({ snapshots, history, windowDays 
 
       <div className="h-64 w-full">
         <ResponsiveContainer>
-          <ComposedChart data={rows} margin={{ top: 5, right: 12, bottom: 0, left: -8 }}>
+          <ComposedChart data={rows} margin={{ top: 5, right: 12, bottom: 0, left: 4 }}>
             <XAxis
               dataKey="date"
               tick={{ fontSize: 10, fill: "rgb(var(--hint))" }}
@@ -115,9 +115,19 @@ export const SignalBacktestChart: FC<Props> = ({ snapshots, history, windowDays 
             />
             <YAxis
               tick={{ fontSize: 10, fill: "rgb(var(--hint))" }}
-              domain={["dataMin", "dataMax"]}
-              tickFormatter={(v: number) => v.toFixed(0)}
-              width={44}
+              domain={[
+                (min: number) => min * 0.98,
+                (max: number) => max * 1.02,
+              ]}
+              tickFormatter={(v: number) => {
+                // Adapt precision to the price magnitude so penny stocks
+                // (KES ~1.44) don't collapse to "1, 1, 1" and blue-chips
+                // (KES ~400) don't render "403.50, 403.52, 403.54".
+                if (v >= 100) return v.toFixed(0);
+                if (v >= 10)  return v.toFixed(1);
+                return v.toFixed(2);
+              }}
+              width={56}
             />
             <Tooltip
               contentStyle={{
