@@ -63,7 +63,7 @@ export const CustomizePanel: FC<Props> = ({ amountKes, horizon, holdings, univer
   // Expected Return column that stays current as the user changes
   // horizon or edits weights.
   const predByTicker = useMemo(() => {
-    const m: Record<string, { pctReturn: number; mape: number } | null> = {};
+    const m: Record<string, { pctReturn: number; mape: number | null } | null> = {};
     for (const u of universe) {
       const p = u.horizonPredictions?.[horizon];
       m[u.ticker] = p ? { pctReturn: p.pctReturn, mape: p.mape } : null;

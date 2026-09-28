@@ -104,8 +104,9 @@ export interface Holding {
    *  value of this position at the end of the horizon. */
   expectedValueKes?: number;
   /** Walk-forward MAPE in percentage points for this horizon — the
-   *  model's own ± uncertainty band on the per-stock return. */
-  mapePP?: number;
+   *  model's own ± uncertainty band on the per-stock return. Null when
+   *  the pipeline didn't emit a MAPE for this ticker/horizon. */
+  mapePP?: number | null;
 }
 
 export interface PortfolioMetrics {
