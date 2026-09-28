@@ -279,8 +279,13 @@ function kesUsdAt(macro: MacroDoc | null | undefined, year: string): number | nu
 }
 
 // ── RSI / technical descriptions ──────────────────────────────────────────────
-function describeRSI(rsi: number | null): string {
-  if (rsi === null) return "";
+function describeRSI(rsi: number | null | undefined): string {
+  // Loose null-check on purpose — Firestore returns `undefined` when the
+  // rsi_14 field isn't written yet, but the TS type says `number | null`.
+  // The strict `=== null` guard used to leak `undefined` through and
+  // crashed the whole page with "Cannot read properties of undefined
+  // (reading 'toFixed')" on tickers with no technicals doc yet.
+  if (rsi == null || !Number.isFinite(rsi)) return "";
   if (rsi > 70)
     return `RSI **${rsi.toFixed(1)}** — overbought territory. The stock has risen quickly and may consolidate, though strong trends can sustain elevated RSI.`;
   if (rsi < 30)

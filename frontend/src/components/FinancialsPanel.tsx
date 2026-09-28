@@ -40,8 +40,10 @@ const LABEL_MAP: Record<string, string> = {
   cash_at_period_end:           "Cash at Period End",
 };
 
-function YoyBadge({ pct }: { pct: number | null }) {
-  if (pct === null) return <span className="text-gray-400">—</span>;
+function YoyBadge({ pct }: { pct: number | null | undefined }) {
+  // Loose null-check — Firestore returns undefined for missing fields
+  // (the TS types say `number | null` but that's aspirational).
+  if (pct == null || !Number.isFinite(pct)) return <span className="text-gray-400">—</span>;
   const up = pct >= 0;
   return (
     <span className={`text-xs font-semibold ${up ? "text-green-500" : "text-red-500"}`}>
@@ -51,8 +53,8 @@ function YoyBadge({ pct }: { pct: number | null }) {
 }
 
 function MetricRow({ label, metric }: { label: string; metric: MetricValue }) {
-  const fmt = (v: number | null) =>
-    v === null ? "—" : `${metric.currency} ${v.toLocaleString()} ${metric.unit}`;
+  const fmt = (v: number | null | undefined) =>
+    v == null || !Number.isFinite(v) ? "—" : `${metric.currency} ${v.toLocaleString()} ${metric.unit}`;
   return (
     <tr className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
       <td className="py-2 pr-4 text-sm text-gray-700 dark:text-gray-300">{label}</td>
