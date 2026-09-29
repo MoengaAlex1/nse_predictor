@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPortfolio, computeMetrics } from "./portfolio";
+import { buildPortfolio, buildPortfolioWithFallback, computeMetrics } from "./portfolio";
 import type { UniverseTicker, HorizonKey } from "./portfolio";
 
 // Small synthetic universe covering the paths that matter:
@@ -235,5 +235,60 @@ describe("computeMetrics", () => {
       const m = computeMetrics(holdings, HORIZON, mkUniverse(), AMOUNT);
       expect(m.diversification.hhi).toBeLessThan(0.4);
     }
+  });
+
+  // ── Tier fallback tests ────────────────────────────────────────────────
+  // Guarantees the Planner produces equity picks in a broadly-bearish
+  // market view or when the horizon predictions are missing en masse.
+
+  it("falls back to defensive tier when every prediction is weakly bearish", () => {
+    // Universe of good fundamentals but the model view is mildly negative
+    // across the board — primary filter would drop every ticker.
+    const bearishUniverse: UniverseTicker[] = ["AAA", "BBB", "DDD", "EEE"].map((t, i) => ({
+      ticker: t, name: t, sector: ["Banking", "Insurance", "Telecom", "Energy"][i],
+      signal: "HOLD",
+      currentPrice: 50, volatility30d: 1.4, avgVolume30d: 20_000,
+      radarScore: 20, radarDenominator: 30, dividendYield: 5,
+      momentum1m: -1, momentum3m: -2, momentum6m: -3,
+      rsi14: 45, macdSignal: 0, adx14: 20, peRatio: 8,
+      horizonPredictions: {
+        "3M": { horizonDays: 63, pctReturn: -2, targetPrice: 49, mape: 6, directionHit: 0.6 },
+      },
+    }));
+    const result = buildPortfolioWithFallback({
+      amountKes: AMOUNT, horizon: HORIZON, risk: "balanced", universe: bearishUniverse,
+    });
+    expect(result.tier).toBe("defensive");
+    expect(result.holdings.length).toBeGreaterThan(0);
+  });
+
+  it("falls back to fundamentals-only when every horizon prediction is missing", () => {
+    // Solid fundamentals, valid price / vol / liquidity, BUT no horizon
+    // prediction — the strict + defensive filters would both drop these.
+    const noPredUniverse: UniverseTicker[] = ["AAA", "BBB", "DDD", "EEE"].map((t, i) => ({
+      ticker: t, name: t, sector: ["Banking", "Insurance", "Telecom", "Energy"][i],
+      signal: "HOLD",
+      currentPrice: 40, volatility30d: 1.3, avgVolume30d: 25_000,
+      radarScore: 22, radarDenominator: 30, dividendYield: 6,
+      momentum1m: 1, momentum3m: 2, momentum6m: 1,
+      rsi14: 50, macdSignal: 0, adx14: 20, peRatio: 7,
+      horizonPredictions: {},
+    }));
+    const result = buildPortfolioWithFallback({
+      amountKes: AMOUNT, horizon: HORIZON, risk: "balanced", universe: noPredUniverse,
+    });
+    expect(result.tier).toBe("fundamentals");
+    expect(result.holdings.length).toBeGreaterThan(0);
+    // Fundamentals-mode holdings must not fabricate a projection.
+    expect(result.holdings[0].expectedReturnPct).toBeUndefined();
+    expect(result.holdings[0].expectedValueKes).toBeUndefined();
+  });
+
+  it("returns primary tier when the model is broadly positive (baseline)", () => {
+    const result = buildPortfolioWithFallback({
+      amountKes: AMOUNT, horizon: HORIZON, risk: "balanced", universe: mkUniverse(),
+    });
+    expect(result.tier).toBe("primary");
+    expect(result.holdings.length).toBeGreaterThan(0);
   });
 });

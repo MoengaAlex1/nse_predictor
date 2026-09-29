@@ -136,6 +136,30 @@ export interface BuildInputs {
   /** Number of holdings target (default 5). Caller can override for
    *  concentrated / diversified sub-modes later. */
   targetHoldings?: number;
+  /** Selection mode:
+   *   - "primary"    (default): strict — model return must be non-negative
+   *     (or bearish call low-confidence), yields the "conviction pool".
+   *   - "defensive": relaxed — allow negative-return picks unless the
+   *     model is very confidently strongly-bearish (< -5% with dirHit ≥ 65%).
+   *     Fitness reweights toward yield + quality + low-vol so the output
+   *     reads as a "least-bad hedge" pool the user can pair with cash.
+   *   - "fundamentals": last resort — no prediction required at all;
+   *     rank purely by dividend yield + fundamental quality + liquidity.
+   *     Runs when even the defensive pass is empty.
+   */
+  mode?: "primary" | "defensive" | "fundamentals";
+}
+
+/** Which tier actually produced the returned holdings — surfaced in the
+ *  UI so the user can see whether the recommendation is a positive-view
+ *  pool ("primary"), a bearish-market least-bad hedge ("defensive"), or
+ *  a fundamentals-only fallback when the model has no signal at all. */
+export type SelectionTier = "primary" | "defensive" | "fundamentals" | "none";
+
+export interface BuildResult {
+  holdings: Holding[];
+  excluded: Array<{ ticker: string; reason: string }>;
+  tier: SelectionTier;
 }
 
 // Kenya money-market fund proxy — used when the equity model has no
@@ -206,14 +230,31 @@ const HORIZON_TRADING_DAYS: Record<HorizonKey, number> = {
 //  - `trend` = RSI/MACD/ADX composite; short-term momentum quality.
 // Weights sum to 1 per horizon so the linear combination stays on the
 // same scale as any single factor.
-const HORIZON_WEIGHTS: Record<HorizonKey, {
-  return: number; momentum: number; trend: number; quality: number; value: number; yield: number;
-}> = {
+type FactorWeights = { return: number; momentum: number; trend: number; quality: number; value: number; yield: number };
+
+const HORIZON_WEIGHTS: Record<HorizonKey, FactorWeights> = {
   "1M":  { return: 0.30, momentum: 0.30, trend: 0.20, quality: 0.10, value: 0.05, yield: 0.05 },
   "3M":  { return: 0.35, momentum: 0.20, trend: 0.15, quality: 0.15, value: 0.10, yield: 0.05 },
   "6M":  { return: 0.30, momentum: 0.10, trend: 0.10, quality: 0.25, value: 0.15, yield: 0.10 },
   "9M":  { return: 0.25, momentum: 0.05, trend: 0.05, quality: 0.30, value: 0.20, yield: 0.15 },
   "12M": { return: 0.20, momentum: 0.05, trend: 0.05, quality: 0.30, value: 0.20, yield: 0.20 },
+};
+
+// Defensive weights — reused across horizons. The model return has a
+// smaller weight (we don't trust it when it's broadly bearish) and yield
+// + quality dominate so the pool reads as "income + solid balance sheet"
+// rather than "beat the market". Momentum still contributes as a
+// tie-breaker — a name declining slowly is preferable to one declining
+// fast.
+const DEFENSIVE_WEIGHTS: FactorWeights = {
+  return: 0.10, momentum: 0.15, trend: 0.05, quality: 0.30, value: 0.15, yield: 0.25,
+};
+
+// Fundamentals-only weights — no model return needed at all. Used as
+// the last resort when the horizon table is missing for so many tickers
+// that even the defensive pass can't fill a pool.
+const FUNDAMENTALS_WEIGHTS: FactorWeights = {
+  return: 0.00, momentum: 0.10, trend: 0.05, quality: 0.40, value: 0.20, yield: 0.25,
 };
 
 // Sector-median trailing P/E used for the value factor. Source: audit
@@ -252,29 +293,37 @@ const LIQUIDITY_IMPACT_CAP = 0.05;
  * and why, so the "why not X?" story can be surfaced in the UI.
  */
 export function buildPortfolio(inputs: BuildInputs): { holdings: Holding[]; excluded: Array<{ ticker: string; reason: string }> } {
-  const { amountKes, horizon, risk, universe, correlation, targetHoldings = 5 } = inputs;
+  const { amountKes, horizon, risk, universe, correlation, targetHoldings = 5, mode = "primary" } = inputs;
   const lambda = RISK_LAMBDA[risk];
   // Base cap; adaptive widening happens AFTER we know how many
   // candidates actually pass the filter (see near enforceCap call).
   const baseCap = RISK_HOLDING_CAP[risk];
 
   const excluded: Array<{ ticker: string; reason: string }> = [];
-  const eligible: Array<{ t: UniverseTicker; pred: HorizonPrediction; fitness: number; breakdown: FitnessBreakdown }> = [];
-  const horizonWeights = HORIZON_WEIGHTS[horizon];
+  const eligible: Array<{ t: UniverseTicker; pred: HorizonPrediction | null; fitness: number; breakdown: FitnessBreakdown }> = [];
+  const horizonWeights: FactorWeights =
+      mode === "defensive"    ? DEFENSIVE_WEIGHTS
+    : mode === "fundamentals" ? FUNDAMENTALS_WEIGHTS
+    :                            HORIZON_WEIGHTS[horizon];
   const horizonDays = HORIZON_TRADING_DAYS[horizon];
 
   for (const t of universe) {
-    // The BUY/HOLD/SELL signal is meant for existing holders. In the
-    // Planner context (new-money allocation), we translate it to
-    // "model outlook is bearish → skip" and phrase it that way in the
-    // excluded list so first-time investors aren't reading holder-
-    // management language.
-    if (t.signal === "SELL") {
+    // SELL signal reflects sell-side sentiment for existing holders; skip
+    // regardless of mode. Only exception: in "fundamentals" mode we ignore
+    // signals entirely, since we've already decided to override the model.
+    if (t.signal === "SELL" && mode !== "fundamentals") {
       excluded.push({ ticker: t.ticker, reason: "model outlook bearish (near-term downside expected)" });
       continue;
     }
-    const pred = t.horizonPredictions[horizon];
-    if (!pred) { excluded.push({ ticker: t.ticker, reason: `no ${horizon} prediction` }); continue; }
+    const pred: HorizonPrediction | null = t.horizonPredictions[horizon] ?? null;
+
+    // Primary + defensive still require SOME horizon prediction so we can
+    // put an honest expected-return number next to each pick. Fundamentals
+    // mode intentionally skips this — we accept there's no model signal.
+    if (!pred && mode !== "fundamentals") {
+      excluded.push({ ticker: t.ticker, reason: `no ${horizon} prediction` });
+      continue;
+    }
     if (t.volatility30d == null || t.currentPrice == null) {
       excluded.push({ ticker: t.ticker, reason: "missing volatility or price" }); continue;
     }
@@ -283,21 +332,29 @@ export function buildPortfolio(inputs: BuildInputs): { holdings: Holding[]; excl
       excluded.push({ ticker: t.ticker, reason: `illiquid (KES ${Math.round(dailyValue / 1000)}k/day)` });
       continue;
     }
-    // Refuse to include a ticker the model expects to lose money at
-    // the chosen horizon UNLESS the model's own backtest hit rate on
-    // that horizon is poor (<55%), in which case we can't trust the
-    // negative call either. Rationale: users open the Planner to
-    // MAKE money; a portfolio the model projects to lose fails the
-    // basic contract regardless of the fitness score composition.
-    // A high-dividend / low-vol ticker can still land here — but only
-    // if its model-predicted return is non-negative.
-    const dirHitForFilter = pred.directionHit ?? 0.5;
-    if (pred.pctReturn <= 0 && dirHitForFilter >= 0.55) {
-      excluded.push({
-        ticker: t.ticker,
-        reason: `model projects ${pred.pctReturn.toFixed(1)}% at ${horizon} with ${(dirHitForFilter * 100).toFixed(0)}% backtest hit rate`,
-      });
-      continue;
+
+    // Mode-aware negative-return filter.
+    //   primary   — drop when the model predicts a NON-POSITIVE return at
+    //               ≥55% confidence. Original strict pool.
+    //   defensive — only drop when the model expects a MATERIAL loss
+    //               (< −5%) with HIGH confidence (≥65%). Weakly-bearish
+    //               tickers stay in the pool for the yield/quality tilt.
+    //   fundamentals — skip entirely; we've stopped trusting the model.
+    if (pred && mode !== "fundamentals") {
+      const dirHitForFilter = pred.directionHit ?? 0.5;
+      const primaryReject   = mode === "primary"
+        && pred.pctReturn <= 0
+        && dirHitForFilter >= 0.55;
+      const defensiveReject = mode === "defensive"
+        && pred.pctReturn < -5
+        && dirHitForFilter >= 0.65;
+      if (primaryReject || defensiveReject) {
+        excluded.push({
+          ticker: t.ticker,
+          reason: `model projects ${pred.pctReturn.toFixed(1)}% at ${horizon} with ${(dirHitForFilter * 100).toFixed(0)}% backtest hit rate`,
+        });
+        continue;
+      }
     }
 
     // ── Multi-factor fitness ─────────────────────────────────────────────
@@ -309,9 +366,11 @@ export function buildPortfolio(inputs: BuildInputs): { holdings: Holding[]; excl
     // Confidence = 1 - min(1, mape / 30). MAPE ≥ 30pp → 0 confidence.
     // Direction hit adds a tie-breaker: a horizon where the model gets
     // sign right often is worth more than one where it flips.
-    const confidence = 1 - Math.min(1, (pred.mape ?? 30) / 30);
-    const dirHit = pred.directionHit ?? 0.5;
-    const returnFactor = pred.pctReturn * confidence * (0.5 + dirHit);   // scaled so 0.5 hit ≈ neutral
+    // In fundamentals mode `pred` may be null — the return factor is
+    // zeroed and horizon weights already put 0 on it, so no distortion.
+    const confidence = pred ? 1 - Math.min(1, (pred.mape ?? 30) / 30) : 0;
+    const dirHit = pred?.directionHit ?? 0.5;
+    const returnFactor = pred ? pred.pctReturn * confidence * (0.5 + dirHit) : 0;
 
     // Factor 2: Price momentum aligned with the horizon.
     // Short horizons care about 1M momentum; long horizons about 6M.
@@ -443,17 +502,56 @@ export function buildPortfolio(inputs: BuildInputs): { holdings: Holding[]; excl
         shares,
         cashResidueKes: alloc - actualCost,
         currentPrice: p.t.currentPrice!,
-        reasons: explainHolding(p.t, p.pred, p.fitness, weights[i], risk, p.breakdown, horizon, liquidityLoad),
+        reasons: explainHolding(p.t, p.pred, p.fitness, weights[i], risk, p.breakdown, horizon, liquidityLoad, mode),
         breakdown: p.breakdown,
         liquidityLoad,
-        expectedReturnPct: p.pred.pctReturn,
-        expectedValueKes: alloc * (1 + p.pred.pctReturn / 100),
-        mapePP: p.pred.mape,
+        // In fundamentals mode `p.pred` is null → leave expectedReturnPct
+        // / expectedValueKes undefined so the UI shows "—" rather than
+        // fabricating a projection.
+        expectedReturnPct: p.pred?.pctReturn,
+        expectedValueKes: p.pred ? alloc * (1 + p.pred.pctReturn / 100) : undefined,
+        mapePP: p.pred?.mape,
       };
     })
     .filter(h => h.weight > 0);
 
   return { holdings, excluded };
+}
+
+// ─── Tiered wrapper: primary → defensive → fundamentals ─────────────────────
+
+/**
+ * Run buildPortfolio in tiers so the Planner ALWAYS produces at least
+ * some equity candidates instead of collapsing to an MMF-only page.
+ *
+ *   1. primary       — strict, model-must-be-positive pool. Best case.
+ *   2. defensive     — bearish-market fallback: only strongly-bearish
+ *                      high-confidence tickers are dropped. Fitness
+ *                      reweights toward yield + quality.
+ *   3. fundamentals  — model-agnostic last resort: rank by yield +
+ *                      quality + liquidity when horizon predictions are
+ *                      absent for too many tickers.
+ *
+ * The tier that actually produced the returned holdings is reported so
+ * the UI can label the recommendation honestly ("primary" vs
+ * "defensive / market view cautious" vs "fundamentals / model silent").
+ */
+export function buildPortfolioWithFallback(inputs: BuildInputs): BuildResult {
+  const primary = buildPortfolio({ ...inputs, mode: "primary" });
+  if (primary.holdings.length > 0) {
+    return { ...primary, tier: "primary" };
+  }
+  const defensive = buildPortfolio({ ...inputs, mode: "defensive" });
+  if (defensive.holdings.length > 0) {
+    // Prefer the primary pass's excluded list — it explains why we
+    // dropped down to defensive in the first place.
+    return { holdings: defensive.holdings, excluded: primary.excluded, tier: "defensive" };
+  }
+  const fundamentals = buildPortfolio({ ...inputs, mode: "fundamentals" });
+  if (fundamentals.holdings.length > 0) {
+    return { holdings: fundamentals.holdings, excluded: primary.excluded, tier: "fundamentals" };
+  }
+  return { holdings: [], excluded: primary.excluded, tier: "none" };
 }
 
 function liquidityAdjust(
@@ -790,19 +888,27 @@ function portfolioSigmaFromCorr(
 
 function explainHolding(
   t: UniverseTicker,
-  pred: HorizonPrediction,
+  pred: HorizonPrediction | null,
   fitness: number,
   weight: number,
   risk: RiskProfile,
   breakdown: FitnessBreakdown | undefined,
   horizon: HorizonKey,
   liquidityLoad: number,
+  mode: "primary" | "defensive" | "fundamentals" = "primary",
 ): string[] {
   const parts: string[] = [];
-  const returnPart = pred.mape != null
-    ? `${(weight * 100).toFixed(0)}% — model projects ${pred.pctReturn >= 0 ? "+" : ""}${pred.pctReturn.toFixed(1)}% at ${horizon} (backtest MAPE ±${pred.mape.toFixed(1)}pp${pred.directionHit != null ? `, direction hit ${(pred.directionHit * 100).toFixed(0)}%` : ""}).`
-    : `${(weight * 100).toFixed(0)}% — model projects ${pred.pctReturn >= 0 ? "+" : ""}${pred.pctReturn.toFixed(1)}% at ${horizon}.`;
-  parts.push(returnPart);
+  if (pred) {
+    const returnPart = pred.mape != null
+      ? `${(weight * 100).toFixed(0)}% — model projects ${pred.pctReturn >= 0 ? "+" : ""}${pred.pctReturn.toFixed(1)}% at ${horizon} (backtest MAPE ±${pred.mape.toFixed(1)}pp${pred.directionHit != null ? `, direction hit ${(pred.directionHit * 100).toFixed(0)}%` : ""}).`
+      : `${(weight * 100).toFixed(0)}% — model projects ${pred.pctReturn >= 0 ? "+" : ""}${pred.pctReturn.toFixed(1)}% at ${horizon}.`;
+    parts.push(returnPart);
+  } else {
+    parts.push(`${(weight * 100).toFixed(0)}% — no ${horizon} model prediction; selected on fundamentals (yield, quality, momentum) only.`);
+  }
+  if (mode === "defensive") {
+    parts.push(`Defensive pick — model view for the broader universe is bearish at ${horizon}; this ticker's yield + quality tilt makes it a lower-risk hold vs cash.`);
+  }
 
   // Cite the top-two factor contributions from the breakdown so the
   // "why" is grounded in the actual math (no LLM narration). Weighted

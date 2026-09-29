@@ -3,8 +3,8 @@ import type { FC } from "react";
 import { Link } from "react-router-dom";
 import { usePortfolioUniverse } from "../hooks/usePortfolioUniverse";
 import { useUserPortfolios, type SavedPortfolio } from "../hooks/useUserPortfolios";
-import { buildPortfolio, computeMetrics, mmfProjection } from "../lib/portfolio";
-import type { HorizonKey, RiskProfile, Holding, PortfolioMetrics } from "../lib/portfolio";
+import { buildPortfolioWithFallback, computeMetrics, mmfProjection } from "../lib/portfolio";
+import type { HorizonKey, RiskProfile, Holding, PortfolioMetrics, SelectionTier } from "../lib/portfolio";
 import { fmtKes, fmtCompactKes, fmtPct } from "../lib/format";
 import { Card } from "../components/ui/Card";
 import { CustomizePanel } from "../components/planner/CustomizePanel";
@@ -46,9 +46,12 @@ export const Planner: FC = () => {
   const { isSignedIn, portfolios, isLoading: portfoliosLoading, save, remove, saving } = useUserPortfolios();
 
   // ── Recommendation (pure derivation) ──────────────────────────────────
+  // buildPortfolioWithFallback tries strict → defensive → fundamentals so
+  // we ship equity picks even in a broadly-bearish market view. The tier
+  // that actually produced them drives the UI tone (primary vs cautious).
   const build = useMemo(() => {
     if (!submitted || !universe.length) return null;
-    return buildPortfolio({ amountKes: amount, horizon, risk, universe, correlation });
+    return buildPortfolioWithFallback({ amountKes: amount, horizon, risk, universe, correlation });
   }, [submitted, universe, correlation, amount, horizon, risk]);
 
   const recommendedMetrics = useMemo<PortfolioMetrics | null>(() => {
@@ -167,6 +170,10 @@ export const Planner: FC = () => {
         </Card>
       )}
 
+      {/* Tiered wrapper guarantees at least fundamentals-based picks
+          when possible. MMF is only the "nothing to recommend" state
+          — otherwise it's rendered BELOW the equity picks as a
+          side-by-side comparison, not a replacement. */}
       {submitted && !isLoading && build && build.holdings.length === 0 && (
         <MmfFallbackCard
           amount={amount}
@@ -176,27 +183,20 @@ export const Planner: FC = () => {
         />
       )}
 
-      {/* Model bearish: picks were made but the weighted expected return
-          is still negative. Show the honest "consider cash" alternative
-          alongside the equity recommendation so the user isn't pushed
-          into a projected loss. */}
-      {submitted && !isLoading && build && build.holdings.length > 0 && recommendedMetrics && recommendedMetrics.expectedReturnPct < 0 && (
-        <MmfFallbackCard
-          amount={amount}
-          horizon={horizon}
-          excluded={build.excluded}
-          reason="negative-equity-view"
-          equityReturnPct={recommendedMetrics.expectedReturnPct}
-        />
-      )}
-
       {submitted && !isLoading && build && build.holdings.length > 0 && recommendedMetrics && (
         <>
+          {/* Tier banner explains WHY these picks look defensive or
+              why the model is silent, before the user reads the table. */}
+          {(build.tier === "defensive" || build.tier === "fundamentals") && (
+            <TierBanner tier={build.tier} horizon={horizon} rejectedCount={build.excluded.length} />
+          )}
+
           <RecommendationCard
             holdings={build.holdings}
             amount={amount}
             horizon={horizon}
             risk={risk}
+            tier={build.tier}
             onSave={() => { setSaveName(defaultSaveName(horizon, risk)); setSaveModalOpen(true); }}
             onCustomize={() => {
               // Toggle: second click closes the panel; first click opens it
@@ -247,6 +247,19 @@ export const Planner: FC = () => {
             correlationAvailable={!!correlation}
           />
           <WhyCard holdings={build.holdings} excluded={build.excluded} />
+
+          {/* MMF comparison — shown when the tier signals caution or the
+              weighted expected return is negative. Not a replacement; the
+              equity picks stay on top and this sits below as an honest
+              side-by-side alternative. */}
+          {(build.tier !== "primary" || (recommendedMetrics.expectedReturnPct < 0)) && (
+            <MmfComparisonCard
+              amount={amount}
+              horizon={horizon}
+              equityReturnPct={recommendedMetrics.expectedReturnPct}
+              tier={build.tier}
+            />
+          )}
         </>
       )}
 
@@ -384,14 +397,19 @@ const RecommendationCard: FC<{
   amount: number;
   horizon: HorizonKey;
   risk: RiskProfile;
+  tier: SelectionTier;
   onSave: () => void;
   onCustomize: () => void;
   canSave: boolean;
   isCustomizing: boolean;
-}> = ({ holdings, amount, horizon, risk, onSave, onCustomize, canSave, isCustomizing }) => (
+}> = ({ holdings, amount, horizon, risk, tier, onSave, onCustomize, canSave, isCustomizing }) => (
   <Card className="border-rim bg-surface">
     <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-      <h2 className="text-sm font-semibold text-ink">Recommended portfolio</h2>
+      <h2 className="text-sm font-semibold text-ink">
+        Recommended portfolio
+        {tier === "defensive"    && <span className="ml-2 rounded-full border border-amber-400 dark:border-amber-700 bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 align-middle text-[9px] font-semibold uppercase tracking-wider text-amber-800 dark:text-amber-300">Defensive</span>}
+        {tier === "fundamentals" && <span className="ml-2 rounded-full border border-sky-300 dark:border-sky-800 bg-sky-100 dark:bg-sky-900/40 px-1.5 py-0.5 align-middle text-[9px] font-semibold uppercase tracking-wider text-sky-800 dark:text-sky-300">Fundamentals only</span>}
+      </h2>
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-[11px] text-hint">
           {fmtKes(amount)} · {HORIZONS.find(h => h.key === horizon)?.label} · {risk.charAt(0).toUpperCase() + risk.slice(1)}
@@ -751,18 +769,157 @@ const MmfFallbackCard: FC<{
           </ul>
         </div>
       </div>
-      {excluded.length > 0 && (
-        <details className="mt-3 rounded border border-amber-300/60 dark:border-amber-800/60 bg-white/30 dark:bg-black/10 p-2">
-          <summary className="cursor-pointer text-[11px] font-semibold text-amber-900 dark:text-amber-300">
-            Why the model rejected {excluded.length} candidates
-          </summary>
-          <ul className="mt-2 space-y-0.5 text-[11px] text-amber-800 dark:text-amber-400">
-            {excluded.slice(0, 15).map(e => (
-              <li key={e.ticker}>{e.ticker}: {e.reason}</li>
-            ))}
-          </ul>
-        </details>
-      )}
+      {excluded.length > 0 && <ExcludedBreakdown excluded={excluded} />}
+    </Card>
+  );
+};
+
+// Group excluded tickers by reason class so the breakdown reads as a
+// diagnostic (12 no prediction, 18 model bearish, 4 illiquid) rather
+// than a flat scroll of 62 identical lines.
+const ExcludedBreakdown: FC<{ excluded: Array<{ ticker: string; reason: string }> }> = ({ excluded }) => {
+  const groups = useMemo(() => {
+    const buckets: Record<string, string[]> = {
+      "No horizon prediction (data gap)": [],
+      "Model outlook bearish (SELL signal)": [],
+      "Model projects a loss at this horizon": [],
+      "Illiquid (< KES 500k/day traded value)": [],
+      "Missing price or volatility": [],
+      "Sector cap reached": [],
+      "Other": [],
+    };
+    for (const e of excluded) {
+      if (/no \d+M prediction/i.test(e.reason))                     buckets["No horizon prediction (data gap)"].push(e.ticker);
+      else if (/model outlook bearish/i.test(e.reason))             buckets["Model outlook bearish (SELL signal)"].push(e.ticker);
+      else if (/model projects/i.test(e.reason))                    buckets["Model projects a loss at this horizon"].push(e.ticker);
+      else if (/illiquid/i.test(e.reason))                          buckets["Illiquid (< KES 500k/day traded value)"].push(e.ticker);
+      else if (/missing/i.test(e.reason))                           buckets["Missing price or volatility"].push(e.ticker);
+      else if (/sector cap/i.test(e.reason))                        buckets["Sector cap reached"].push(e.ticker);
+      else                                                          buckets["Other"].push(e.ticker);
+    }
+    return Object.entries(buckets)
+      .filter(([, tickers]) => tickers.length > 0)
+      .sort((a, b) => b[1].length - a[1].length);
+  }, [excluded]);
+  return (
+    <details className="mt-3 rounded border border-amber-300/60 dark:border-amber-800/60 bg-white/30 dark:bg-black/10 p-2">
+      <summary className="cursor-pointer text-[11px] font-semibold text-amber-900 dark:text-amber-300">
+        Why the model didn't pick {excluded.length} other candidates
+      </summary>
+      <ul className="mt-2 space-y-1.5 text-[11px] text-amber-800 dark:text-amber-400">
+        {groups.map(([label, tickers]) => (
+          <li key={label}>
+            <span className="font-semibold">{tickers.length} · {label}</span>
+            <div className="mt-0.5 font-mono text-[10px] text-amber-700 dark:text-amber-500">
+              {tickers.slice(0, 20).join(", ")}
+              {tickers.length > 20 && ` … +${tickers.length - 20} more`}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+};
+
+// Tier banner — shown when the primary strict pool was empty and we
+// fell through to defensive or fundamentals. Explains the tone of the
+// recommendation before the user reads the table so they aren't
+// surprised by low expected returns.
+const TIER_COPY: Record<Exclude<SelectionTier, "primary" | "none">, {
+  title: string; body: string; wrapper: string; heading: string; bodyClass: string;
+}> = {
+  defensive: {
+    title: "Cautious market view — defensive picks below",
+    body:
+      "The model's positive-return pool was empty at this horizon, so the picks below are the LEAST-declining names ranked by dividend yield, fundamental quality, and downside cushion. Pair with cash or a longer horizon rather than sizing this as a growth allocation.",
+    wrapper: "border-amber-400 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40",
+    heading: "text-amber-900 dark:text-amber-300",
+    bodyClass: "text-amber-900 dark:text-amber-300",
+  },
+  fundamentals: {
+    title: "Model has no signal here — fundamentals-only picks",
+    body:
+      "Not enough tickers have per-horizon model predictions yet at this window. The picks below were selected purely on fundamentals: dividend yield, quality (positive EPS, book value, dividend track record), and liquidity. Expected-return numbers will show \"—\" because no model projection is being cited.",
+    wrapper: "border-sky-300 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/40",
+    heading: "text-sky-900 dark:text-sky-300",
+    bodyClass: "text-sky-900 dark:text-sky-300",
+  },
+};
+
+const TierBanner: FC<{ tier: SelectionTier; horizon: HorizonKey; rejectedCount: number }> = ({ tier, horizon }) => {
+  if (tier !== "defensive" && tier !== "fundamentals") return null;
+  const copy = TIER_COPY[tier];
+  return (
+    <Card className={copy.wrapper}>
+      <h2 className={`mb-1 text-sm font-semibold ${copy.heading}`}>{copy.title}</h2>
+      <p className={`text-[12px] leading-relaxed ${copy.bodyClass}`}>{copy.body}</p>
+      <p className={`mt-1 text-[11px] italic opacity-80 ${copy.bodyClass}`}>
+        Horizon: {HORIZONS.find(h => h.key === horizon)?.label}.
+        {" "}Longer horizons (6M / 12M) and the Growth risk profile usually re-open the strict pool.
+      </p>
+    </Card>
+  );
+};
+
+// Side-by-side MMF comparison shown BELOW the equity picks (not above)
+// when the tier is cautious or the equity view is negative. Frames MMF
+// as an alternative to consider alongside the recommendation, not a
+// replacement of it.
+const MmfComparisonCard: FC<{
+  amount: number;
+  horizon: HorizonKey;
+  equityReturnPct: number;
+  tier: SelectionTier;
+}> = ({ amount, horizon, equityReturnPct, tier }) => {
+  const mmf = mmfProjection(amount, HORIZON_DAYS_MAP[horizon]);
+  const label = HORIZONS.find(h => h.key === horizon)?.label ?? horizon;
+  const equityValue = amount * (1 + equityReturnPct / 100);
+  const equityGain = equityValue - amount;
+  const mmfGain = mmf.expectedValueKes - amount;
+  const delta = mmfGain - equityGain;
+  return (
+    <Card className="border-amber-400 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/30">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold text-amber-900 dark:text-amber-300">
+          Money Market Fund — alternative comparison
+        </h2>
+        <p className="text-[11px] text-amber-800 dark:text-amber-400">
+          At ~10%/yr proxy, {label}, ~zero drawdown
+        </p>
+      </div>
+      <p className="mb-3 text-[12px] leading-relaxed text-amber-900 dark:text-amber-300">
+        {tier === "defensive" && "The equity pool above is a defensive tier. If you want to hedge, MMF exposure over the same period looks like this:"}
+        {tier === "fundamentals" && "The equity picks above are fundamentals-only (no model projection). A pure MMF alternative for the same amount + horizon:"}
+        {tier === "primary" && "Model view for the equity pool is currently negative. For comparison, an MMF placement would look like:"}
+      </p>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <div className="rounded border border-amber-300 dark:border-amber-700 bg-white/40 dark:bg-black/20 p-2">
+          <div className="text-[10px] uppercase tracking-wider text-amber-800 dark:text-amber-400">Recommendation projects</div>
+          <div className="mt-0.5 font-mono text-lg font-bold text-ink">{fmtKes(equityValue)}</div>
+          <div className="mt-0.5 text-[10px] text-amber-800 dark:text-amber-400">
+            {equityGain >= 0 ? "+" : ""}{fmtKes(equityGain)} ({fmtPct(equityReturnPct)})
+          </div>
+        </div>
+        <div className="rounded border border-amber-300 dark:border-amber-700 bg-white/40 dark:bg-black/20 p-2">
+          <div className="text-[10px] uppercase tracking-wider text-amber-800 dark:text-amber-400">MMF projects</div>
+          <div className="mt-0.5 font-mono text-lg font-bold text-ink">{fmtKes(mmf.expectedValueKes)}</div>
+          <div className="mt-0.5 text-[10px] text-amber-800 dark:text-amber-400">
+            +{fmtKes(mmfGain)} ({fmtPct(mmf.pctReturn)})
+          </div>
+        </div>
+        <div className="rounded border border-amber-300 dark:border-amber-700 bg-white/40 dark:bg-black/20 p-2">
+          <div className="text-[10px] uppercase tracking-wider text-amber-800 dark:text-amber-400">MMF – Recommendation</div>
+          <div className={`mt-0.5 font-mono text-lg font-bold ${delta >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+            {delta >= 0 ? "+" : ""}{fmtKes(delta)}
+          </div>
+          <div className="mt-0.5 text-[10px] text-amber-800 dark:text-amber-400">
+            {delta >= 0 ? "MMF ahead over this window" : "Equity picks ahead over this window"}
+          </div>
+        </div>
+      </div>
+      <p className="mt-3 text-[10px] italic text-amber-800 dark:text-amber-400">
+        Sanlam · CIC · Zimele · Britam are typical Kenyan MMF providers. Rates vary; ~10%/yr is representative, not a specific product recommendation.
+      </p>
     </Card>
   );
 };
