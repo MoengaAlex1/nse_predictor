@@ -1,10 +1,12 @@
-name: Deploy Frontend to Cloudflare Pages
+name: Deploy Frontend to Cloudflare
 
 on:
   push:
     branches: [master]
     paths:
       - "frontend/**"
+      - "wrangler.jsonc"
+      - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
 jobs:
@@ -39,9 +41,54 @@ jobs:
           VITE_FIREBASE_DATABASE_URL: ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
         run: npm run build
 
+      # Guard: the Worker previously served the source tree, whose index.html
+      # points at /src/main.tsx and renders blank. Fail loudly rather than
+      # shipping that again.
+      - name: Verify build output
+        run: |
+          test -f frontend/dist/index.html
+          grep -q '/assets/index-.*\.js' frontend/dist/index.html
+          ! grep -q '/src/main.tsx' frontend/dist/index.html
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Pinned: the runner's pre-installed wrangler 3.90.0 does not parse
+          # _headers/_redirects for Workers assets, it uploads them as files.
+          wranglerVersion: "4"
           command: pages deploy frontend/dist --project-name=nse-market-dashboard --branch=master
+
+      # Pages needs `/*  /index.html  200` in _redirects for SPA routing, but
+      # wrangler rejects that rule for Workers assets ("Infinite loop detected":
+      # html_handling would strip /index and re-trigger it). The Worker gets the
+      # same behaviour from assets.not_found_handling in wrangler.jsonc, so the
+      # file is only removed after Pages has already consumed it.
+      - name: Drop the Pages-only _redirects before the Worker deploy
+        run: rm -f frontend/dist/_redirects
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4"
+          command: deploy --config wrangler.jsonc
+
+      # Smoke-test the live Worker. Catches the two failure modes seen so far:
+      # serving the source tree, and _headers being uploaded rather than parsed.
+      - name: Smoke test the deployed Worker
+        run: |
+          URL=https://nse-predictor.moengaalex.workers.dev
+          for i in 1 2 3 4 5; do
+            BUNDLE=$(curl -sSf "$URL/" | grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' | head -1) && break
+            echo "retry $i"; sleep 5
+          done
+          test -n "$BUNDLE" || { echo "no hashed bundle in index.html"; exit 1; }
+          curl -sSf -o /dev/null "$URL$BUNDLE"
+          curl -sSI "$URL/" | grep -qi '^x-frame-options: DENY' \
+            || { echo "_headers not applied - is wrangler too old?"; exit 1; }
+          curl -sS -o /dev/null -w '%{http_code}' "$URL/_headers" | grep -qv '^200$' \
+            || echo "note: /_headers is served as an asset"
+          echo "smoke test passed: $BUNDLE"
